@@ -6,6 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using BuilderEngine.Script;
 
 namespace BuilderEngine;
@@ -44,6 +45,13 @@ sealed class Field : Border
     string _value;
     string? _bad;
     TextBox? _box;
+    static int _ids;
+
+    /// <summary>Tells each field apart, so consecutive edits of one field merge into one undo step.</summary>
+    public int Id { get; } = ++_ids;
+
+    /// <summary>The field whose value is being applied right now (set while its commit function runs).</summary>
+    public static Field? Committing { get; private set; }
 
     public Field(string value, Func<string, string> commit, string placeholder = "")
     {
@@ -104,8 +112,10 @@ sealed class Field : Border
         string? error = null;
         if (apply && text != _value)
         {
+            Committing = this;
             try { _value = _commit(text); }
             catch (ScriptError e) { error = e.Message; }
+            finally { Committing = null; }
         }
         _bad = error == null ? null : text;
         ToolTip.SetTip(this, error);
@@ -128,7 +138,7 @@ sealed class Field : Border
 /// The blocks view: the open mechanism's code as coloured blocks, 1 to 1 (one statement = one block), with a palette
 /// on the left. Editing a block changes the AST and reprints the code (<see cref="Edited"/>); displaying never does.
 /// </summary>
-sealed class BlocksView : Border
+sealed partial class BlocksView : Border
 {
     /// <summary>The person changed something in the blocks: the new source (canonical, printed from the blocks).</summary>
     public event Action<string>? Edited;
@@ -155,11 +165,32 @@ sealed class BlocksView : Border
     object? _reveal;
     Control? _revealControl;
 
+    // Undo / redo of block edits (snapshots of the printed source).
+    readonly BlockUndo _undo = new();
+    readonly Button _undoButton, _redoButton;
+
     public BlocksView()
     {
         Background = Palette.Bg0;
+        Focusable = true;
+        FocusAdorner = null;
         _palette = BuildPalette();
         _scroll.Content = _blocks;
+
+        _undoButton = BarButton("↶", "Undo (Ctrl+Z)", Undo);
+        _redoButton = BarButton("↷", "Redo (Ctrl+Y)", Redo);
+        var bar = new DockPanel { Margin = new Thickness(12, 6, 16, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        buttons.Children.Add(_undoButton);
+        buttons.Children.Add(_redoButton);
+        DockPanel.SetDock(buttons, Dock.Right);
+        bar.Children.Add(buttons);
+        bar.Children.Add(new TextBlock
+        {
+            Text = BlockText("Drag blocks to move them. Drop one on the palette to delete it."), FontSize = 11,
+            Foreground = Palette.TextDim, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        UpdateUndoButtons();
 
         var bannerRow = new StackPanel { Spacing = 2 };
         bannerRow.Children.Add(new TextBlock { Text = "⚠  " + BlockText("Fix the code to edit blocks"), FontWeight = FontWeight.SemiBold, Foreground = BlockColors.Event.Fg });
@@ -172,6 +203,8 @@ sealed class BlocksView : Border
         };
 
         var right = new DockPanel();
+        DockPanel.SetDock(bar, Dock.Top);
+        right.Children.Add(bar);
         DockPanel.SetDock(_banner, Dock.Top);
         right.Children.Add(_banner);
         right.Children.Add(_scroll);
@@ -180,7 +213,97 @@ sealed class BlocksView : Border
         DockPanel.SetDock(_palette, Dock.Left);
         root.Children.Add(_palette);
         root.Children.Add(right);
-        Child = root;
+        // The drag ghost, the insertion line and the delete zone are drawn on a layer above everything.
+        var layers = new Grid();
+        layers.Children.Add(root);
+        layers.Children.Add(BuildDragLayer());
+        Child = layers;
+
+        // Clicking anywhere in the blocks (but not in a text box) gives them the keyboard, for Ctrl+Z / Ctrl+Y.
+        AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            if ((e.Source as Visual)?.FindAncestorOfType<TextBox>(includeSelf: true) == null) Focus();
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(KeyDownEvent, OnBlocksKey);
+        InitDrag();
+    }
+
+    Button BarButton(string text, string tip, Action act)
+    {
+        var b = new Button
+        {
+            Content = text, FontSize = 15, Padding = new Thickness(8, 0), Height = 24, MinHeight = 0, MinWidth = 30,
+            Background = Palette.Bg2, Foreground = Palette.Text, BorderThickness = new Thickness(1), BorderBrush = Palette.Border,
+            CornerRadius = new CornerRadius(5), VerticalContentAlignment = VerticalAlignment.Center, HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+        ToolTip.SetTip(b, BlockText(tip));
+        b.Click += (_, e) => { e.Handled = true; act(); Focus(); };
+        return b;
+    }
+
+    void OnBlocksKey(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && CancelDrag()) { e.Handled = true; return; }
+        if ((e.KeyModifiers & KeyModifiers.Control) == 0) return;
+        if ((e.Source as Visual)?.FindAncestorOfType<TextBox>(includeSelf: true) != null) return; // a field has its own undo
+        bool shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+        if (e.Key == Key.Y || (e.Key == Key.Z && shift)) { Redo(); e.Handled = true; }
+        else if (e.Key == Key.Z) { Undo(); e.Handled = true; }
+    }
+
+    // ---------------- Undo ----------------
+
+    /// <summary>Steps back one block edit (the code view follows).</summary>
+    public void Undo() => Restore(_stale ? null : _undo.Undo(_shown));
+
+    /// <summary>Steps forward one block edit.</summary>
+    public void Redo() => Restore(_stale ? null : _undo.Redo(_shown));
+
+    /// <summary>Forgets the undo steps and the selection: another mechanism is being opened.</summary>
+    public void ResetUndo()
+    {
+        _undo.Reset();
+        _selBody = null;
+        _selMech = int.MaxValue;
+        UpdateUndoButtons();
+    }
+
+    internal bool CanUndo => _undo.CanUndo;
+    internal bool CanRedo => _undo.CanRedo;
+
+    void Restore(string? source)
+    {
+        if (source == null) return;
+        List<MechanismDef> defs;
+        try { defs = Parser.Parse(source); }
+        catch (ScriptError) { return; } // snapshots always parsed when they were taken
+        var place = SelAddress();
+        _defs = defs;
+        _shown = source;
+        SelectAddress(place);
+        Rebuild();
+        UpdateUndoButtons();
+        Edited?.Invoke(source);
+    }
+
+    void UpdateUndoButtons()
+    {
+        _undoButton.IsEnabled = !_stale && _undo.CanUndo;
+        _redoButton.IsEnabled = !_stale && _undo.CanRedo;
+    }
+
+    /// <summary>Where the selected body is, as an address that survives a reparse.</summary>
+    (int Mech, int[]? Path) SelAddress()
+    {
+        if (_selBody != null && _bodyMech.TryGetValue(_selBody, out int mi) && mi < _defs.Count)
+            return (mi, BlockEdits.PathOf(_defs[mi], _selBody));
+        return (_selMech, null);
+    }
+
+    void SelectAddress((int Mech, int[]? Path) place)
+    {
+        _selMech = place.Mech;
+        _selBody = place.Path != null && place.Mech >= 0 && place.Mech < _defs.Count ? BlockEdits.BodyAt(_defs[place.Mech], place.Path) : null;
     }
 
     // ---------------- Showing ----------------
@@ -201,10 +324,10 @@ sealed class BlocksView : Border
             Rebuild();
             return;
         }
+        var place = SelAddress(); // the code changed: keep the same place selected when it still exists
         _defs = defs;
         _shown = source;
-        _selBody = null;
-        _selMech = int.MaxValue;
+        SelectAddress(place);
         Rebuild();
         SetStale(false);
     }
@@ -219,11 +342,20 @@ sealed class BlocksView : Border
         _scroll.IsHitTestVisible = !stale;
         _palette.Opacity = stale ? 0.4 : 1;
         _palette.IsHitTestVisible = !stale;
+        if (stale) CancelDrag();
+        UpdateUndoButtons();
     }
 
+    /// <summary>
+    /// Applies an edit to the blocks: reprints the code, records one undo step (edits of one field in a row merge) and
+    /// tells the code view. The selected place stays selected (the bodies are the same lists).
+    /// </summary>
     void Commit(bool rebuild = true)
     {
+        string before = _shown;
         _shown = Printer.Print(_defs);
+        _undo.Record(before, _shown, Field.Committing is { } f ? "field:" + f.Id : null);
+        UpdateUndoButtons();
         if (rebuild) Dispatcher.UIThread.Post(Rebuild);
         Edited?.Invoke(_shown);
     }
@@ -233,6 +365,8 @@ sealed class BlocksView : Border
         var offset = _scroll.Offset;
         _bodies.Clear();
         _bodyMech.Clear();
+        _stmtSlots.Clear();
+        _mechSlots.Clear();
         _revealControl = null;
         _blocks.Children.Clear();
         if (_defs.Count == 0)
@@ -289,11 +423,11 @@ sealed class BlocksView : Border
         {
             var label = BlockEdits.StatementKinds.First(k => k.Id == id).Label;
             var tip = Printer.Print(BlockEdits.NewStatement(id), 0).TrimEnd();
-            stack.Children.Add(PaletteItem(label, look, tip, _ => AddStatement(id)));
+            stack.Children.Add(PaletteItem(label, look, tip, id, _ => AddStatement(id)));
         }
 
         Section("EVENTS");
-        stack.Children.Add(PaletteItem("when ▾", BlockColors.Event, "when start / tick / touched by / told / key / a signal", item =>
+        stack.Children.Add(PaletteItem("when ▾", BlockColors.Event, "when start / tick / touched by / told / key / a signal (drag it to place a 'when start')", "when", item =>
         {
             var menu = new MenuFlyout();
             foreach (var k in BlockEdits.EventKinds)
@@ -321,11 +455,11 @@ sealed class BlocksView : Border
         Section("COMMANDS");
         foreach (var id in new[] { "print", "play", "spawn", "destroy", "move", "goto" }) Add(id, BlockColors.Command);
         Section("MECHANISM");
-        stack.Children.Add(PaletteItem("param", BlockColors.Setting, "param speed: number = 100", _ => AddParam()));
-        stack.Children.Add(PaletteItem("uses", BlockColors.Setting, "uses Health", _ => AddUses()));
+        stack.Children.Add(PaletteItem("param", BlockColors.Setting, "param speed: number = 100", "param", _ => AddParam()));
+        stack.Children.Add(PaletteItem("uses", BlockColors.Setting, "uses Health", "uses", _ => AddUses()));
         stack.Children.Add(new TextBlock
         {
-            Text = BlockText("Click a block to add it to the selected place (the orange rail)."), FontSize = 11,
+            Text = BlockText("Click a block to add it to the selected place (the orange rail), or drag it to the exact spot."), FontSize = 11,
             Foreground = Palette.TextDim, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 12, 0, 0)
         });
 
@@ -336,7 +470,7 @@ sealed class BlocksView : Border
         };
     }
 
-    Border PaletteItem(string label, BlockLook look, string tip, Action<Border> click)
+    Border PaletteItem(string label, BlockLook look, string tip, string dragId, Action<Border> click)
     {
         var b = new Border
         {
@@ -347,7 +481,9 @@ sealed class BlocksView : Border
         ToolTip.SetTip(b, tip);
         b.PointerEntered += (_, _) => b.Opacity = 0.8;
         b.PointerExited += (_, _) => b.Opacity = 1;
-        b.PointerPressed += (_, e) => { e.Handled = true; click(b); };
+        // Clicking adds the block where the orange rail is (on release); dragging places it exactly.
+        b.PointerPressed += (_, e) => Press(e, new DragSrc(DragKind.Palette, null, -1, dragId, b, () => click(b)));
+        _paletteItems[dragId] = b;
         return b;
     }
 
@@ -363,8 +499,8 @@ sealed class BlocksView : Border
         }
         var s = BlockEdits.NewStatement(id);
         body.Add(s);
-        // A new if / repeat becomes the place where the next blocks go.
-        _selBody = s switch { IfStmt i => i.Then, RepeatStmt r => r.Body, _ => body };
+        // The place you were adding into stays selected, so several clicks add blocks one after another.
+        _selBody = body;
         _reveal = s;
         Commit();
     }
@@ -481,7 +617,7 @@ sealed class BlocksView : Border
         extraText, extraTip, extra);
 
     /// <summary>One coloured row; its tools (move, duplicate, delete) appear on hover.</summary>
-    Border Row(BlockLook look, Control content, BlockOps? ops, CornerRadius radius, Action click)
+    Border Row(BlockLook look, Control content, BlockOps? ops, CornerRadius radius, Action click, Func<Control, DragSrc>? drag = null)
     {
         var dock = new DockPanel { MinHeight = 24 };
         dock.Children.Add(content);
@@ -496,7 +632,12 @@ sealed class BlocksView : Border
             };
             row.PointerExited += (_, _) => { if (tools != null) tools.IsVisible = false; };
         }
-        row.PointerPressed += (_, e) => { e.Handled = true; click(); };
+        row.PointerPressed += (_, e) =>
+        {
+            e.Handled = true;
+            click();
+            if (drag != null) Press(e, drag(row)); // moving the pointer far enough starts a drag
+        };
         return row;
     }
 
@@ -536,8 +677,12 @@ sealed class BlocksView : Border
         Grid.SetColumn(area, 1);
         grid.Children.Add(rail);
         grid.Children.Add(area);
-        for (int j = 0; j < body.Count; j++) stack.Children.Add(StmtBlock(body, j, mi));
-        if (body.Count == 0) stack.Children.Add(Note("Empty — click here, then pick a block in the palette."));
+        var items = new List<Control>();
+        int depth = _buildDepth++;
+        for (int j = 0; j < body.Count; j++) { var c = StmtBlock(body, j, mi); items.Add(c); stack.Children.Add(c); }
+        _buildDepth--;
+        _stmtSlots.Add(new StmtSlot(body, area, items, mi, depth));
+        if (body.Count == 0) stack.Children.Add(Note("Empty — drag a block here, or click here and pick one in the palette."));
         area.PointerPressed += (_, e) => { e.Handled = true; Select(body); };
         _bodies[body] = (rail, area, look.Bg);
         _bodyMech[body] = mi;
@@ -567,6 +712,11 @@ sealed class BlocksView : Border
             Highlight();
         };
         panel.Children.Add(header);
+        var paramsPanel = new StackPanel();
+        var usesPanel = new StackPanel();
+        var whensPanel = new StackPanel();
+        panel.Children.Add(paramsPanel);
+        panel.Children.Add(usesPanel);
 
         var ps = m.Params;
         for (int i = 0; i < ps.Count; i++)
@@ -591,10 +741,10 @@ sealed class BlocksView : Border
                 }, "any type"),
                 Word("=", BlockColors.Setting.Fg),
                 ExprField(p.Default, e => ps[k] = ps[k] with { Default = e }, "no default", optional: true)),
-                Ops(ps, k, null), RowRadius, () => { _selMech = mi; });
+                Ops(ps, k, null), RowRadius, () => { _selMech = mi; }, r => new DragSrc(DragKind.Param, ps, k, null, r));
             row.Margin = new Thickness(0, 0, 0, 3);
             Mark(p, row);
-            panel.Children.Add(row);
+            paramsPanel.Children.Add(row);
         }
 
         var us = m.Uses;
@@ -612,14 +762,16 @@ sealed class BlocksView : Border
                     Commit(rebuild: false);
                     return Printer.UsesTail(us[k]);
                 }, "settings")),
-                Ops(us, k, null), RowRadius, () => { _selMech = mi; });
+                Ops(us, k, null), RowRadius, () => { _selMech = mi; }, r => new DragSrc(DragKind.Uses, us, k, null, r));
             row.Margin = new Thickness(0, 0, 0, 3);
             Mark(u, row);
-            panel.Children.Add(row);
+            usesPanel.Children.Add(row);
         }
 
         if (ps.Count + us.Count > 0 && m.Whens.Count > 0) panel.Children.Add(new Border { Height = 8 });
-        for (int i = 0; i < m.Whens.Count; i++) panel.Children.Add(WhenBlock(m.Whens, i, mi));
+        for (int i = 0; i < m.Whens.Count; i++) whensPanel.Children.Add(WhenBlock(m.Whens, i, mi));
+        panel.Children.Add(whensPanel);
+        _mechSlots.Add(new MechSlot(panel, paramsPanel, usesPanel, whensPanel));
         if (ps.Count + us.Count + m.Whens.Count == 0) panel.Children.Add(Note("Empty mechanism — add a 'when' from the palette."));
         return panel;
     }
@@ -654,7 +806,8 @@ sealed class BlocksView : Border
             }, placeholder));
         }
         var outer = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
-        outer.Children.Add(Row(look, parts, Ops(whens, i, () => { BlockEdits.Duplicate(whens, i); Commit(); }), HeadRadius, () => Select(w.Body)));
+        outer.Children.Add(Row(look, parts, Ops(whens, i, () => { BlockEdits.Duplicate(whens, i); Commit(); }), HeadRadius, () => Select(w.Body),
+            _ => new DragSrc(DragKind.When, whens, i, null, outer)));
         outer.Children.Add(Body(w.Body, look, mi));
         outer.Children.Add(Foot(look));
         Mark(w, outer);
@@ -686,7 +839,7 @@ sealed class BlocksView : Border
                 ? Ops(list, j, dup, "− else", "Remove the empty 'else' part", () => { list[j] = ((IfStmt)list[j]) with { Else = null }; Commit(); })
                 : Ops(list, j, dup);
         var outer = new StackPanel();
-        outer.Children.Add(Row(look, parts, ops, HeadRadius, () => Select(s.Then)));
+        outer.Children.Add(Row(look, parts, ops, HeadRadius, () => Select(s.Then), _ => new DragSrc(DragKind.Stmt, list, j, null, outer)));
         outer.Children.Add(Body(s.Then, look, mi));
         if (s.Else != null)
         {
@@ -705,7 +858,7 @@ sealed class BlocksView : Border
             ? Parts(Word("repeat forever", look.Fg))
             : Parts(Word("repeat", look.Fg), ExprField(s.Count, e => list[j] = ((RepeatStmt)list[j]) with { Count = e! }, "times"), Word("times", look.Fg));
         var outer = new StackPanel();
-        outer.Children.Add(Row(look, parts, Ops(list, j, dup), HeadRadius, () => Select(s.Body)));
+        outer.Children.Add(Row(look, parts, Ops(list, j, dup), HeadRadius, () => Select(s.Body), _ => new DragSrc(DragKind.Stmt, list, j, null, outer)));
         outer.Children.Add(Body(s.Body, look, mi));
         outer.Children.Add(Foot(look));
         return outer;
@@ -761,6 +914,6 @@ sealed class BlocksView : Border
                 parts = Parts(Word(Printer.Simple(s), look.Fg));
                 break;
         }
-        return Row(look, parts, Ops(list, j, dup), RowRadius, () => Select(list));
+        return Row(look, parts, Ops(list, j, dup), RowRadius, () => Select(list), r => new DragSrc(DragKind.Stmt, list, j, null, r));
     }
 }
