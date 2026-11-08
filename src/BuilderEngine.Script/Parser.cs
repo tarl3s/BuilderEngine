@@ -278,7 +278,7 @@ public sealed class Parser
                 break;
             }
             default:
-                s = TryAssign() ?? new CommandStmt(Next().Text, ParseArgs(), t.Line);
+                s = TryAssign() ?? ParseCommand();
                 break;
         }
         if (endLine) EndLine();
@@ -297,6 +297,31 @@ public sealed class Parser
         }
         _p = save;
         return null;
+    }
+
+    /// <summary>Words that start a named value in a command: <c>move Boss to 400, 300 in 2 seconds</c>.</summary>
+    public static readonly HashSet<string> Connectors = ["to", "in", "at", "by", "with", "from", "ease", "over", "as", "then"];
+
+    Stmt ParseCommand()
+    {
+        var name = Next();
+        var args = new List<Expr>();
+        Dictionary<string, List<Expr>>? named = null;
+        List<Expr> target = args;
+        while (!AtLineEnd)
+        {
+            if (IsOp(",")) { _p++; continue; }
+            if (Peek().Kind == Tok.Ident && Connectors.Contains(Peek().Text) && Peek(1).Kind is not (Tok.Newline or Tok.Eof or Tok.Dedent))
+            {
+                named ??= new();
+                target = named[Next().Text] = [];
+                continue;
+            }
+            // "in 2 seconds": the unit word after a named number is just for reading.
+            if (target != args && target.Count > 0 && (IsWord("seconds") || IsWord("second"))) { _p++; continue; }
+            target.Add(ParseExpr());
+        }
+        return new CommandStmt(name.Text, args, name.Line, named);
     }
 
     List<Expr> ParseArgs()

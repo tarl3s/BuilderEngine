@@ -24,8 +24,9 @@ public sealed record WaitStmt(Expr Seconds, int Line) : Stmt(Line);
 public sealed record EmitStmt(string Signal, List<Expr> Args, int Line) : Stmt(Line);
 public sealed record TellStmt(Expr Target, Expr Message, List<Expr> Args, int Line) : Stmt(Line);
 public sealed record StopStmt(int Line) : Stmt(Line);
-/// <summary>A library command: <c>play "coin.wav"</c>, <c>destroy self</c>, <c>spawn Coin here</c>.</summary>
-public sealed record CommandStmt(string Name, List<Expr> Args, int Line) : Stmt(Line);
+/// <summary>A library command: <c>play "coin.wav"</c>, <c>destroy self</c>, <c>spawn Coin here</c>.
+/// Named values come after connector words: <c>move Boss to 400, 300 in 2 seconds</c> → Named {to: [400, 300], in: [2]}.</summary>
+public sealed record CommandStmt(string Name, List<Expr> Args, int Line, Dictionary<string, List<Expr>>? Named = null) : Stmt(Line);
 
 // ---- Mechanism ----
 public enum EventKind { Start, Tick, Touched, Told, Key, Signal }

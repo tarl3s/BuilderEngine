@@ -903,6 +903,23 @@ Test("physics demo: player lands, walks, collects a coin; crate lands", () =>
 });
 ProjectTests.Run(Test); // scenes, sounds, My Library, settings (ProjectTests.cs)
 
+Console.WriteLine("Command base (named values, waiting commands, phrases)");
+Test("named values parse and print back", () =>
+{
+    var src = "mechanism A\n    when start\n        move Boss to 400, 300 in 2 seconds\n";
+    var c = (CommandStmt)Parser.Parse(src)[0].Whens[0].Body[0];
+    Eq(1, c.Args.Count); Eq(2, c.Named!["to"].Count); Eq(1, c.Named["in"].Count);
+    Eq(true, Printer.Print(Parser.Parse(src)).Contains("move Boss to 400, 300 in 2"));
+});
+Test("a command can wait, multi-word names match", () =>
+{
+    var w = NewWorld("mechanism A\n    when start\n        hold door 0.5\n        done = true\n");
+    w.Commands["hold door"] = c => { double until = c.World.Time + c.Number(c.Arg(0)); c.WaitUntil(() => c.World.Time >= until); };
+    var o = w.Spawn("o", 0, 0, ["A"]);
+    Run(w, 0.3); Eq(null, o.Mechanisms[0].Vars.GetValueOrDefault("done"));
+    Run(w, 0.4); Eq(true, o.Mechanisms[0].Vars["done"]);
+});
+
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;

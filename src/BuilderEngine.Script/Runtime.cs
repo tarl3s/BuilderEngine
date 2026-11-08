@@ -67,8 +67,24 @@ public sealed partial class World
     public List<string> Errors { get; } = [];
     public HashSet<string> KeysDown { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Extra commands the host adds (graphics, sound...). Built-in ones are in <see cref="RunCommand"/>.</summary>
+    /// <summary>
+    /// Extra commands (engine features and the host). A key may have several words ("camera follow", "lock controls"):
+    /// a script line <c>camera follow Boss</c> finds it because the leading bare names are tried as part of the name.
+    /// A command that must take time (a tween, a dialogue) calls <see cref="CommandContext.WaitUntil"/>.
+    /// Built-in ones are in <see cref="RunCommand"/>.
+    /// </summary>
     public Dictionary<string, Action<CommandContext>> Commands { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Feature files register their commands and per-world setup here (from a <c>[ModuleInitializer]</c>),
+    /// so every new World gets them without one shared constructor to edit.
+    /// </summary>
+    public static readonly List<Action<World>> Installers = [];
+
+    public World()
+    {
+        foreach (var install in Installers) install(this);
+    }
 
     public event Action<string>? Printed;
     public event Action<string>? SoundPlayed;
@@ -244,7 +260,7 @@ public sealed partial class World
     void RunReady()
     {
         foreach (var co in _running.ToArray())
-            if (!co.Done && co.WakeAt <= Time + 1e-9) Advance(co);
+            if (!co.Done && co.WakeAt <= Time + 1e-9 && (co.Until == null || SafeUntil(co))) Advance(co);
         _running.RemoveAll(c => c.Done);
     }
 
@@ -253,7 +269,8 @@ public sealed partial class World
         try
         {
             if (co.Inst.Owner.Destroyed || !co.It.MoveNext()) { co.Done = true; return; }
-            co.WakeAt = Time + Math.Max(0, co.It.Current);
+            co.WakeAt = Time + Math.Max(0, co.It.Current.Seconds);
+            co.Until = co.It.Current.Until;
         }
         catch (StopException) { co.Done = true; }
         catch (ScriptError e)
@@ -265,12 +282,27 @@ public sealed partial class World
         }
     }
 
-    sealed class Coroutine(MechanismInstance inst, WhenDef when, IEnumerator<double> it)
+    /// <summary>A condition that throws (a script error inside 'wait until') ends that coroutine with the error.</summary>
+    bool SafeUntil(Coroutine co)
+    {
+        try { return co.Until!(); }
+        catch (ScriptError e)
+        {
+            co.Done = true;
+            string msg = $"{co.Inst.Def.Name} (line {e.Line}): {e.Message}";
+            Errors.Add(msg);
+            Printed?.Invoke("⚠ " + msg);
+            return false;
+        }
+    }
+
+    sealed class Coroutine(MechanismInstance inst, WhenDef when, IEnumerator<WaitFor> it)
     {
         public readonly MechanismInstance Inst = inst;
         public readonly WhenDef When = when;
-        public readonly IEnumerator<double> It = it;
+        public readonly IEnumerator<WaitFor> It = it;
         public double WakeAt;
+        public Func<bool>? Until;
         public bool Done;
     }
 
@@ -286,7 +318,11 @@ public sealed partial class World
 
     // ---------------- Statements ----------------
 
-    IEnumerable<double> Exec(List<Stmt> body, Ctx ctx)
+    /// <summary>
+    /// Runs statements as a coroutine. Each yielded <see cref="WaitFor"/> pauses this 'when' only:
+    /// for some seconds, and/or until a condition is true (checked once per step).
+    /// </summary>
+    internal IEnumerable<WaitFor> Exec(List<Stmt> body, Ctx ctx)
     {
         foreach (var s in body)
         {
@@ -294,7 +330,7 @@ public sealed partial class World
             switch (s)
             {
                 case WaitStmt w:
-                    yield return ToNumber(Eval(w.Seconds, ctx), w.Line);
+                    yield return new WaitFor(ToNumber(Eval(w.Seconds, ctx), w.Line));
                     break;
                 case StopStmt:
                     throw new StopException();
@@ -313,7 +349,7 @@ public sealed partial class World
                         {
                             bool waited = false;
                             foreach (var y in Exec(r.Body, ctx)) { waited = true; yield return y; }
-                            if (!waited) yield return 0; // a forever loop with no wait runs once per frame
+                            if (!waited) yield return new WaitFor(0); // a forever loop with no wait runs once per frame
                         }
                     }
                     else
@@ -325,14 +361,16 @@ public sealed partial class World
                     break;
                 }
                 default:
-                    ExecSimple(s, ctx);
+                    if (ExecSimple(s, ctx) is { } wait) yield return wait;
                     break;
             }
         }
     }
 
-    void ExecSimple(Stmt s, Ctx ctx)
+    /// <summary>Runs a one-line statement; a command that takes time returns what to wait for.</summary>
+    WaitFor? ExecSimple(Stmt s, Ctx ctx)
     {
+        if (s is CommandStmt cmd) return RunCommand(cmd, ctx);
         switch (s)
         {
             case AssignStmt a: Assign(a, ctx); break;
@@ -348,9 +386,9 @@ public sealed partial class World
                 if (target != null) Tell(target, ToText(Eval(t.Message, ctx)), t.Args.Select(x => Eval(x, ctx)).ToList());
                 break;
             }
-            case CommandStmt c: RunCommand(c, ctx); break;
             default: throw new ScriptError("This line can't run here.", s.Line);
         }
+        return null;
     }
 
     void Assign(AssignStmt a, Ctx ctx)
@@ -514,7 +552,40 @@ public sealed partial class World
 
     // ---------------- Commands ----------------
 
-    void RunCommand(CommandStmt c, Ctx ctx)
+    WaitFor? RunCommand(CommandStmt c, Ctx ctx)
+    {
+        // A registered command with several words wins: "camera follow Boss" → "camera follow" with [Boss].
+        var (name, skip) = MatchCommandPhrase(c);
+        if (name != null)
+        {
+            var cc = new CommandContext(this, ctx.Inst, c.Args.Skip(skip).Select(x => Eval(x, ctx)).ToList(), c.Line)
+            {
+                Raw = c.Args.Skip(skip).ToList(),
+                Named = c.Named?.ToDictionary(kv => kv.Key, kv => kv.Value.Select(x => Eval(x, ctx)).ToList()) ?? new(),
+                Other = ctx.Other,
+                Locals = ctx.Locals,
+            };
+            Commands[name](cc);
+            return cc.Pending;
+        }
+        RunBuiltInCommand(c, ctx);
+        return null;
+    }
+
+    (string? Name, int Skip) MatchCommandPhrase(CommandStmt c)
+    {
+        string? best = Commands.ContainsKey(c.Name) ? c.Name : null;
+        int bestSkip = 0;
+        string phrase = c.Name;
+        for (int i = 0; i < c.Args.Count && c.Args[i] is NameExpr { Path.Length: 1 } n; i++)
+        {
+            phrase += " " + n.Path[0];
+            if (Commands.ContainsKey(phrase)) { best = phrase; bestSkip = i + 1; }
+        }
+        return (best, bestSkip);
+    }
+
+    void RunBuiltInCommand(CommandStmt c, Ctx ctx)
     {
         var args = c.Args.Select(x => Eval(x, ctx)).ToList();
         switch (c.Name)
@@ -567,7 +638,6 @@ public sealed partial class World
             }
         }
         if (RunPhysicsCommand(c.Name, ctx.Inst.Owner, args, c.Line)) return;
-        if (Commands.TryGetValue(c.Name, out var cmd)) { cmd(new CommandContext(this, ctx.Inst, args, c.Line)); return; }
         throw new ScriptError($"There's no command called '{c.Name}'.{Suggest(c.Name, BuiltInCommands.Concat(Commands.Keys))}", c.Line);
     }
 
@@ -645,5 +715,33 @@ public sealed partial class World
     }
 }
 
-/// <summary>What a host command receives: the world, the mechanism running it, its values and line.</summary>
-public sealed record CommandContext(World World, MechanismInstance Mechanism, List<object?> Args, int Line);
+/// <summary>Pauses a running 'when': for Seconds, then (if set) until Until() is true.</summary>
+public readonly record struct WaitFor(double Seconds, Func<bool>? Until = null);
+
+/// <summary>
+/// What a command receives: the world, the mechanism running it, its values (Args = positional, Named = after
+/// connector words like <c>to</c>/<c>in</c>), the raw expressions, and the line (for errors).
+/// </summary>
+public sealed class CommandContext(World world, MechanismInstance mechanism, List<object?> args, int line)
+{
+    public World World { get; } = world;
+    public MechanismInstance Mechanism { get; } = mechanism;
+    public GameObject Self => Mechanism.Owner;
+    public List<object?> Args { get; } = args;
+    public int Line { get; } = line;
+    public List<Expr> Raw { get; init; } = [];
+    public Dictionary<string, List<object?>> Named { get; init; } = new();
+    public GameObject? Other { get; init; }
+    public Dictionary<string, object?> Locals { get; init; } = new();
+
+    /// <summary>Set by <see cref="WaitUntil"/>/<see cref="WaitSeconds"/>: the line pauses its 'when' until then.</summary>
+    public WaitFor? Pending { get; private set; }
+    public void WaitUntil(Func<bool> done) => Pending = new WaitFor(0, done);
+    public void WaitSeconds(double s) => Pending = new WaitFor(s);
+
+    public bool Has(string connector) => Named.ContainsKey(connector);
+    public object? Arg(int i) => i < Args.Count ? Args[i] : null;
+    public object? NamedArg(string connector, int i = 0) => Named.TryGetValue(connector, out var l) && i < l.Count ? l[i] : null;
+    public double Number(object? v) => World.ToNumber(v, Line);
+    public ScriptError Error(string message) => new(message, Line);
+}

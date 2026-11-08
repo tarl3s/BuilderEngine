@@ -182,9 +182,12 @@ public static class Printer
         StopStmt => "stop",
         EmitStmt e => "emit " + e.Signal + ArgsTail(e.Args),
         TellStmt t => Tell(t),
-        CommandStmt c => c.Name + ArgsTail(c.Args),
+        CommandStmt c => c.Name + ArgsTail(c.Args) + NamedTail(c.Named),
         _ => throw new ArgumentException($"'{s.GetType().Name}' is not a one-line statement.")
     };
+
+    static string NamedTail(Dictionary<string, List<Expr>>? named) =>
+        named == null ? "" : string.Concat(named.Select(kv => " " + kv.Key + (kv.Value.Count == 0 ? "" : " " + Args(kv.Value))));
 
     /// <summary>Values after a command or signal: a space, then the values separated by commas.</summary>
     static string ArgsTail(List<Expr> args) => args.Count == 0 ? "" : " " + Args(args);
