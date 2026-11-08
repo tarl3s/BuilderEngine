@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A sample BuilderEngine plugin. Build it (dotnet build -c Release) and copy bin/Release/net8.0/HelloPlugin.dll
+       into a project's plugins/ folder. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The SDK: only the interfaces. Private=false: BuilderEngine has its own copy, so don't put one next to the plugin.
+         Outside this repository, reference the BuilderEngine.Plugin.dll that sits next to BuilderEngine.exe instead:
+         <Reference Include="BuilderEngine.Plugin"><HintPath>path\to\BuilderEngine.Plugin.dll</HintPath><Private>false</Private></Reference> -->
+    <ProjectReference Include="..\..\src\BuilderEngine.Plugin\BuilderEngine.Plugin.csproj" Private="false" />
+  </ItemGroup>
+</Project>

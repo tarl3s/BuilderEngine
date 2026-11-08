@@ -1,7 +1,7 @@
 namespace BuilderEngine.Script;
 
 /// <summary>Reads Builder Script tokens into mechanisms. One file may hold several mechanisms.</summary>
-public sealed class Parser
+public sealed partial class Parser
 {
     readonly List<Token> _t;
     int _p;
@@ -249,6 +249,7 @@ public sealed class Parser
         {
             case "start": return new EventSpec(EventKind.Start);
             case "tick": return new EventSpec(EventKind.Tick);
+            case "tool" when Peek().Kind == Tok.Ident: return ParseToolEvent(); // EditorTools.Parse.cs
             case "touched":
             {
                 if (IsWord("by")) _p++;

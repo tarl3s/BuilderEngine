@@ -46,12 +46,20 @@ sealed class SceneCanvas : Control, ICustomHitTest
     /// <summary>Scene coordinates → this control's pixels.</summary>
     public Point WorldToScreen(Point world) => ToScreen(world.X, world.Y);
 
-    enum Mode { None, Pan, Move, Resize, Overlay }
+    /// <summary>An editor tool is active: left presses go to <see cref="ToolPointer"/> instead of selecting and moving.</summary>
+    public bool ToolActive;
+    /// <summary>The active tool reacts to the release: while dragging, show the box from the press to the pointer.</summary>
+    public bool ToolShowsBox;
+    /// <summary>The active tool's pointer events: "click" (press), "drag" (moved while pressed), "release", in scene coordinates.</summary>
+    public Action<string, Point>? ToolPointer;
+
+    enum Mode { None, Pan, Move, Resize, Overlay, Tool }
     Mode _mode;
     Point _pressScreen;
     Point _pressWorld;
     Rect _origRect;
     int _handle;
+    Point _toolLast;
     bool _editStarted, _spaceDown, _fitted;
     int _dropHoverId;
 
@@ -124,6 +132,7 @@ sealed class SceneCanvas : Control, ICustomHitTest
     static readonly IPen HandleEdge = new ImmutablePen((IImmutableBrush)Palette.Bg0, 1);
     static readonly IBrush LabelBg = new SolidColorBrush(Color.FromArgb(225, 11, 11, 11)).ToImmutable();
     static readonly Typeface UiFont = new(FontFamily.Default);
+    static readonly IBrush ToolBoxFill = new SolidColorBrush(Color.FromArgb(28, 217, 119, 87)).ToImmutable();
 
     public override void Render(DrawingContext ctx)
     {
@@ -160,6 +169,13 @@ sealed class SceneCanvas : Control, ICustomHitTest
         }
 
         Overlay?.Draw(ctx, this);
+        if (_mode == Mode.Tool && ToolShowsBox)
+        {
+            var a = ToScreen(_pressWorld.X, _pressWorld.Y);
+            var b = ToScreen(_toolLast.X, _toolLast.Y);
+            var box = new Rect(new Point(Math.Min(a.X, b.X), Math.Min(a.Y, b.Y)), new Point(Math.Max(a.X, b.X), Math.Max(a.Y, b.Y)));
+            ctx.DrawRectangle(ToolBoxFill, DropPen, box);
+        }
 
         if (Scene.Objects.Count == 0)
         {
@@ -224,6 +240,7 @@ sealed class SceneCanvas : Control, ICustomHitTest
     ];
     static readonly Cursor MoveCursor = new(StandardCursorType.SizeAll);
     static readonly Cursor HandCursor = new(StandardCursorType.Hand);
+    static readonly Cursor CrossCursor = new(StandardCursorType.Cross);
 
     // ---------------- Pointer ----------------
 
@@ -251,6 +268,13 @@ sealed class SceneCanvas : Control, ICustomHitTest
         else if ((pt.Properties.IsLeftButtonPressed || pt.Properties.IsRightButtonPressed) && Overlay != null && Overlay.Press(_pressWorld, pt.Properties.IsRightButtonPressed, e.KeyModifiers))
         {
             _mode = Mode.Overlay;
+            InvalidateVisual();
+        }
+        else if (pt.Properties.IsLeftButtonPressed && ToolActive)
+        {
+            _mode = Mode.Tool;
+            _toolLast = _pressWorld;
+            ToolPointer?.Invoke("click", _pressWorld);
             InvalidateVisual();
         }
         else if (pt.Properties.IsLeftButtonPressed)
@@ -297,6 +321,15 @@ sealed class SceneCanvas : Control, ICustomHitTest
                 Overlay?.Drag(ToWorld(p), e.KeyModifiers);
                 InvalidateVisual();
                 return;
+            case Mode.Tool:
+            {
+                var w = ToWorld(p);
+                if (Math.Abs(w.X - _toolLast.X) < 0.5 && Math.Abs(w.Y - _toolLast.Y) < 0.5) return;
+                _toolLast = w;
+                ToolPointer?.Invoke("drag", w);
+                InvalidateVisual();
+                return;
+            }
             case Mode.Move:
             {
                 var o = Scene.Find(SelectedId);
@@ -332,6 +365,7 @@ sealed class SceneCanvas : Control, ICustomHitTest
             }
         }
         // Hover feedback.
+        if (ToolActive) { Cursor = _spaceDown ? HandCursor : CrossCursor; return; }
         int h = HandleAt(p);
         Cursor = h >= 0 ? HandleCursors[h] : _spaceDown ? HandCursor : ObjectAt(ToWorld(p)) != null ? MoveCursor : Cursor.Default;
     }
@@ -350,15 +384,42 @@ sealed class SceneCanvas : Control, ICustomHitTest
         base.OnPointerReleased(e);
         if (_mode == Mode.None) return;
         if (_mode == Mode.Overlay) { Overlay?.Release(); InvalidateVisual(); }
+        bool tool = _mode == Mode.Tool;
         _mode = Mode.None;
         e.Pointer.Capture(null);
+        if (tool) { EndToolUse(); return; }
         Cursor = Cursor.Default;
     }
 
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
     {
         base.OnPointerCaptureLost(e);
+        bool tool = _mode == Mode.Tool;
         _mode = Mode.None;
+        if (tool) EndToolUse(); // the use still ends (one undo step) when the pointer is taken away
+    }
+
+    void EndToolUse()
+    {
+        ToolPointer?.Invoke("release", _toolLast);
+        InvalidateVisual();
+    }
+
+    /// <summary>Snap helper: shows a tool's drag box without a mouse (null hides it again, without a release).</summary>
+    public void ShowToolBox(Point? from, Point to)
+    {
+        _mode = from == null ? Mode.None : Mode.Tool;
+        if (from is { } f) _pressWorld = f;
+        _toolLast = to;
+        InvalidateVisual();
+    }
+
+    /// <summary>Ends a tool drag that is in progress (the tool was switched off while the mouse was down).</summary>
+    public void CancelToolDrag()
+    {
+        if (_mode != Mode.Tool) return;
+        _mode = Mode.None;
+        EndToolUse();
     }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)

@@ -91,6 +91,8 @@ public sealed partial class MainWindow
         // Projects made before sounds existed (or by hand) get the starter sounds once.
         try { if (!Directory.Exists(Sounds.Folder(_projectDir))) Sounds.WriteDefaults(_projectDir); }
         catch (Exception e) { Log($"⚠ Couldn't write the starter sounds: {e.Message}"); }
+        ToolsOnProjectLoaded();   // MainWindow.Tools.cs
+        PluginsOnProjectLoaded(); // MainWindow.Plugins.cs
     }
 
     /// <summary>The project's own mechanisms join the editor's sources (the demo brings its cutscene, Intro).</summary>
@@ -148,6 +150,7 @@ public sealed partial class MainWindow
     {
         RefreshLibraryIfSectionsChanged();
         RebuildInspector();
+        RefreshToolsBar();
     }
 
     void SceneOnMechanismRenamed(string oldName, string newName)
@@ -185,6 +188,7 @@ public sealed partial class MainWindow
         _canvas.ViewChanged = () => _zoomText.Text = $"{Math.Round(_canvas.Zoom * 100)}%";
         _canvas.MechanismDropped = OnMechanismDropped;
         _canvas.KeyCommand = OnSceneKey;
+        _canvas.ToolPointer = OnToolPointer;
 
         _editBar = EditBar();
         _playBar = PlayBar();
@@ -194,7 +198,10 @@ public sealed partial class MainWindow
         HookLibraryDrag();
 
         var root = new DockPanel();
-        var bar = new Border { Background = Palette.Bg1, BorderBrush = Palette.Border, BorderThickness = new Thickness(0, 0, 0, 1), Child = _sceneBar };
+        var bars = new StackPanel();
+        bars.Children.Add(_sceneBar);
+        bars.Children.Add(ToolsBar()); // the TOOLS row (MainWindow.Tools.cs)
+        var bar = new Border { Background = Palette.Bg1, BorderBrush = Palette.Border, BorderThickness = new Thickness(0, 0, 0, 1), Child = bars };
         DockPanel.SetDock(bar, Dock.Top);
         root.Children.Add(bar);
         root.Children.Add(_sceneHost);
@@ -433,6 +440,7 @@ public sealed partial class MainWindow
     bool OnSceneKey(KeyEventArgs e)
     {
         if (_play != null) return false;
+        if (ToolKey(e)) return true;
         bool ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
         double step = (e.KeyModifiers & KeyModifiers.Alt) != 0 ? 1 : SceneCanvas.GridStep;
         switch (e.Key)
@@ -469,15 +477,29 @@ public sealed partial class MainWindow
         if (key != null && key == _checkpointKey && (now - _checkpointTime).TotalSeconds < 1.5) { _checkpointTime = now; return; }
         _checkpointKey = key;
         _checkpointTime = now;
-        _undo.Add(_scene.ToJson());
+        string json = _scene.ToJson();
+        // Nothing changed since the last step (a tool option, a field set to the same value): don't add an empty step.
+        if (_undo.Count > 0 && _undo[^1] == json) return;
+        _undo.Add(json);
+        if (_undo.Count > 100) _undo.RemoveAt(0);
+        _redo.Clear();
+    }
+
+    /// <summary>Adds an undo step that was taken earlier: a tool use remembers the scene before it and adds it at the end.</summary>
+    void PushUndo(string before)
+    {
+        _checkpointKey = null;
+        _undo.Add(before);
         if (_undo.Count > 100) _undo.RemoveAt(0);
         _redo.Clear();
     }
 
     void Undo()
     {
+        string now = _scene.ToJson();
+        while (_undo.Count > 0 && _undo[^1] == now) _undo.RemoveAt(_undo.Count - 1); // steps that changed nothing
         if (_undo.Count == 0) { SetStatus(true, "Nothing to undo."); return; }
-        _redo.Add(_scene.ToJson());
+        _redo.Add(now);
         RestoreScene(_undo[^1]);
         _undo.RemoveAt(_undo.Count - 1);
         SetStatus(true, "Undone.");
@@ -508,6 +530,7 @@ public sealed partial class MainWindow
     void ScenePlay()
     {
         if (_play != null) SceneStop();
+        _canvas.CancelToolDrag();
         var world = NewWorld();
         UseProjectFiles(world);
         world.Globals["score"] = 0.0;
@@ -536,6 +559,7 @@ public sealed partial class MainWindow
         _playText.Text = $"Playing {scene.Name} — Esc or Stop to go back to editing (your scenes stay as they were).";
         _sceneHost.Content = _play;
         _sceneBar.Content = _playBar;
+        ShowToolsBar(false);
         var surface = _play;
         Dispatcher.UIThread.Post(() => { if (_play == surface) surface.Start(); }, DispatcherPriority.Loaded);
     }
@@ -558,6 +582,7 @@ public sealed partial class MainWindow
         _audio.StopAll();
         _sceneHost.Content = _canvas;
         _sceneBar.Content = _editBar;
+        ShowToolsBar(true);
         RebuildInspector();
         Log("■ Stopped.");
         SetStatus(true, "Stopped. Back to editing.");

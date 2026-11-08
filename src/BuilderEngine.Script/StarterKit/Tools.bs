@@ -1,0 +1,110 @@
+# Starter kit: editor tools. A mechanism with 'when tool ...' is a tool: it shows up in the scene's TOOLS bar
+# and edits the scene while you build (it does nothing in the game). Make your own the same way:
+#   when tool click at x, y      the mouse was pressed on the scene
+#   when tool drag at x, y       the mouse moved while pressed
+#   when tool release at x, y    the mouse was let go
+#   when tool used               the tool's button was pressed
+#   when tool key "r"            a key was pressed while the tool is active
+# Commands only tools have:
+#   place "Coin" at x, y         a copy of the scene object called Coin (or a new object with the Coin mechanism);
+#                                'with w, h' sets its size; afterwards 'placed' is the new object
+#   erase at x, y / erase obj    remove the object there / that object (or a list: erase all("coin"))
+#   fill_row "Ground" from x1 to x2 at y    copies side by side
+#   select obj                   select it in the editor (the selected object is 'selected')
+#   objects_at(x, y), object_at(x, y), snap(x, 32)   what is there / the top one / the start of the grid cell
+# Everything a tool does in one use (press, drag, release) is undone with one Ctrl+Z.
+
+mechanism PlatformPainter
+    # Click or drag to paint solid ground, one tile at a time.
+    param tile: number = 32
+    param copy_of: text = "Ground"
+
+    when tool click at x, y
+        cx = snap(x, tile)
+        cy = snap(y, tile)
+        if length(objects_at(cx + tile / 2, cy + tile / 2)) == 0
+            ground = copy_of
+            if not find(copy_of): ground = "Solid"
+            place ground at cx, cy with tile, tile
+
+    when tool drag at x, y
+        cx = snap(x, tile)
+        cy = snap(y, tile)
+        if length(objects_at(cx + tile / 2, cy + tile / 2)) == 0
+            ground = copy_of
+            if not find(copy_of): ground = "Solid"
+            place ground at cx, cy with tile, tile
+
+mechanism CoinLine
+    # Click where a line of coins starts, then where it ends.
+    param coin: text = "Coin"
+    param gap: number = 40
+
+    when tool click at x, y
+        if not has_start
+            sx = x
+            sy = y
+            has_start = true
+            notify "Now click where the line ends."
+            stop
+        has_start = false
+        n = max(1, round(distance(sx, sy, x, y) / gap))
+        for each i in range(0, n)
+            place coin at sx + (x - sx) * i / n, sy + (y - sy) * i / n
+            placed.x -= placed.width / 2
+            placed.y -= placed.height / 2
+        notify "Placed " + text(n + 1) + " coins."
+
+mechanism Eraser
+    # Click or drag over objects to erase them.
+    when tool click at x, y
+        erase at x, y
+
+    when tool drag at x, y
+        erase at x, y
+
+mechanism Scatter
+    # Drag a box: things land at random spots inside it.
+    param thing: text = "Coin"
+    param amount: number = 8
+
+    when tool click at x, y
+        sx = x
+        sy = y
+
+    when tool release at x, y
+        x1 = min(sx, x)
+        x2 = max(sx, x)
+        y1 = min(sy, y)
+        y2 = max(sy, y)
+        if x2 - x1 < 8 or y2 - y1 < 8
+            notify "Drag a box to scatter things in."
+            stop
+        repeat amount
+            place thing at random(x1, x2), random(y1, y2)
+            placed.x = max(x1, min(placed.x, x2 - placed.width))
+            placed.y = max(y1, min(placed.y, y2 - placed.height))
+
+mechanism RoomMaker
+    # Drag a box: solid walls appear around it.
+    param thickness: number = 16
+    param copy_of: text = "Ground"
+
+    when tool click at x, y
+        sx = snap(x, 8)
+        sy = snap(y, 8)
+
+    when tool release at x, y
+        x1 = min(sx, snap(x, 8))
+        x2 = max(sx, snap(x, 8))
+        y1 = min(sy, snap(y, 8))
+        y2 = max(sy, snap(y, 8))
+        if x2 - x1 < thickness * 3 or y2 - y1 < thickness * 3
+            notify "Drag a bigger box to make a room."
+            stop
+        wall = copy_of
+        if not find(copy_of): wall = "Solid"
+        place wall at x1, y1 with x2 - x1, thickness
+        place wall at x1, y2 - thickness with x2 - x1, thickness
+        place wall at x1, y1 + thickness with thickness, y2 - y1 - thickness * 2
+        place wall at x2 - thickness, y1 + thickness with thickness, y2 - y1 - thickness * 2

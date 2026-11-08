@@ -29,7 +29,7 @@ public sealed record StopStmt(int Line) : Stmt(Line);
 public sealed record CommandStmt(string Name, List<Expr> Args, int Line, Dictionary<string, List<Expr>>? Named = null) : Stmt(Line);
 
 // ---- Mechanism ----
-public enum EventKind { Start, Tick, Touched, Told, Key, Signal }
+public enum EventKind { Start, Tick, Touched, Told, Key, Signal, Tool }
 
 /// <summary>
 /// What a <c>when</c> waits for. Filter = a text the event must match (a tag, a message, a key);
