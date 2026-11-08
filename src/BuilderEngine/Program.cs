@@ -43,7 +43,9 @@ public sealed class App : Application
         // prompt flashing. The big windows start see-through and appear once that first frame is ready.
         Avalonia.Controls.Window.WindowOpenedEvent.AddClassHandler<Avalonia.Controls.Window>((w, _) =>
         {
-            if (w is not (LauncherWindow or MainWindow) || w.Opacity > 0) return;
+            if (w is not (LauncherWindow or MainWindow)) return;
+            WindowFit.ToScreen(w); // never taller or wider than a small (or scaled) screen (WindowFit.cs)
+            if (w.Opacity > 0) return;
             Avalonia.Threading.Dispatcher.UIThread.Post(() => w.Opacity = 1, Avalonia.Threading.DispatcherPriority.Background);
         });
 

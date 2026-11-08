@@ -98,6 +98,7 @@ mechanism Boss
 | `for each x in list` / `while cond` | go through a list (`range(1, 10)` for numbers) / repeat while true (once per frame) |
 | `[1, 2]`, `list[0]`, `add x to list`, `remove x from list` | lists: `length(l)`, `contains(l, x)`, `random_item(l)`, `join(l, ", ")`, `text(x)` |
 | `card = {name: "Imp", cost: 1}`, `card.cost += 1`, `card["cost"]` | records: named fields (a missing one reads as nothing); `keys(r)`, `has_key(r, "cost")`, `copy(r)` (lists too), `sorted(cards, "cost")`, `reversed(l)`; `save "deck", deck` keeps lists and records |
+| `best = none` (or `nothing`) | the empty value: what an unset variable or a missing field reads as; `if best` is false for it. `none` always means nothing, even if a script sets a variable called `none` |
 | `find("Turns").TurnManager.turn`, `hand[0].CardView.card` | names after a call or an item |
 | `nearest("enemy")`, `all("coin")`, `count("enemy")`, `find("Boss")` | find objects by tag or name; `distance(a, b)`, `has_tag(o, "x")` |
 | `global power, night` | values every mechanism shares (like the score): a new one starts at 0; they go on to the next scene and into `save game` |

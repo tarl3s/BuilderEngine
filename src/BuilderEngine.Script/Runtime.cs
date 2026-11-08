@@ -744,6 +744,9 @@ public sealed partial class World
 
     object? ResolveFirst(string n, Ctx ctx, int line)
     {
+        // 'none' / 'nothing' is the empty value ('best = none', like 'look none'): always nothing, even if something
+        // somewhere sets a variable with that name (it used to be just an unset variable that happened to read as nothing).
+        if (n is "none" or "nothing") return null;
         if (ctx.Locals.TryGetValue(n, out var v)) return v;
         switch (n)
         {

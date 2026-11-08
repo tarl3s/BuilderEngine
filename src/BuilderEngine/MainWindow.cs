@@ -84,7 +84,7 @@ public sealed partial class MainWindow : Window
         _mechInfo = new TextBlock { Text = "Editing a mechanism. Switch to Scene to place it in the game.", TextWrapping = TextWrapping.Wrap, Foreground = Palette.TextDim, Margin = new Thickness(16) };
         ShowTab(scene: true);
         SetMode("both");
-        Closing += (_, _) => SceneOnClosing();
+        Closing += (_, e) => SceneOnClosing(e);
         Closed += (_, _) => _audio.Dispose();
     }
 

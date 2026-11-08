@@ -13,7 +13,8 @@ namespace BuilderEngine;
 // undo step.
 public sealed partial class MainWindow
 {
-    readonly StackPanel _toolButtons = new() { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+    // Wraps onto a second line when the scene area is narrow (at 1024 px wide the last tools were cut off and unreachable).
+    readonly WrapPanel _toolButtons = new() { Orientation = Orientation.Horizontal, ItemSpacing = 4, LineSpacing = 4, VerticalAlignment = VerticalAlignment.Center };
     readonly WrapPanel _toolOptions = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
     readonly Border _toolOptionsRow = new() { IsVisible = false, BorderBrush = Palette.Border, BorderThickness = new Thickness(0, 1, 0, 0) };
     Control? _toolsBar;
@@ -28,9 +29,11 @@ public sealed partial class MainWindow
 
     Control ToolsBar()
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(12, 0, 12, 6), VerticalAlignment = VerticalAlignment.Center };
+        var row = new DockPanel { Margin = new Thickness(12, 0, 12, 6), VerticalAlignment = VerticalAlignment.Center };
         var label = Label("TOOLS");
         ToolTip.SetTip(label, "Tools are mechanisms with 'when tool …': they edit the scene while you build. Open one (in the Starter kit) to see how it works, or make your own.");
+        label.Margin = new Thickness(0, 0, 8, 0);
+        DockPanel.SetDock(label, Dock.Left);
         row.Children.Add(label);
         row.Children.Add(_toolButtons);
         _toolOptionsRow.Child = _toolOptions;

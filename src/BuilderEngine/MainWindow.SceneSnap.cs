@@ -11,11 +11,15 @@ namespace BuilderEngine;
 // It never captures the screen, only this window's own visuals.
 public sealed partial class MainWindow
 {
+    /// <summary>The snap runs in the first editor window only (the lifecycle checks open more windows).</summary>
+    static bool s_snapStarted;
+
     void SceneSnapIfAsked()
     {
         var args = Environment.GetCommandLineArgs();
         int i = Array.IndexOf(args, "--snap");
-        if (i < 0 || i + 1 >= args.Length) return;
+        if (i < 0 || i + 1 >= args.Length || s_snapStarted) return;
+        s_snapStarted = true;
         string dir = Path.GetFullPath(args[i + 1]);
         Directory.CreateDirectory(dir);
         Opened += async (_, _) =>
@@ -28,6 +32,7 @@ public sealed partial class MainWindow
                 if (ArgValue("--snap-only") == "prefabs") { await SnapPrefabs(dir); Close(); return; } // prefabs, animations, sprite editor (MainWindow.PrefabsSnap.cs)
                 if (ArgValue("--snap-only") == "systems") { await SnapSystems(dir); Close(); return; } // systems and export (MainWindow.SystemsSnap.cs)
                 if (ArgValue("--snap-only") == "deepdelve") { await SnapDeepdelve(dir); Close(); return; } // the Deepdelve sample (MainWindow.DeepdelveSnap.cs)
+                if (ArgValue("--snap-only") == "lifecycle") { await SnapLifecycle(dir); Close(); return; } // broken projects, memory, closed windows (MainWindow.LifecycleSnap.cs)
                 if (await SnapNightShift(dir)) { Close(); return; } // the Night Shift sample project (MainWindow.NightShiftSnap.cs)
                 if (ArgValue("--snap-only") == "hollow") { await SnapHollowLantern(dir); Close(); return; } // the Hollow Lantern sample (MainWindow.HollowSnap.cs)
                 if (_project.Name == BuilderEngine.Script.EmberDuelSample.Name) { await SnapEmberDuel(dir); Close(); return; } // the sample card game (MainWindow.EmberDuelSnap.cs)
@@ -66,6 +71,7 @@ public sealed partial class MainWindow
                 await SnapGameKit(dir); // MainWindow.GameKitSnap.cs
                 await SnapAiFeatures(dir);
                 await SnapQol(dir); // MainWindow.QolSnap.cs
+                await SnapLifecycle(dir); // MainWindow.LifecycleSnap.cs
             }
             catch (Exception e) { File.WriteAllText(Path.Combine(dir, "error.txt"), e.ToString()); }
             Close();
