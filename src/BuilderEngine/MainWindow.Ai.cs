@@ -36,6 +36,13 @@ public sealed partial class MainWindow : IAiHost
     {
         _aiSettings = new AiSettings(_settings);
         _aiPanel = new AiPanel(this);
+        // Local AI installed? Start Ollama hidden now so the first request just works (never downloads by itself).
+        if (!_snapMode)
+            _ = Task.Run(async () =>
+            {
+                string? note = await OllamaSetup.PrepareOnOpenAsync(_aiSettings);
+                if (note != null) Avalonia.Threading.Dispatcher.UIThread.Post(() => Log("✨ " + note));
+            });
         _inspectorPage = inspectorPage;
         _rightTabInspector.Content = "Inspector";
         _rightTabInspector.Click += (_, _) => ShowAiTab(false);

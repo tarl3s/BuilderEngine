@@ -1215,6 +1215,28 @@ NightShiftTests.Run(Test); // the Night Shift sample game played headless (Sampl
 HollowLanternTests.Run(Test); // the Hollow Lantern sample game, pathfinding, angles, minimap (Samples/HollowLanternTests.cs)
 EmberDuelTests.Run(Test); // the Ember Duel sample card game and records, labels, list saves (Samples/EmberDuelTests.cs)
 
+Console.WriteLine("One-click local AI (AiOllamaSetup.cs)");
+Test("Ollama pull progress lines are read", () =>
+{
+    var a = OllamaSetup.ParsePullLine("{\"status\":\"pulling manifest\"}")!.Value;
+    Eq("pulling manifest", a.Status); Eq(-1.0, a.Fraction);
+    var b = OllamaSetup.ParsePullLine("{\"status\":\"pulling 6e4c\",\"digest\":\"sha256:6e4c\",\"total\":1000,\"completed\":250}")!.Value;
+    Eq(0.25, b.Fraction);
+    Eq("success", OllamaSetup.ParsePullLine("{\"status\":\"success\"}")!.Value.Status);
+    Eq(null, OllamaSetup.ParsePullLine("not json"));
+    Eq(null, OllamaSetup.ParsePullLine("   "));
+});
+Test("an Ollama pull error becomes a friendly AI error", () =>
+{
+    try { OllamaSetup.ParsePullLine("{\"error\":\"pull model manifest: file does not exist\"}"); throw new Exception("no error"); }
+    catch (AiException e) { Eq(true, e.Message.Contains("file does not exist")); }
+});
+Test("opening never touches Ollama when the cloud AI is chosen", () =>
+{
+    var s = new AiSettings { Provider = AiSettings.Auto };
+    Eq(null, OllamaSetup.PrepareOnOpenAsync(s).GetAwaiter().GetResult());
+});
+
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;

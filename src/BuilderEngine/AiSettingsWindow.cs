@@ -73,10 +73,20 @@ sealed class AiSettingsWindow : Window
         DockPanel.SetDock(modelButtons, Dock.Right);
         modelRow.Children.Add(modelButtons);
         modelRow.Children.Add(_localModel);
+        // One-click setup: install Ollama and/or download a model (AiOllamaSetup.cs); the website if that fails.
+        _setup.Click += async (_, _) => await RunSetupAsync();
+        _website.Click += (_, _) => OpenWebsite();
+        _website.IsVisible = false;
+        var setupRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        setupRow.Children.Add(_setup);
+        setupRow.Children.Add(_website);
+        _setupPanel.Children.Add(setupRow);
+        _setupPanel.Children.Add(_setupBar);
+        _localSection.Children.Add(_setupPanel);
         _localSection.Children.Add(Label("Model"));
         _localSection.Children.Add(modelRow);
         _localSection.Children.Add(_localNote);
-        _localSection.Children.Add(Note($"Small models run on most PCs: ollama pull {OllamaClient.SuggestedModel} (or qwen2.5-coder:1.5b on a slow PC)."));
+        _localSection.Children.Add(Note($"Small models run on most PCs: {OllamaSetup.StarterModel} (fast) or {OllamaClient.SuggestedModel} (a bit smarter, needs more memory)."));
 
         // ---- Cloud keys ----
         _cloudSection.Children.Add(Label("Keys (saved only on this computer, in settings.json)"));
@@ -169,10 +179,109 @@ sealed class AiSettingsWindow : Window
 
     async Task LoadModelsAsync()
     {
+        // Installed but not running: start it hidden first, so the list is real.
+        if (OllamaSetup.IsInstalled) await OllamaManager.EnsureRunningAsync(_settings.OllamaUrl);
         var models = await new OllamaClient("", _settings.OllamaUrl).ListModelsAsync();
         ShowModels(models);
         _localNote.Text = models.Count > 0 ? $"{models.Count} model(s) installed."
-            : "Ollama isn't answering at localhost:11434. Start it (button above) or install it from ollama.com.";
+            : OllamaSetup.IsInstalled ? "Ollama is installed but has no model yet — press “Download the AI model”."
+            : "Ollama (the free program that runs the AI on this computer) isn't installed yet — press “Install Ollama”.";
+        UpdateSetupButton(models.Count);
+    }
+
+    // ---------------- One-click setup ----------------
+
+    readonly Button _setup = MainWindow.AccentButton("⬇  Install Ollama");
+    readonly Button _website = MainWindow.PlainButton("Open ollama.com");
+    readonly ProgressBar _setupBar = new() { Minimum = 0, Maximum = 1, Height = 6, IsVisible = false, Foreground = Palette.Accent, Background = Palette.Bg2 };
+    readonly StackPanel _setupPanel = new() { Spacing = 6 };
+    bool _settingUp;
+
+    void UpdateSetupButton(int modelCount)
+    {
+        if (_settingUp) return;
+        bool installed = OllamaSetup.IsInstalled;
+        _setupPanel.IsVisible = !installed || modelCount == 0;
+        _setup.Content = installed ? "⬇  Download the AI model (about 1 GB)" : "⬇  Install Ollama + the AI model (about 2 GB, free)";
+        ToolTip.SetTip(_setup, installed
+            ? $"Downloads {OllamaSetup.StarterModel} through Ollama and selects it."
+            : $"Downloads Ollama's official installer from ollama.com, installs it (no questions, no admin), starts it and downloads {OllamaSetup.StarterModel}.");
+    }
+
+    /// <summary>Install Ollama when missing, start it, download the starter model, select it and save.</summary>
+    async Task RunSetupAsync()
+    {
+        if (_settingUp) return;
+        _settingUp = true;
+        _localNote.Foreground = Palette.TextDim;
+        _setup.IsEnabled = false;
+        _website.IsVisible = false;
+        _setupBar.IsVisible = true;
+        _setupBar.IsIndeterminate = false;
+        try
+        {
+            if (!OllamaSetup.IsInstalled)
+            {
+                _localNote.Text = "Downloading Ollama…";
+                string installer = await OllamaSetup.DownloadInstallerAsync(new Progress<double>(p =>
+                {
+                    _setupBar.Value = p;
+                    _localNote.Text = $"Downloading Ollama… {Math.Round(p * 100)}%";
+                }));
+                _localNote.Text = "Installing Ollama… (this takes a minute; Windows may ask once)";
+                _setupBar.IsIndeterminate = true;
+                if (!await OllamaSetup.InstallAsync(installer))
+                    throw new InvalidOperationException("The installer finished but Ollama wasn't found.");
+            }
+
+            _setupBar.IsIndeterminate = true;
+            _localNote.Text = "Starting Ollama…";
+            var state = await OllamaManager.EnsureRunningAsync(_settings.OllamaUrl);
+            if (state is OllamaManager.State.Failed or OllamaManager.State.NotInstalled)
+                throw new InvalidOperationException("Ollama is installed but didn't start.");
+
+            var models = await new OllamaClient("", _settings.OllamaUrl).ListModelsAsync();
+            string model = models.Contains(OllamaSetup.StarterModel) ? OllamaSetup.StarterModel
+                : AiSettings.BestLocalModel(models) ?? OllamaSetup.StarterModel;
+            if (!models.Contains(model))
+            {
+                _localNote.Text = $"Downloading the AI model {model}…";
+                bool ok = await OllamaSetup.PullAsync(model, new Progress<OllamaSetup.PullProgress>(p =>
+                {
+                    if (p.Fraction >= 0) { _setupBar.IsIndeterminate = false; _setupBar.Value = p.Fraction; }
+                    _localNote.Text = p.Fraction >= 0 ? $"Downloading the AI model {model}… {Math.Round(p.Fraction * 100)}%" : $"AI model: {p.Status}…";
+                }), _settings.OllamaUrl);
+                if (!ok) throw new InvalidOperationException($"Ollama couldn't download {model}.");
+            }
+
+            // Ready: pick it and keep it.
+            _provider.SelectedIndex = Math.Max(0, _choices.FindIndex(c => c.Id == AiSettings.Local));
+            _settings.Provider = AiSettings.Local;
+            _settings.LocalModel = model;
+            _settings.Save();
+            _settingUp = false;
+            await LoadModelsAsync();
+            _localModel.SelectedItem = model;
+            _localNote.Foreground = Palette.Ok;
+            _localNote.Text = $"✓ Ready: the AI runs on this computer with {model}. Saved.";
+        }
+        catch (Exception e)
+        {
+            _localNote.Foreground = Palette.Error;
+            _localNote.Text = $"⚠ {e.Message} You can install Ollama from its website instead; BuilderEngine sets it up by itself the next time it opens.";
+            _website.IsVisible = true;
+        }
+        finally
+        {
+            _settingUp = false;
+            _setup.IsEnabled = true;
+            _setupBar.IsVisible = false;
+        }
+    }
+
+    static void OpenWebsite()
+    {
+        try { Process.Start(new ProcessStartInfo { FileName = OllamaSetup.Website, UseShellExecute = true }); } catch { }
     }
 
     /// <summary>The model list: "automatic" first, then what Ollama has; keeps what the person picked.</summary>
