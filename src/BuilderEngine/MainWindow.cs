@@ -37,6 +37,8 @@ public sealed partial class MainWindow : Window
     readonly Button _modeBlocks = new(), _modeBoth = new(), _modeCode = new();
     Control? _sceneView, _inspector, _mechInfo, _mechPanel;
     Control _leftPanel = null!;
+    /// <summary>Library | center | right column (the AI tab widens the right column).</summary>
+    Grid? _bodyGrid;
     bool _loading;
     bool _sceneTab = true;
     string _mode = "both";
@@ -62,7 +64,7 @@ public sealed partial class MainWindow : Window
         DockPanel.SetDock(status, Dock.Bottom);
         root.Children.Add(status);
 
-        var body = new Grid { ColumnDefinitions = new ColumnDefinitions("230,*,330") };
+        var body = _bodyGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("230,*,330") };
         var left = LibraryPanel();
         _mechPanel = MechanismPanel();
         _center.Content = null;
@@ -134,8 +136,17 @@ public sealed partial class MainWindow : Window
         return w;
     }
 
-    internal void Log(string line) => _console.Text = (_console.Text ?? "") + line + "\n";
-    internal void ClearLog() => _console.Text = "";
+    internal void Log(string line)
+    {
+        _console.Text = (_console.Text ?? "") + line + "\n";
+        AiOnLog(line);
+    }
+
+    internal void ClearLog()
+    {
+        _console.Text = "";
+        AiOnLog(null);
+    }
 
     // ---------------- Layout ----------------
 
@@ -287,8 +298,11 @@ public sealed partial class MainWindow : Window
         var stripRow = new DockPanel();
         DockPanel.SetDock(modes, Dock.Right);
         stripRow.Children.Add(modes);
-        toLibrary.HorizontalAlignment = HorizontalAlignment.Left;
+        DockPanel.SetDock(toLibrary, Dock.Left);
         stripRow.Children.Add(toLibrary);
+        var askAi = AiAskButton();
+        askAi.HorizontalAlignment = HorizontalAlignment.Left;
+        stripRow.Children.Add(askAi);
         var strip = new Border { Background = Palette.Bg1, BorderBrush = Palette.Border, BorderThickness = new Thickness(0, 0, 0, 1), Child = stripRow };
 
         var panel = new DockPanel();
@@ -312,8 +326,8 @@ public sealed partial class MainWindow : Window
     Control RightPanel()
     {
         var panel = new Grid { RowDefinitions = new RowDefinitions("*,Auto,200"), Background = Palette.Bg1 };
-        panel.Children.Add(new ScrollViewer { Content = _rightTop });
-        var consoleTitle = Label("CONSOLE");
+        panel.Children.Add(AiRightTop(new ScrollViewer { Content = _rightTop }));
+        var consoleTitle = AiConsoleHeader(Label("CONSOLE"));
         consoleTitle.Margin = new Thickness(16, 12, 16, 6);
         Grid.SetRow(consoleTitle, 1);
         panel.Children.Add(consoleTitle);
@@ -424,6 +438,7 @@ public sealed partial class MainWindow : Window
         _status.Text = text;
         _status.Foreground = ok ? Palette.TextDim : Palette.Error;
         _statusDot.Fill = ok ? Palette.Ok : Palette.Error;
+        AiOnStatus(ok, text);
     }
 
     // ---------------- Small UI helpers (shared) ----------------

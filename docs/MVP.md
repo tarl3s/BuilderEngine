@@ -22,7 +22,7 @@ presses Play and collects them. Then they save `Coin` to their library and use i
 
 ## Out of scope (later)
 
-AI tutor and "make me a mechanism" · editable blocks with drag and drop · editor-tool mechanisms · sharing/gallery ·
+editable blocks with drag and drop · editor-tool mechanisms · sharing/gallery ·
 export to `.exe` · sound editor · tilemaps · lighting · 3D · Mac/Linux builds.
 
 ## Milestones
@@ -35,7 +35,7 @@ export to `.exe` · sound editor · tilemaps · lighting · 3D · Mac/Linux buil
 6. **Blocks view** — script ↔ blocks, 1 to 1. *(done; click-to-add, drag-and-drop later)*
 7. **Tutorial** — "Your first mechanism: a coin" with a self-ticking checklist.
 
-Also done beyond the plan: several scenes per project (`goto_scene "Name"`, the Door mechanism), a Project menu (new / open / recent / save), and project sounds (`sounds/` folder, generated starter WAVs, import, a Sound dropdown with preview, real playback on Windows). And the engine features for cutscenes and real games: tweens, camera, dialogue and choices, HUD, screen effects, locked controls, slow motion, pictures and animation, saves (see below).
+Also done beyond the plan: several scenes per project (`goto_scene "Name"`, the Door mechanism), a Project menu (new / open / recent / save), and project sounds (`sounds/` folder, generated starter WAVs, import, a Sound dropdown with preview, real playback on Windows). And the engine features for cutscenes and real games: tweens, camera, dialogue and choices, HUD, screen effects, locked controls, slow motion, pictures and animation, saves (see below). And the AI assistant (see *AI assistant* at the end).
 
 ## Builder Script cheat sheet
 
@@ -167,3 +167,39 @@ mechanism Intro
         camera follow player
         unlock controls
 ```
+
+## AI assistant
+
+In BuilderEngine the AI **writes mechanisms and teaches** — it doesn't build whole games silently. It lives in the
+**✨ AI** tab of the right column (and the **✨ Ask the AI** button of the Mechanism tab, and **✨ Fix** on the console).
+
+| Mode | What it does |
+|---|---|
+| **Make** | "make me a mechanism that…" → a new mechanism in Builder Script |
+| **Edit** | changes the open mechanism ("make the jump higher", "add a double jump") |
+| **Explain** | explains the open mechanism, the selected lines, or answers "how do I…?" from this cheat sheet and the starter kit — never edits |
+| **Fix** | sends the mechanism and the error (the console's, or the code check's) and asks for the smallest fix |
+
+What happens to an answer: the Builder Script is pulled out of the reply (a ``` block or bare code; tabs, braces,
+semicolons, `//` comments, `&&`, `on start`, `function x()`, `elif`, `while true`… are turned into Builder Script), parsed,
+checked (every command, function, `uses` and `spawn` must exist — also in branches that don't run), then **run for three
+seconds in a copy of the open scene** with a player walking into it, its keys pressed and its messages told. Any error →
+the AI is asked **once more** with the error. Then you see a **preview** (the code, or a diff of the changes) with
+**Accept** / **Discard**; only Accept changes the project (and opens the mechanism in blocks + code).
+
+The prompt is made per request and stays small (under ~9k characters — small local models are the worst case): the
+rules above, every word / command / function the engine knows (generated from the engine itself), the starter kit in
+one line per mechanism, the **two starter mechanisms closest to the request** as examples, the open mechanism, the
+project's mechanisms with their `to` commands, and the scene's objects with their tags. A request in Portuguese (or
+another language) is first turned into English by the same AI (names, numbers and quoted text must survive, or the
+original is used); explanations come back in the language of the question (or always English — a setting).
+
+Which AI (⚙ in the panel): **Local** (Ollama on this computer — `ollama pull qwen2.5-coder:3b`; the model list comes from
+`/api/tags`), **Cloud — free tiers** (Groq, Gemini, OpenRouter, Mistral in turn; a busy or used-up one hands over to the
+next), or one provider with your own key (OpenAI, Claude, DeepSeek, any OpenAI-compatible URL). **Test connection**
+asks for one short answer. Keys are saved only in `settings.json` (`%APPDATA%\BuilderEngine`, or the `--appdata` folder)
+and hidden from the console and from `%TEMP%\builderengine_ai.log` (the last request's prompt and answer, for debugging).
+
+Code: `src/BuilderEngine.Script/Ai*.cs` (headless: clients, settings, prompt, reply reader, checks, the assistant) and
+`src/BuilderEngine/AiPanel.cs`, `AiSettingsWindow.cs`, `MainWindow.Ai.cs`; tests in `tests/BuilderEngine.Tests/AiTests.cs`
+(a fake AI, no network).

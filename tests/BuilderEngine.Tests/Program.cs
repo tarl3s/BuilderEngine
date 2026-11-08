@@ -1205,6 +1205,8 @@ Test("starter kit still runs without errors", () =>
     Eq(0, w.Errors.Count, string.Join(" | ", w.Errors));
 });
 
+AiTests.Run(Test); // the AI assistant with a fake AI: prompts, reading answers, checks, retry, accept, keys (AiTests.cs)
+
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;
