@@ -10,6 +10,32 @@ public sealed class Parser
 
     public static List<MechanismDef> Parse(string source) => new Parser(Lexer.Tokenize(source)).ParseFile();
 
+    /// <summary>Reads one whole expression (<c>hp + 1</c>); anything left over is an error.</summary>
+    public static Expr ParseExpression(string text)
+    {
+        var p = new Parser(Lexer.Tokenize(text.Trim()));
+        if (p.AtLineEnd) throw new ScriptError("Write a value here.", 0);
+        var e = p.ParseExpr();
+        p.ExpectEnd();
+        return e;
+    }
+
+    /// <summary>Reads values separated by commas or spaces (<c>10, 0</c>); empty text = no values.</summary>
+    public static List<Expr> ParseExpressionList(string text)
+    {
+        var p = new Parser(Lexer.Tokenize(text.Trim()));
+        var list = p.ParseArgs();
+        p.ExpectEnd();
+        return list;
+    }
+
+    void ExpectEnd()
+    {
+        EndLine();
+        SkipNewlines();
+        if (Peek().Kind != Tok.Eof) throw new ScriptError($"I didn't expect {Peek()} here.", Peek().Line);
+    }
+
     Token Peek(int ahead = 0) => _t[Math.Min(_p + ahead, _t.Count - 1)];
     Token Next() => _t[Math.Min(_p++, _t.Count - 1)];
     bool IsOp(string op, int ahead = 0) => Peek(ahead).Kind == Tok.Op && Peek(ahead).Text == op;
@@ -157,17 +183,23 @@ public sealed class Parser
         }
     }
 
-    /// <summary>Either "<c>: statement</c>" on the same line, or a newline and an indented block.</summary>
+    /// <summary>
+    /// Either "<c>: statement</c>" on the same line, or a newline and an indented block.
+    /// A colon with nothing after it and nothing indented under it (<c>when start:</c>) is an empty block.
+    /// </summary>
     List<Stmt> ParseBlockOrInline()
     {
+        bool colon = false;
         if (IsOp(":"))
         {
             _p++;
+            colon = true;
             if (!AtLineEnd) return [ParseSimpleStmt(endLine: true)];
         }
         int line = Peek().Line;
         EndLine();
         SkipNewlines();
+        if (Peek().Kind != Tok.Indent && colon) return [];
         if (Peek().Kind != Tok.Indent) throw new ScriptError("The lines inside this block must be indented.", line);
         _p++;
         var list = new List<Stmt>();

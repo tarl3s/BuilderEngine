@@ -248,6 +248,179 @@ Test("starter kit parses", () =>
     foreach (var (file, src) in StarterKit.Sources()) Parser.Parse(src);
 });
 
+// ---------------- Printer and block edits ----------------
+
+// A dump of the tree that ignores line numbers, written independently of the printer.
+string DumpE(Expr? e) => e switch
+{
+    null => "_",
+    NumberExpr n => n.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+    StringExpr s => "'" + s.Value + "'",
+    BoolExpr b => b.Value ? "T" : "F",
+    NameExpr n => n.Full,
+    UnaryExpr u => $"({u.Op} {DumpE(u.Operand)})",
+    BinaryExpr b => $"({b.Op} {DumpE(b.Left)} {DumpE(b.Right)})",
+    CallExpr c => $"{c.Name}[{string.Join(" ", c.Args.Select(DumpE))}]",
+    _ => "?"
+};
+string DumpL(List<Stmt>? list) => list == null ? "null" : "{" + string.Join("; ", list.Select(DumpS)) + "}";
+string DumpS(Stmt s) => s switch
+{
+    AssignStmt a => $"{string.Join('.', a.Target)} {a.Op} {DumpE(a.Value)}",
+    IfStmt i => $"if {DumpE(i.Cond)} {DumpL(i.Then)} else {DumpL(i.Else)}",
+    RepeatStmt r => $"repeat {DumpE(r.Count)} {DumpL(r.Body)}",
+    WaitStmt w => $"wait {DumpE(w.Seconds)}",
+    EmitStmt e => $"emit {e.Signal} [{string.Join(" ", e.Args.Select(DumpE))}]",
+    TellStmt t => $"tell {DumpE(t.Target)} {DumpE(t.Message)} [{string.Join(" ", t.Args.Select(DumpE))}]",
+    StopStmt => "stop",
+    CommandStmt c => $"cmd {c.Name} [{string.Join(" ", c.Args.Select(DumpE))}]",
+    _ => "?"
+};
+string Dump(List<MechanismDef> defs) => string.Join("\n", defs.Select(m =>
+    $"M {m.Name}\n" +
+    string.Concat(m.Params.Select(p => $" P {p.Name}:{p.Type}={DumpE(p.Default)}\n")) +
+    string.Concat(m.Uses.Select(u => $" U {u.Name} {DumpE(u.Positional)} {string.Join(",", u.Args.Select(kv => kv.Key + "=" + DumpE(kv.Value)))}\n")) +
+    string.Concat(m.Whens.Select(w => $" W {w.Event.Kind}|{w.Event.Filter}|{w.Event.Bind}|{w.Event.Source}|{w.Event.Name} {DumpL(w.Body)}\n"))));
+void RoundTrip(string src)
+{
+    var first = Parser.Parse(src);
+    string printed = Printer.Print(first);
+    List<MechanismDef> second;
+    try { second = Parser.Parse(printed); }
+    catch (ScriptError e) { throw new Exception($"printed code doesn't parse ({e}):\n{printed}"); }
+    if (Dump(first) != Dump(second)) throw new Exception($"tree changed after printing:\n{printed}\n--- before\n{Dump(first)}\n--- after\n{Dump(second)}");
+    Eq(printed, Printer.Print(second), "printing is stable");
+}
+string M(string body) => "mechanism T\n    when start\n" + string.Join("", body.Split('\n').Select(l => "        " + l + "\n"));
+
+Console.WriteLine();
+Console.WriteLine("Printer / blocks");
+Test("round-trip: starter kit", () =>
+{
+    foreach (var (_, src) in StarterKit.Sources()) RoundTrip(src);
+});
+Test("round-trip: nested if / else if / else", () => RoundTrip(M("if a\n    if b: x = 1\n    else\n        x = 2\nelse if c\n    repeat 2\n        y += 1\nelse if d: stop\nelse\n    z = 3")));
+Test("round-trip: repeat forever and repeat n times", () => RoundTrip(M("repeat forever\n    repeat 3 times\n        wait 0.5 seconds\n    wait 1")));
+Test("round-trip: precedence", () => RoundTrip(M(
+    "a = -(a + b) * c\nb = not (a and b)\nc = (not a) == b\nd = a - (b - c)\ne = (a - b) - c\nf = a / (b * c)\ng = -x % 3\n" +
+    "h = a or b and c\ni = (a or b) and c\nj = - -x\nk = a + (not b)\nl = (a == b) == c\nm = a == (b == c)\nn = min(a + 1, -b) * 2")));
+Test("round-trip: strings with quotes and backslashes", () => RoundTrip(M("print \"say \\\"hi\\\"\"\nprint 'it\\'s'\nprint \"back\\\\slash\"\nprint \"two\\nlines\"")));
+Test("round-trip: uses with positional and named args", () => RoundTrip(
+    "mechanism T\n    uses Sprite \"s.png\"\n    uses Health max 2\n    uses Body gravity: 300, solid = true\n    uses Sprite \"a.png\" size 2\n    uses Plain\n    uses Weird (hp) max -1\n"));
+Test("round-trip: every event shape", () => RoundTrip(
+    "mechanism T\n    when start: x = 1\n    when tick: x = 1\n    when touched by \"player\": x = 1\n    when touched by other: x = 1\n    when touched: x = 1\n" +
+    "    when told \"damage\" n: x = 1\n    when told \"hi\": x = 1\n    when key \"space\": x = 1\n    when key left: x = 1\n    when Health.died: x = 1\n    when died: x = 1\n"));
+Test("round-trip: commands, emit and tell", () => RoundTrip(M(
+    "move -speed / 60 * 10, 0\nmove 1 2\nspawn Coin here\ndestroy\nemit hurt\nemit hit 2, -3\ntell other \"damage\" 1\ntell other \"damage\", -1\ntell (a) (-x)\ntell (a) (b + c) * 2\ntell other msg, (x), y\nprint (a + b) * 2, -1")));
+Test("round-trip: several mechanisms and empty ones", () => RoundTrip("mechanism A\nmechanism B\n    param p\n    param q: text = \"x\"\nmechanism C\n    when start\n        stop\n"));
+Test("empty blocks print with a colon and parse back", () =>
+{
+    var m = Parser.Parse("mechanism T\n    when start:\n    when tick\n        if a:\n        else:\n        repeat forever:\n")[0];
+    Eq(0, m.Whens[0].Body.Count);
+    var i = (IfStmt)m.Whens[1].Body[0];
+    Eq(0, i.Then.Count); Eq(0, i.Else!.Count);
+    Eq(0, ((RepeatStmt)m.Whens[1].Body[1]).Body.Count);
+    RoundTrip("mechanism T\n    when start:\n    when tick\n        if a:\n        else:\n        repeat forever:\n");
+});
+Test("a missing indent is still an error without the colon", () => Throws("indented", () => Parser.Parse("mechanism T\n    when start\n    when tick\n        x = 1\n")));
+Test("printer: exact canonical form", () =>
+{
+    string src = "mechanism   Coin\n  param value : number=1\n  uses Sprite 'coin.png'\n  when touched by 'player'   # comment\n    score+=value\n    if score>=10 : emit won\n    play  \"coin.wav\"\n    destroy self\n  when told \"x\" v\n    repeat 2 times\n      wait (1)\n";
+    Eq("mechanism Coin\n    param value: number = 1\n    uses Sprite \"coin.png\"\n\n    when touched by \"player\"\n        score += value\n        if score >= 10: emit won\n        play \"coin.wav\"\n        destroy self\n\n    when told \"x\" v\n        repeat 2\n            wait 1\n",
+        Printer.Print(Parser.Parse(src)));
+});
+Test("printer: tricky values get the parentheses they need", () =>
+{
+    var m = Parser.Parse("mechanism T\n    when start\n        x = 1\n")[0];
+    var body = m.Whens[0].Body;
+    body.Clear();
+    body.Add(new TellStmt(new NameExpr(["a"], 0), new UnaryExpr("-", new NameExpr(["x"], 0), 0), [], 0));
+    body.Add(new TellStmt(new NameExpr(["other"], 0), new StringExpr("d", 0), [new UnaryExpr("-", new NumberExpr(1, 0), 0), new NameExpr(["y"], 0)], 0));
+    body.Add(new RepeatStmt(new NameExpr(["forever"], 0), [], 0));
+    m.Uses.Add(new UsesDef("U", new NameExpr(["hp"], 0), new Dictionary<string, Expr> { ["max"] = new NumberExpr(2, 0) }, 0));
+    RoundTrip(Printer.Print([m]));
+});
+Test("printer: numbers in invariant culture without trailing .0", () =>
+{
+    var old = System.Globalization.CultureInfo.CurrentCulture;
+    System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("pt-BR");
+    try
+    {
+        Eq("0.5", Printer.Print(new NumberExpr(0.5, 0)));
+        Eq("3", Printer.Print(new NumberExpr(3.0, 0)));
+        Eq("100000000000000000000", Printer.Print(new NumberExpr(1e20, 0)));
+    }
+    finally { System.Globalization.CultureInfo.CurrentCulture = old; }
+});
+Test("parse expression and value lists", () =>
+{
+    Eq("(+ a (* 2 b))", DumpE(Parser.ParseExpression(" a + 2*b ")));
+    Throws("didn't expect", () => Parser.ParseExpression("a b"));
+    Throws("value", () => Parser.ParseExpression("  "));
+    Throws("expected", () => Parser.ParseExpression("(a"));
+    Eq(2, Parser.ParseExpressionList("10, -2").Count);
+    Eq(0, Parser.ParseExpressionList("").Count);
+});
+Test("block edits: insert, delete, move", () =>
+{
+    var list = new List<Stmt> { new StopStmt(0), BlockEdits.NewStatement("wait") };
+    BlockEdits.Insert(list, 99, BlockEdits.NewStatement("print"));
+    Eq("{stop; wait 1; cmd print ['Hello!']}", DumpL(list));
+    Eq(true, BlockEdits.Move(list, 2, -1));
+    Eq("{stop; cmd print ['Hello!']; wait 1}", DumpL(list));
+    Eq(false, BlockEdits.Move(list, 0, -1));
+    Eq(false, BlockEdits.Move(list, 2, 1));
+    Eq(true, BlockEdits.Delete(list, 0));
+    Eq(false, BlockEdits.Delete(list, 5));
+    Eq("{cmd print ['Hello!']; wait 1}", DumpL(list));
+});
+Test("block edits: duplicate is a deep copy", () =>
+{
+    var m = Parser.Parse(M("if a\n    x = 1\nelse\n    repeat 2\n        y = 1"))[0];
+    var body = m.Whens[0].Body;
+    BlockEdits.Duplicate(body, 0);
+    Eq(2, body.Count);
+    ((RepeatStmt)((IfStmt)body[1]).Else![0]).Body.Add(new StopStmt(0));
+    Eq(1, ((RepeatStmt)((IfStmt)body[0]).Else![0]).Body.Count, "original untouched");
+    BlockEdits.Duplicate(m.Whens, 0);
+    m.Whens[1].Body.Clear();
+    Eq(2, m.Whens[0].Body.Count, "duplicated when has its own body");
+});
+Test("block edits: every palette block prints and parses", () =>
+{
+    var m = Parser.Parse("mechanism T\n")[0];
+    var w = BlockEdits.NewWhen(EventKind.Start);
+    m.Whens.Add(w);
+    foreach (var (id, _) in BlockEdits.StatementKinds) w.Body.Add(BlockEdits.NewStatement(id));
+    foreach (var k in BlockEdits.EventKinds) m.Whens.Add(BlockEdits.NewWhen(k));
+    m.Params.Add(BlockEdits.NewParam(m));
+    m.Params.Add(BlockEdits.NewParam(m));
+    Eq("speed2", m.Params[1].Name);
+    m.Uses.Add(BlockEdits.NewUses());
+    RoundTrip(Printer.Print([m]));
+    Eq(BlockEdits.StatementKinds.Length, Parser.Parse(Printer.Print([m]))[0].Whens[0].Body.Count);
+});
+Test("block edits: names and fields", () =>
+{
+    Eq(null, BlockEdits.CheckName("hp"));
+    Eq(null, BlockEdits.CheckName("self.x", dotted: true));
+    Eq(true, BlockEdits.CheckName("self.x") != null);
+    Eq(true, BlockEdits.CheckName("2x") != null);
+    Eq(true, BlockEdits.CheckName("wait") != null);
+    Eq(true, BlockEdits.CheckName("") != null);
+    var told = BlockEdits.ParseEvent(EventKind.Told, "\"damage\" amount");
+    Eq("damage", told.Filter); Eq("amount", told.Bind);
+    Eq("Health", BlockEdits.ParseEvent(EventKind.Signal, "Health.died").Source);
+    Eq("player", BlockEdits.ParseEvent(EventKind.Touched, "\"player\"").Filter);
+    Eq(null, BlockEdits.ParseEvent(EventKind.Touched, "").Filter);
+    Throws("not a signal", () => BlockEdits.ParseEvent(EventKind.Signal, "start"));
+    Throws("quotes", () => BlockEdits.ParseEvent(EventKind.Told, ""));
+    var (pos, args) = BlockEdits.ParseUsesTail("\"a.png\" size 2");
+    Eq(true, pos is StringExpr); Eq(true, args.ContainsKey("size"));
+    Eq("\"a.png\", size 2", Printer.UsesTail(new UsesDef("Sprite", pos, args, 0)));
+    Eq("touched by", BlockEdits.EventLabel(EventKind.Touched));
+});
+
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;
