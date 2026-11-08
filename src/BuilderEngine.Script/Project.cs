@@ -383,6 +383,12 @@ public sealed class Scene
     public double Height { get; set; } = 450;
     public string Background { get; set; } = "#1A1410";
     public List<SceneObject> Objects { get; set; } = [];
+    /// <summary>The kinds of tile this scene's tile layers use (cell value 1 = the first). Null = no tiles.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<TileKind>? TileKinds { get; set; }
+    /// <summary>Tile grids (the ground, walls behind…), drawn in this order. Null = no tiles.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<TileLayer>? TileLayers { get; set; }
 
     /// <summary>Adds an object, giving it a fresh id. Returns it.</summary>
     public SceneObject Add(SceneObject o)
@@ -415,6 +421,13 @@ public sealed class Scene
         if (Project.Get(o, "objects") is JsonArray arr)
             foreach (var n in arr)
                 if (n is JsonObject on) s.Objects.Add(SceneObject.FromNode(on));
+        if (Project.Get(o, "tileKinds") is JsonArray kinds)
+            s.TileKinds = kinds.OfType<JsonObject>().Select(TileKind.FromNode).ToList();
+        if (Project.Get(o, "tileLayers") is JsonArray layers)
+        {
+            s.TileLayers = layers.OfType<JsonObject>().Select(TileLayer.FromNode).ToList();
+            s.TileKinds ??= [];
+        }
         // Ids must be unique and positive: fix duplicates or missing ones.
         var seen = new HashSet<int>();
         int next = s.Objects.Count == 0 ? 1 : Math.Max(1, s.Objects.Max(x => x.Id) + 1);

@@ -1,0 +1,144 @@
+# Starter kit: buttons, screens, menus and security cameras.
+#   ui                        this object is drawn on the screen (the camera doesn't move it)
+#   caption "Play" with "#111111", 18      a text in the middle of the box ({name} updates by itself)
+#   color "#D97757"           the box's colour            hide / show (this object, or another, or a list)
+#   join screen "Menu"        show screen "Menu"   hide screen "Menu"   toggle screen "Menu"   screen_shown("Menu")
+#   broadcast "play"          every object's 'when told "play"' runs
+#   make Button at 300, 200 with 200, 48   then 'made' is the new object: made.Button.text = "Play"
+#   camera view "Cam 3"       the camera jumps to that object (its box is what you see); camera view off
+#   screen noise 0.3          static over the view ('screen noise 0.9 for 0.2', 'screen noise off'); screen tint "#103018", 0.3
+
+mechanism Button
+    # A button with a text. Clicking it tells 'target' the message (or everyone, when there's no target).
+    param text: text = "Play"
+    param message: text = "play"
+    param value: text = ""
+    param target: Object
+    param color: Color = "#D97757"
+    param hover_color: Color = "#E8956F"
+    param text_color: Color = "#141414"
+    param text_size: number = 18
+    param screen: text = ""
+    param on_screen: yesno = true
+
+    when start
+        if on_screen: ui
+        color color
+        caption text with text_color, text_size
+        if screen != "": join screen screen
+
+    when hovered
+        color hover_color
+
+    when unhovered
+        color color
+
+    when clicked
+        emit pressed
+        if target
+            tell target message value
+        else
+            broadcast message, value
+
+mechanism Panel
+    # A box on the screen: a menu's background, a monitor's frame, a title. With a screen name it shows and hides
+    # with that screen (every object of a screen starts hidden unless 'shown').
+    param title: text = ""
+    param color: Color = ""
+    param title_color: Color = "#ECECEC"
+    param title_size: number = 22
+    param screen: text = ""
+    param shown: yesno = false
+
+    when start
+        ui
+        if color != "": color color
+        if title != "": caption title with title_color, title_size
+        if screen != ""
+            join screen screen
+            if shown: show screen screen
+
+mechanism Menu
+    # A menu on the screen: one button per option, from the top of this box down. Clicking one tells everyone
+    # that option (when told "Play" …). With a screen name it shows and hides with that screen.
+    param options: List of text = ["Play", "Options", "Quit"]
+    param button_color: Color = "#D97757"
+    param button_height: number = 44
+    param spacing: number = 12
+    param screen: text = ""
+
+    when start
+        ui
+        color "#141414"
+        if screen != "": join screen screen
+        y = self.y + spacing
+        for each o in options
+            make Button at self.x + spacing, y with self.width - spacing * 2, button_height
+            made.Button.text = o
+            made.Button.message = o
+            made.Button.color = button_color
+            y += button_height + spacing
+
+mechanism CameraPoint
+    # A place a security camera looks at: this box is what it shows. 'camera view "Cam 1"' (or a CameraMonitor)
+    # jumps there. Not drawn in the game.
+    param zoom: number = 0
+
+    when start
+        visible = false
+
+mechanism CameraMonitor
+    # Security cameras: Tab opens and closes them, keys 1-6 switch between the CameraPoints listed, with static.
+    # Everyone is told "cameras on" / "cameras off". Objects of the screen "Cameras" show while watching.
+    param cameras: List of Object
+    param noise: number = 0.2
+
+    when start
+        visible = false
+        watching = false
+        current = 1
+
+    when key "tab"
+        if watching
+            stop_watching
+        else
+            watch current
+
+    when key "1"
+        if watching: watch 1
+
+    when key "2"
+        if watching: watch 2
+
+    when key "3"
+        if watching: watch 3
+
+    when key "4"
+        if watching: watch 4
+
+    when key "5"
+        if watching: watch 5
+
+    when key "6"
+        if watching: watch 6
+
+
+    when told "camera" n
+        watch n
+
+    to watch n
+        if n < 1 or n > length(cameras): return
+        watching = true
+        current = n
+        camera view cameras[n - 1]
+        screen noise noise
+        screen noise 0.9 for 0.15
+        show screen "Cameras"
+        broadcast "cameras on", n
+
+    to stop_watching
+        watching = false
+        camera view off
+        screen noise off
+        hide screen "Cameras"
+        broadcast "cameras off"

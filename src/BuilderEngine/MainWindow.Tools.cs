@@ -38,6 +38,7 @@ public sealed partial class MainWindow
         var panel = new StackPanel();
         panel.Children.Add(row);
         panel.Children.Add(_toolOptionsRow);
+        panel.Children.Add(TileBar()); // painting tiles (MainWindow.TilePaint.cs)
         _toolsBar = panel;
         RefreshToolsBar();
         return panel;

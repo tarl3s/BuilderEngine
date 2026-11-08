@@ -1,0 +1,42 @@
+# Starter kit: the mouse in the game.
+#   mouse_x, mouse_y          where the pointer is in the scene (camera included); mouse_down(), mouse_over(), mouse_over_ui()
+#   when clicked              this object was clicked (the top one under the pointer)
+#   when hovered / when unhovered      the pointer came over it / left it
+#   when mouse pressed at x, y         anywhere (also "right": when mouse pressed "right" at x, y)
+#   draggable / draggable to "slot"    the mouse can pick it up; with a tag it only stays on things with that tag
+#   when dropped on "slot"    when picked up    when received "card" (on the slot)
+#   cursor "hand"             cursor "cross", "none", default
+# Objects with the tag "ui" (or 'ui' in a script) are drawn on the screen and clicked in screen pixels.
+
+mechanism Draggable
+    # The mouse can pick this object up and drop it. With a zone (a tag), it snaps into things with that tag
+    # and glides back when dropped anywhere else.
+    param zone: text = ""
+
+    when start
+        if zone != ""
+            draggable to zone
+        else
+            draggable
+
+mechanism Clickable
+    # Clicking this object tells 'target' the message (or everyone, when there's no target).
+    param message: text = "clicked"
+    param target: Object
+
+    when clicked
+        emit pressed
+        if target
+            tell target message
+        else
+            broadcast message
+
+mechanism HoverGlow
+    # Gets lighter while the pointer is over it (put it on anything clickable).
+    param glow: number = 0.75
+
+    when hovered
+        fade self to glow in 0.08
+
+    when unhovered
+        fade self to 1 in 0.08

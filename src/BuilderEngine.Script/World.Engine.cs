@@ -34,10 +34,12 @@ public sealed partial class World
         RealTime += realDt;
         UpdateScreen(realDt);
         UpdateUi(realDt);
+        UpdateMouse(realDt); // hover, dragging, glides (World.Mouse.cs)
         Step(Paused ? 0 : realDt * TimeScale);
         UpdateCamera(realDt);
         UpdateAnimations();
         UpdateHud();
+        UpdateEffects(realDt); // screen noise, live captions (World.Screens.cs)
     }
 
     /// <summary>Runs frames for <paramref name="seconds"/> real seconds (tests and headless tools).</summary>

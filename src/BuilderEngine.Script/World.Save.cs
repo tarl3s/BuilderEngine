@@ -53,6 +53,9 @@ public sealed partial class World
         foreach (var (k, v) in Globals)
             if (ToJson(v) is { } node) globals[k] = node;
         data["globals"] = globals;
+        var inv = new JsonObject();
+        foreach (var s in Inventory) inv[s.Name] = s.Count; // the items (World.Inventory.cs)
+        data["inventory"] = inv;
         data["store"] = StoreJson(slot == DefaultSlot ? Store() : ReadStore(data));
         WriteSlot(slot, data);
     }
@@ -64,6 +67,12 @@ public sealed partial class World
         if (data == null) return false;
         if (data["globals"] is JsonObject g)
             foreach (var (k, v) in g) Globals[k] = Project.Value(v);
+        if (data["inventory"] is JsonObject inv)
+        {
+            Inventory.Clear();
+            foreach (var (k, v) in inv)
+                if (Project.Value(v) is double n && n >= 1) Inventory.Add(new ItemStack(k, (int)n));
+        }
         if (slot == DefaultSlot) _store = ReadStore(data);
         return true;
     }

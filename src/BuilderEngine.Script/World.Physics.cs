@@ -58,6 +58,16 @@ public sealed partial class World
             if (o.HasBody) _bodies.Add(o);
             else if (o.Vx != 0 || o.Vy != 0) { o.X += o.Vx * dt; o.Y += o.Vy * dt; } // no Body: flies freely, nothing stops it
         }
+        // Many solids: bodies ask a grid for the ones near them. Solids that move with physics (a falling crate) are
+        // always checked, since they move while the other bodies step.
+        _useSolidGrid = _solids.Count > 24 && _bodies.Count > 0;
+        if (_useSolidGrid)
+        {
+            _solidGrid.Clear();
+            foreach (var s in _solids)
+                if (s.HasBody) _solidGrid.Big.Add(s);
+                else _solidGrid.Insert(s, 1);
+        }
 
         // The lowest body first, so a stack of crates falls and lands together.
         _bodies.Sort(LowestFirst.Instance);
@@ -106,15 +116,30 @@ public sealed partial class World
         double edge = dx > 0 ? b.X + b.Width : b.X;
         double stop = edge + dx;
         bool hit = false;
-        for (int i = 0; i < _solids.Count; i++)
+        var solids = SolidsNear(b.X + Math.Min(dx, 0), b.Y, b.X + b.Width + Math.Max(dx, 0), b.Y + b.Height);
+        for (int i = 0; i < solids.Count; i++)
         {
-            var s = _solids[i];
+            var s = solids[i];
             if (s == b || s.OneWay || s.Destroyed || s.Y >= bottom || s.Y + s.Height <= top) continue;
             if (dx > 0) { if (s.X >= edge - Eps && s.X < stop) { stop = s.X; hit = true; } }
             else { double r = s.X + s.Width; if (r <= edge + Eps && r > stop) { stop = r; hit = true; } }
         }
+        if (_tiles != null && TileStopX(dx, top, bottom, edge, ref stop)) hit = true; // solid tiles (World.Tiles.cs)
         b.X += stop - edge;
         if (hit) b.Vx = 0;
+    }
+
+    readonly SpatialGrid _solidGrid = new(64);
+    readonly List<GameObject> _solidsNear = [];
+    bool _useSolidGrid;
+
+    /// <summary>The solids a body moving inside this box might meet (all of them when there are few).</summary>
+    List<GameObject> SolidsNear(double x0, double y0, double x1, double y1)
+    {
+        if (!_useSolidGrid) return _solids;
+        _solidsNear.Clear();
+        _solidGrid.Query(x0 - 2, y0 - 2, x1 + 2, y1 + 2, _solidsNear);
+        return _solidsNear;
     }
 
     /// <summary>Moves up or down by dy, landing on the first solid top below (or bumping the first ceiling above).</summary>
@@ -125,15 +150,18 @@ public sealed partial class World
         double edge = dy > 0 ? b.Y + b.Height : b.Y;
         double stop = edge + dy;
         GameObject? hit = null;
-        for (int i = 0; i < _solids.Count; i++)
+        var solids = SolidsNear(b.X, b.Y + Math.Min(dy, 0), b.X + b.Width, b.Y + b.Height + Math.Max(dy, 0));
+        for (int i = 0; i < solids.Count; i++)
         {
-            var s = _solids[i];
+            var s = solids[i];
             if (s == b || s.Destroyed || s.X >= right || s.X + s.Width <= left) continue;
             if (dy > 0) { if (s.Y >= edge - Eps && s.Y < stop) { stop = s.Y; hit = s; } }    // feet were above its top
             else if (!s.OneWay) { double r = s.Y + s.Height; if (r <= edge + Eps && r > stop) { stop = r; hit = s; } }
         }
+        bool tileHit = _tiles != null && TileStopY(dy, left, right, edge, ref stop); // solid tiles (World.Tiles.cs)
+        if (tileHit) hit = null; // a tile nearer than any object: standing on the tile map
         b.Y += stop - edge;
-        if (hit == null) return;
+        if (hit == null && !tileHit) return;
         b.Vy = 0;
         if (dy > 0) { b.OnGround = true; b.Ground = hit; }
     }

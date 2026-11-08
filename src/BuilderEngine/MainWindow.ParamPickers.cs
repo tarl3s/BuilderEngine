@@ -127,7 +127,7 @@ public sealed partial class MainWindow
         if (_pickOverlay != null && Selected?.Id != _pickOverlay.OwnerId) _pickOverlay = null; // the selection moved on: cancel
         if (_pathEditing is { } pe && Selected?.Id != pe.Obj) _pathEditing = null;
         _pathOverlay ??= new PathOverlay(this);
-        _canvas.Overlay = _pickOverlay != null ? (ICanvasOverlay)_pickOverlay : Selected is { } o && PathParams(o).Any() ? _pathOverlay : null;
+        _canvas.Overlay = _pickOverlay != null ? (ICanvasOverlay)_pickOverlay : _tileOverlay != null ? _tileOverlay : Selected is { } o && PathParams(o).Any() ? _pathOverlay : null; // _tileOverlay: MainWindow.TilePaint.cs
         _canvas.InvalidateVisual();
     }
 

@@ -1,0 +1,97 @@
+# Starter kit: inventory, items and crafting. There is one inventory for the whole game (it goes on to the next
+# scene and into 'save game').
+#   give "wood", 3            take "wood", 2 (then 'taken' is true if there were enough)      clear inventory
+#   has("wood", 2)            count_item("wood")       items()      selected_item()
+#   item "wood" with "#8B5A2B"    item "sword" with "sword.png"     how an item looks in the hotbar
+#   show hotbar               keys 1-9 and the mouse wheel pick a slot
+#   recipe "torch" from "wood", 1, "coal", 1 as 4      craft "torch" ('crafted')     can_craft("torch")   recipes()
+
+mechanism Pickup
+    # Walk over it to pick it up: the item goes into the inventory.
+    param item: text = "wood"
+    param amount: number = 1
+    param sound: Sound = "coin.wav"
+
+    when touched by "player"
+        give item, amount
+        play sound
+        destroy self
+
+mechanism Hotbar
+    # Shows the first slots of the inventory at the bottom of the screen; keys 1-9 or the mouse wheel pick one.
+    param slots: number = 9
+
+    when start
+        visible = false
+        show hotbar slots
+
+mechanism Recipe
+    # One crafting recipe (on any object; not drawn). The Crafting menu lists every recipe.
+    param makes: text = "torch"
+    param amount: number = 4
+    param need1: text = "wood"
+    param count1: number = 1
+    param need2: text = "coal"
+    param count2: number = 1
+    param need3: text = ""
+    param count3: number = 1
+
+    when start
+        visible = false
+        if need2 == ""
+            recipe makes from need1, count1 as amount
+        else if need3 == ""
+            recipe makes from need1, count1, need2, count2 as amount
+        else
+            recipe makes from need1, count1, need2, count2, need3, count3 as amount
+
+mechanism Crafting
+    # A crafting menu on the screen: C opens and closes it; one button per recipe (dim when you can't make it).
+    # Click one to craft it. Make this object as big as the menu should be.
+    param ready_color: Color = "#6FBF73"
+    param missing_color: Color = "#5A5A5A"
+
+    when start
+        ui
+        color "#141414"
+        caption ""
+        hide
+        open = false
+        buttons = []
+
+    when key "c"
+        if open
+            close_menu
+        else
+            open_menu
+
+    when told "craft" what
+        craft what
+        if crafted: notify "Made " + what
+        close_menu
+        open_menu
+
+    to open_menu
+        open = true
+        show
+        y = self.y + 12
+        for each r in recipes()
+            make Button at self.x + 12, y with self.width - 24, 34
+            made.Button.text = recipe_text(r)
+            made.Button.text_size = 14
+            made.Button.target = self
+            made.Button.message = "craft"
+            made.Button.value = r
+            if can_craft(r)
+                made.Button.color = ready_color
+            else
+                made.Button.color = missing_color
+            add made to buttons
+            y += 42
+
+    to close_menu
+        open = false
+        hide
+        for each b in buttons
+            destroy b
+        buttons = []

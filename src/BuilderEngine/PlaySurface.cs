@@ -16,7 +16,7 @@ namespace BuilderEngine;
 /// messages, the global variables top-right (when the game shows no texts of its own) and a red badge with the error
 /// count. Takes the keyboard while playing; keys go through the world, which handles locked controls and dialogues.
 /// </summary>
-sealed class PlaySurface : Control, ICustomHitTest
+sealed partial class PlaySurface : Control, ICustomHitTest
 {
     const double Step = 1.0 / 60;
     readonly World _world;
@@ -117,6 +117,7 @@ sealed class PlaySurface : Control, ICustomHitTest
             return;
         }
         if (steps == 5) _acc = 0; // too slow: drop the backlog instead of spiralling
+        UpdateCursor(); // PlaySurface.GameKit.cs
         InvalidateVisual();
         RequestFrame();
     }
@@ -159,15 +160,32 @@ sealed class PlaySurface : Control, ICustomHitTest
         {
             ctx.FillRectangle(Outside, area);
             var world = Matrix.CreateTranslation(-cam.Left, -cam.Top) * Matrix.CreateScale(s, s) * Matrix.CreateTranslation(area.X, area.Y);
+            var visible = new Rect(cam.Left, cam.Top, cam.ViewWidth, cam.ViewHeight);
+            SortObjects();
             using (ctx.PushTransform(world))
             using (ctx.PushRenderOptions(Crisp))
             {
                 ctx.FillRectangle(SceneCanvas.BrushOf(_scene.Background, Palette.Bg1), new Rect(0, 0, _world.SceneWidth, _world.SceneHeight));
-                DrawObjects(ctx);
+                if (_world.HasTiles) TileDraw.Draw(ctx, _world.Tiles.Layers, _world.Tiles.Kinds, visible, _images, front: false); // GameKit: tiles behind
+                DrawObjects(ctx, _order, visible);
+                if (_world.HasTiles)
+                {
+                    TileDraw.Draw(ctx, _world.Tiles.Layers, _world.Tiles.Kinds, visible, _images, front: true);
+                    TileDraw.DrawDig(ctx, _world.Tiles);
+                }
                 DrawHudItems(ctx, anchored: true, area, scale);
                 DrawDebugMarks(ctx, s);
             }
+            // GameKit: darkness and lights, a tint and static over the scene — under the screen objects and the HUD.
+            DrawLighting(ctx, area);
+            DrawOverlay(ctx, area, _world.TintAmount, _world.TintColor, _tintBrush);
+            DrawNoise(ctx, area);
+            if (_uiOrder.Count > 0)
+                using (ctx.PushTransform(Matrix.CreateScale(scale, scale) * Matrix.CreateTranslation(area.X, area.Y)))
+                using (ctx.PushRenderOptions(Crisp))
+                    DrawObjects(ctx, _uiOrder, new Rect(0, 0, cam.BaseWidth, cam.BaseHeight));
             DrawHudItems(ctx, anchored: false, area, scale);
+            DrawHotbar(ctx, area, scale);
             DrawOverlay(ctx, area, _world.FadeAmount, _world.FadeColor, _fadeBrush);
             DrawOverlay(ctx, area, _world.FlashAmount, _world.FlashColor, _flashBrush);
             DrawDialogue(ctx, area, scale);
@@ -180,29 +198,40 @@ sealed class PlaySurface : Control, ICustomHitTest
         DrawErrors(ctx);
     }
 
-    void DrawObjects(DrawingContext ctx)
+    /// <summary>The objects to draw this frame, by layer (scene order inside a layer): scene ones, then screen ones.</summary>
+    void SortObjects()
     {
         var objs = _world.Objects;
         _order.Clear();
+        _uiOrder.Clear();
         bool layered = false;
         for (int i = 0; i < objs.Count; i++)
         {
             var o = objs[i];
-            if (o.Destroyed || !Shown(o) || o.Opacity <= 0.001) continue;
+            if (o.Destroyed || o.Opacity <= 0.001 || !o.Shown) continue;
             if (o.Z != 0) layered = true;
-            _order.Add(o);
+            (o.Ui ? _uiOrder : _order).Add(o);
         }
-        if (layered) // stable insertion sort by layer (scene order inside a layer)
-            for (int i = 1; i < _order.Count; i++)
-            {
-                var o = _order[i];
-                int j = i - 1;
-                while (j >= 0 && _order[j].Z > o.Z) { _order[j + 1] = _order[j]; j--; }
-                _order[j + 1] = o;
-            }
+        if (layered) { ByLayer(_order); ByLayer(_uiOrder); }
+    }
 
-        foreach (var o in _order)
+    static void ByLayer(List<GameObject> list) // stable insertion sort by layer
+    {
+        for (int i = 1; i < list.Count; i++)
         {
+            var o = list[i];
+            int j = i - 1;
+            while (j >= 0 && list[j].Z > o.Z) { list[j + 1] = list[j]; j--; }
+            list[j + 1] = o;
+        }
+    }
+
+    void DrawObjects(DrawingContext ctx, List<GameObject> order, Rect visible)
+    {
+        foreach (var o in order)
+        {
+            // Off the view: skip (big worlds have thousands of objects).
+            if (o.X > visible.Right || o.Y > visible.Bottom || o.X + o.Width < visible.X || o.Y + o.Height < visible.Y) continue;
             if (o.Opacity < 0.999)
                 using (ctx.PushOpacity(o.Opacity)) DrawObject(ctx, o);
             else DrawObject(ctx, o);
@@ -212,9 +241,13 @@ sealed class PlaySurface : Control, ICustomHitTest
     void DrawObject(DrawingContext ctx, GameObject o)
     {
         var r = new Rect(o.X, o.Y, Math.Max(0, o.Width), Math.Max(0, o.Height));
-        if (_images.Get(o.Image) is { } bmp) { DrawPicture(ctx, bmp, r, o.SheetFrames, o.SheetFrame, o.FlipX); return; }
-        double rad = Math.Min(6, Math.Min(r.Width, r.Height) / 4);
-        ctx.DrawRectangle(BrushFor(o), null, r, rad, rad);
+        if (_images.Get(o.Image) is { } bmp) DrawPicture(ctx, bmp, r, o.SheetFrames, o.SheetFrame, o.FlipX);
+        else
+        {
+            double rad = Math.Min(6, Math.Min(r.Width, r.Height) / 4);
+            ctx.DrawRectangle(BrushFor(o), null, r, rad, rad);
+        }
+        if (!string.IsNullOrEmpty(o.Caption)) DrawCaption(ctx, o, r);
     }
 
     /// <summary>A picture (or one frame of a strip) stretched to the box, mirrored when facing left.</summary>
@@ -232,26 +265,11 @@ sealed class PlaySurface : Control, ICustomHitTest
 
     IBrush BrushFor(GameObject o)
     {
+        if (o.Color != null) return SceneCanvas.BrushOf(o.Color, Fallback); // its scene colour, or one a script set ('color')
         if (_brushes.TryGetValue(o, out var b)) return b;
         b = o.Mechanisms.Count > 0 && _byMechanism.TryGetValue(o.Mechanisms[0].Def.Name, out var mb) ? mb : Fallback;
         _brushes[o] = b;
         return b;
-    }
-
-    /// <summary>Hidden when any of its mechanisms has <c>visible</c> set to false.</summary>
-    static bool Shown(GameObject o)
-    {
-        foreach (var m in o.Mechanisms)
-            if (!Shown(m)) return false;
-        return true;
-    }
-
-    static bool Shown(MechanismInstance m)
-    {
-        if (m.Vars.TryGetValue("visible", out var v) && v is bool b && !b) return false;
-        foreach (var c in m.Children.Values)
-            if (!Shown(c)) return false;
-        return true;
     }
 
     Color ColorOf(string text, Color fallback)
@@ -339,7 +357,7 @@ sealed class PlaySurface : Control, ICustomHitTest
         var cam = _world.Camera;
         double zs = scale * cam.Zoom;
         Rect? speaker = null;
-        if (d.SpeakerObject is { Destroyed: false } so && Shown(so))
+        if (d.SpeakerObject is { Destroyed: false } so && so.Shown && !so.Ui)
         {
             var r = new Rect(area.X + (so.X - cam.Left) * zs, area.Y + (so.Y - cam.Top) * zs, so.Width * zs, so.Height * zs);
             if (r.Intersects(area)) speaker = r;
@@ -549,10 +567,11 @@ sealed class PlaySurface : Control, ICustomHitTest
             e.Handled = true;
             return;
         }
+        GameMouseDown(e, p); // the game gets the click too: when clicked, dragging… (PlaySurface.GameKit.cs)
+        e.Handled = true;
         if (ObjectClicked == null) return;
         ObjectClicked(ObjectAtScreen(p));
         InvalidateVisual();
-        e.Handled = true;
     }
 
     // ---------------- Debugger ----------------
@@ -569,6 +588,12 @@ sealed class PlaySurface : Control, ICustomHitTest
         if (scale <= 0 || !area.Contains(p)) return null;
         var cam = _world.Camera;
         double s = scale * cam.Zoom;
+        double ux = (p.X - area.X) / scale, uy = (p.Y - area.Y) / scale; // screen objects first
+        for (int i = _uiOrder.Count - 1; i >= 0; i--)
+        {
+            var o = _uiOrder[i];
+            if (!o.Destroyed && ux >= o.X && ux <= o.X + o.Width && uy >= o.Y && uy <= o.Y + o.Height) return o;
+        }
         double x = cam.Left + (p.X - area.X) / s, y = cam.Top + (p.Y - area.Y) / s;
         for (int i = _order.Count - 1; i >= 0; i--)
         {

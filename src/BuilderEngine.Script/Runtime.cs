@@ -25,7 +25,7 @@ public sealed partial class GameObject
 }
 
 /// <summary>One mechanism attached to one object: its own variables and its running 'when's.</summary>
-public sealed class MechanismInstance
+public sealed partial class MechanismInstance
 {
     public MechanismDef Def { get; }
     public GameObject Owner { get; }
@@ -54,7 +54,7 @@ public sealed partial class World
     readonly List<GameObject> _objects = [];
     readonly List<GameObject> _pendingAdd = [];
     readonly List<Coroutine> _running = [];
-    readonly HashSet<(int, int)> _touching = [];
+    HashSet<(int, int)> _touching = [];
     int _nextId = 1;
 
     public IReadOnlyList<GameObject> Objects => _objects;
@@ -180,10 +180,10 @@ public sealed partial class World
         key = key.ToLowerInvariant();
         _keyPressed[key] = ++_keySeq; // for 'wait for key'
         Debug?.Event(DebugEventKind.Key, null, "key " + key);
-        foreach (var o in _objects.ToArray())
-            foreach (var m in o.AllMechanisms())
-                foreach (var w in m.Def.Whens)
-                    if (w.Event.Kind == EventKind.Key && w.Event.Filter == key) StartWhen(m, w, null);
+        for (int i = 0, n = _objects.Count; i < n && i < _objects.Count; i++)
+            foreach (var m in _objects[i].Flat)
+                foreach (var w in m.Ix.Key)
+                    if (w.Event.Filter == key) StartWhen(m, w, null);
     }
 
     /// <summary>Advances the game by dt seconds: new objects start, ticks run, touches fire, waits resume.</summary>
@@ -196,41 +196,31 @@ public sealed partial class World
             _pendingAdd.Clear();
             _objects.AddRange(batch);
             foreach (var o in batch)
-                foreach (var m in o.AllMechanisms())
-                    foreach (var w in m.Def.Whens)
-                        if (w.Event.Kind == EventKind.Start) StartWhen(m, w, null);
+            {
+                ObjectJoined(o); // game kit caches (World.Broadphase.cs)
+                foreach (var m in o.Flat)
+                    foreach (var w in m.Ix.Start) StartWhen(m, w, null);
+            }
         }
 
         Time += dt;
         LastDt = dt;
 
         // 2. 'when tick' runs every step (a tick still busy with a 'wait' isn't started again).
-        foreach (var o in _objects.ToArray())
-            foreach (var m in o.AllMechanisms())
-                foreach (var w in m.Def.Whens)
-                    if (w.Event.Kind == EventKind.Tick && !_running.Any(c => c.Inst == m && c.When == w)) StartWhen(m, w, null);
+        for (int i = 0, n = _objects.Count; i < n && i < _objects.Count; i++)
+            foreach (var m in _objects[i].Flat)
+            {
+                var ticks = m.Ix.Tick;
+                for (int k = 0; k < ticks.Length; k++)
+                    if (!m.IsTickBusy(ticks[k])) StartWhen(m, ticks[k], null);
+            }
 
-        // 2b. Physics: objects move by their speed; bodies fall and stop at solids (World.Physics.cs).
+        // 2b. Physics: objects move by their speed; bodies fall and stop at solids and solid tiles (World.Physics.cs).
         StepPhysics(dt);
 
         // 3. Touches: fire once when two objects start overlapping (or, with a solid, start resting against it).
-        var live = _objects.Where(o => !o.Destroyed).ToArray();
-        for (int i = 0; i < live.Length; i++)
-            for (int j = i + 1; j < live.Length; j++)
-            {
-                var a = live[i]; var b = live[j];
-                var key = (Math.Min(a.Id, b.Id), Math.Max(a.Id, b.Id));
-                if (a.InContact(b))
-                {
-                    if (_touching.Add(key))
-                    {
-                        Debug?.Event(DebugEventKind.Touched, a, $"{a.Name} touched {b.Name}", b);
-                        FireTouch(a, b);
-                        FireTouch(b, a);
-                    }
-                }
-                else _touching.Remove(key);
-            }
+        //    A grid broadphase finds the pairs (World.Broadphase.cs).
+        StepTouches();
 
         // 4. Resume coroutines whose wait is over.
         RunReady();
@@ -244,10 +234,9 @@ public sealed partial class World
     void FireTouch(GameObject self, GameObject other)
     {
         if (self.Destroyed || other.Destroyed) return;
-        foreach (var m in self.AllMechanisms())
-            foreach (var w in m.Def.Whens)
+        foreach (var m in self.Flat)
+            foreach (var w in m.Ix.Touched)
             {
-                if (w.Event.Kind != EventKind.Touched) continue;
                 if (w.Event.Filter != null && !other.Is(w.Event.Filter)) continue;
                 StartWhen(m, w, w.Event.Bind == null ? null : new() { [w.Event.Bind] = other }, other);
             }
@@ -271,9 +260,9 @@ public sealed partial class World
     {
         if (target.Destroyed) return;
         Debug?.Event(DebugEventKind.Told, target, $"{target.Name} told {Printer.Quote(message)}" + DebugArgs(args));
-        foreach (var m in target.AllMechanisms().ToArray())
-            foreach (var w in m.Def.Whens)
-                if (w.Event.Kind == EventKind.Told && w.Event.Filter == message)
+        foreach (var m in target.Flat)
+            foreach (var w in m.Ix.Told)
+                if (w.Event.Filter == message)
                     StartWhen(m, w, w.Event.Bind == null ? null : new() { [w.Event.Bind] = args.Count > 0 ? args[0] : null });
     }
 
@@ -285,13 +274,19 @@ public sealed partial class World
         if (Debug != null) co.State = ctx.State = new CoState { Line = w.Line, Source = w.From };
         // Runs right away until its first 'wait' (so effects happen in the same step).
         Advance(co);
-        if (!co.Done) _running.Add(co);
+        if (co.Done) return;
+        _running.Add(co);
+        if (w.Event.Kind == EventKind.Tick) m.MarkTickBusy(w, true); // cleared when it ends (Coroutine.Done)
     }
 
     void RunReady()
     {
-        foreach (var co in _running.ToArray())
+        // New ones (started by 'run' or a tell) are added at the end and wait for the next step, as before.
+        for (int i = 0, n = _running.Count; i < n; i++)
+        {
+            var co = _running[i];
             if (!co.Done && co.WakeAt <= Time + 1e-9 && (co.Until == null || SafeUntil(co))) Advance(co);
+        }
         _running.RemoveAll(c => c.Done);
     }
 
@@ -339,7 +334,17 @@ public sealed partial class World
         public readonly IEnumerator<WaitFor> It = it;
         public double WakeAt;
         public Func<bool>? Until;
-        public bool Done;
+        bool _done;
+        /// <summary>Finished; a 'when tick' that ends can be started again next step.</summary>
+        public bool Done
+        {
+            get => _done;
+            set
+            {
+                if (value && !_done && When?.Event.Kind == EventKind.Tick) Inst.MarkTickBusy(When, false);
+                _done = value;
+            }
+        }
         /// <summary>Where it is (only while a debugger is attached).</summary>
         public CoState? State;
     }
@@ -524,6 +529,8 @@ public sealed partial class World
         string member = a.Target[^1];
         switch (holder)
         {
+            case GameObject g when SetGameMember(g, member, a.Op, value, a.Line): // hidden, color, text… (World.Screens.cs)
+                break;
             case GameObject g:
             {
                 double cur = member switch { "x" => g.X, "y" => g.Y, "width" => g.Width, "height" => g.Height, "vx" => g.Vx, "vy" => g.Vy, _ => throw new ScriptError($"Objects have x, y, width, height, vx and vy you can change — not '{member}'.", a.Line) };
@@ -597,7 +604,8 @@ public sealed partial class World
         throw new ScriptError("I can't work out this value.", e.Line);
     }
 
-    static readonly Random Rng = new();
+    /// <summary>The game's dice ('random', 'random_item', 'shuffle'); 'random_seed 5' makes them repeat (World.Tiles.cs).</summary>
+    internal Random Rng = new();
 
 
     object? Resolve(string[] path, Ctx ctx, int line)
@@ -613,7 +621,7 @@ public sealed partial class World
                     "x" => g.X, "y" => g.Y, "width" => g.Width, "height" => g.Height, "name" => g.Name,
                     "vx" => g.Vx, "vy" => g.Vy, "on_ground" => g.OnGround,
                     _ => (object?)g.AllMechanisms().FirstOrDefault(x => string.Equals(x.Def.Name, m, StringComparison.OrdinalIgnoreCase))
-                         ?? throw new ScriptError($"'{g.Name}' has no '{m}'.", line)
+                         ?? (TryGameMember(g, m, out var gm) ? gm : throw new ScriptError($"'{g.Name}' has no '{m}'.", line)) // World.Screens.cs
                 },
                 MechanismInstance inst => inst.Vars.TryGetValue(m, out var v) ? v
                     : inst.Children.TryGetValue(m, out var ch) ? ch : null,
@@ -642,6 +650,7 @@ public sealed partial class World
         foreach (var other in ctx.Inst.Owner.AllMechanisms())
             if (string.Equals(other.Def.Name, n, StringComparison.Ordinal)) return other;
         if (Globals.TryGetValue(n, out v)) return v;
+        if (EngineValues.TryGetValue(n, out var ev)) return ev(this); // mouse_x, mouse_y… (World.Mouse.cs)
         if (Library.ContainsKey(n)) return n; // a mechanism name, e.g. 'spawn Coin'
         return null; // an unset variable reads as nothing (0 / false / empty text)
     }

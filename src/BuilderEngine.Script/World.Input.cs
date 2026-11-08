@@ -36,19 +36,29 @@ public sealed partial class World
     /// <summary>A key went down (auto-repeat is ignored).</summary>
     public void KeyDown(string key)
     {
-        key = key.ToLowerInvariant();
+        key = NormalKey(key);
         if (!_held.Add(key)) return;
         if (UiKey(key)) { _swallowed.Add(key); return; }
         if (ControlsLocked) return;
+        HotbarKey(key); // 1-9 pick a hotbar slot (World.Inventory.cs); the key still reaches the game
         if (KeysDown.Add(key)) PressKey(key);
     }
 
     public void KeyUp(string key)
     {
-        key = key.ToLowerInvariant();
+        key = NormalKey(key);
         _held.Remove(key);
         _swallowed.Remove(key);
         KeysDown.Remove(key);
+    }
+
+    /// <summary>Lower case; the number keys ("d1" from the keyboard, "numpad1") are just "1", so 'when key "1"' works.</summary>
+    static string NormalKey(string key)
+    {
+        key = key.ToLowerInvariant();
+        if (key.Length == 2 && key[0] == 'd' && char.IsAsciiDigit(key[1])) return key[1..];
+        if (key.Length == 7 && key.StartsWith("numpad") && char.IsAsciiDigit(key[6])) return key[6..];
+        return key;
     }
 
     /// <summary>The window lost the keyboard: every key counts as let go.</summary>

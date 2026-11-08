@@ -38,7 +38,8 @@ public static class AiKnowledge
         "show text \"Score: {score}\" at 16, 16 · show bar hp of max at self · hide text \"Score: {score}\" · hide hud\n" +
         "look \"hero.png\" · animate \"walk\" at 8 · face left · face player · layer 2 · play \"coin.wav\"\n" +
         "spawn Coin here · spawn Bullet self.x, self.y · destroy self · destroy other · goto_scene \"Level 2\" · save game · load game · save \"coins\", 12 · saved(\"coins\")\n" +
-        "nearest(\"enemy\") · all(\"coin\") · count(\"enemy\") · find(\"Boss\") · distance(self, other) · random(1, 6) · min(a, b) · length(list) · add x to list\n";
+        "nearest(\"enemy\") · all(\"coin\") · count(\"enemy\") · find(\"Boss\") · distance(self, other) · random(1, 6) · min(a, b) · length(list) · add x to list\n" +
+        "set_tile x, y to \"dirt\" · darkness 0.9 · light 140 · when clicked · draggable to \"slot\" · give \"wood\", 3 · has(\"wood\", 2) · shuffle deck\n";
 
     static string? _vocabulary;
 
@@ -67,9 +68,10 @@ public static class AiKnowledge
     {
         if (_kit != null) return _kit;
         var list = new List<KitMechanism>();
-        foreach (var (_, src) in StarterKit.Sources())
+        foreach (var (file, src) in StarterKit.Sources())
             foreach (var (name, source) in AiMerge.Split(src))
             {
+                if (GameKitFiles.Contains(file)) GameKitNames.Add(name);
                 try { list.Add(new KitMechanism(name, source, Parser.Parse(source)[0])); }
                 catch (ScriptError) { }
             }
@@ -98,7 +100,12 @@ public static class AiKnowledge
     }
 
     /// <summary>The starter kit in one line per mechanism, so the AI can `uses` them.</summary>
-    public static string KitSummary() => "STARTER KIT (use with `uses Name`): " + string.Join(" · ", Kit().Select(k => Describe(k.Def)));
+    public static string KitSummary() => "STARTER KIT (use with `uses Name`): " + string.Join(" · ", Kit().Where(k => !GameKitNames.Contains(k.Name)).Select(k => Describe(k.Def))) +
+        "\nGAME KIT: " + string.Join(", ", Kit().Where(k => GameKitNames.Contains(k.Name)).Select(k => k.Name));
+
+    /// <summary>The game kit's files: their mechanisms are listed by name only, to keep the prompt small (examples show the ones a request needs).</summary>
+    static readonly HashSet<string> GameKitFiles = new(StringComparer.OrdinalIgnoreCase) { "Tiles.bs", "Lighting.bs", "Mouse.bs", "Ui.bs", "Items.bs", "Cards.bs" };
+    static readonly HashSet<string> GameKitNames = new(StringComparer.OrdinalIgnoreCase);
 
     // ---------------- Picking examples by word overlap ----------------
 
@@ -123,6 +130,22 @@ public static class AiKnowledge
         (["move", "arrows", "topdown", "wasd", "steer"], "PlayerMove"),
         (["solid", "wall", "ground", "floor"], "Solid"),
         (["oneway", "through"], "OneWay"),
+        (["tile", "tiles", "mine", "mining", "dig", "digs", "sandbox", "minecraft", "terraria"], "TileMiner"),
+        (["world", "generate", "generated", "terrain", "hills", "caves", "ore", "ores", "procedural"], "WorldGen"),
+        (["cave", "underground", "dungeon", "rock", "rocks"], "CaveGen"),
+        (["light", "lights", "dark", "darkness", "torch", "lamp", "flashlight", "glow"], "Light"),
+        (["night", "day", "sun", "sunlight"], "DayNight"),
+        (["drag", "drop", "dragged", "dropped", "mouse", "slot"], "Draggable"),
+        (["click", "clicked", "clicks", "button", "buttons"], "Button"),
+        (["menu", "options", "pause"], "Menu"),
+        (["inventory", "item", "items", "pickup", "collect"], "Pickup"),
+        (["craft", "crafting", "recipe", "recipes"], "Crafting"),
+        (["hotbar", "slots", "toolbar"], "Hotbar"),
+        (["card", "cards", "flip", "hand"], "Card"),
+        (["deck", "draw", "shuffle", "deal"], "Deck"),
+        (["turn", "turns", "rounds"], "TurnManager"),
+        (["security", "cameras", "monitor", "watch", "cctv"], "CameraMonitor"),
+        (["topdown", "zelda", "rpg"], "TopDown"),
     ];
 
     /// <summary>Portuguese / Spanish words a request may still have (when the translation was skipped) → English.</summary>
