@@ -55,6 +55,7 @@ public sealed partial class MainWindow
                 await SnapEngineFeatures(dir);
                 await SnapDebugFeatures(dir); // MainWindow.DebugSnap.cs
                 await SnapTools(dir); // MainWindow.ToolsSnap.cs
+                await SnapAiFeatures(dir);
             }
             catch (Exception e) { File.WriteAllText(Path.Combine(dir, "error.txt"), e.ToString()); }
             Close();

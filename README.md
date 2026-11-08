@@ -4,7 +4,7 @@ A game engine where you build your own **mechanisms** — reusable pieces for an
 lights, editor tools) — with blocks or with **Builder Script**, a small language you can start with 9 words. The more mechanisms you
 make, the faster you make games.
 
-Status: early prototype (v0.4.0). See [docs/MVP.md](docs/MVP.md).
+Status: early prototype (v0.5.0). See [docs/MVP.md](docs/MVP.md).
 
 What works today:
 - **Scene**: drag mechanisms from the library onto the scene, move/resize objects (snap, undo/redo), inspector with a field per `param`, Play inside the editor (Esc to stop).
@@ -23,6 +23,7 @@ What works today:
 - **Editor tools**: a mechanism with `when tool click at x, y` (or `drag`, `release`, `used`, `key`) is a tool — it shows in the scene's **TOOLS** row and edits the scene while you build: `place "Coin" at x, y` (a copy of a scene object, or a new object with that mechanism), `erase at x, y`, `fill_row "Ground" from 0 to 800 at 400`, `select obj`, `objects_at(x, y)`, `snap(x, 32)`. Its params show in an options row; each use is one Ctrl+Z. The starter kit has PlatformPainter, CoinLine, Eraser, Scatter and RoomMaker — every tool you make speeds up every game after it.
 - **C# plugins** (for programmers): a .NET 8 class library implementing `IBuilderPlugin` (`src/BuilderEngine.Plugin`) adds commands and functions to Builder Script. Put the `.dll` in the project's `plugins/` folder; BuilderEngine asks once per project before running plugins, and Project → Plugins… lists, reloads and opens the folder. See [docs/PLUGINS.md](docs/PLUGINS.md) and `samples/HelloPlugin`.
 - **Projects**: a folder with `project.json` + `mechanisms/*.bs` + `sounds/`. The **Project** menu makes new projects (in `Documents\BuilderEngine Projects`), opens folders, lists recent ones and saves; switching saves first. Settings live in `%APPDATA%\BuilderEngine\settings.json`. `--project <folder>` opens another one without touching the settings; `--appdata <folder>` moves settings and My Library (dev/test runs).
+- **AI assistant** (the **✨ AI** tab next to the Inspector): it writes mechanisms and teaches — it never builds your game behind your back. **Make** ("make me a mechanism that…"), **Edit** the open mechanism ("make the jump higher"), **Explain** it (or the selected lines, or "how do I…?") and **Fix** an error (the console's **✨ Fix** button). What the AI writes is parsed and tested a few seconds in your scene first (one automatic retry with the error), then shown as a preview — a diff for changes — and only **Accept** puts it in the project. Works with a local model (Ollama, e.g. `qwen2.5-coder:3b`) or free cloud tiers (Groq, Gemini, OpenRouter, Mistral) and your own keys (OpenAI, Claude, DeepSeek, any OpenAI-compatible URL), set in ⚙. Requests in Portuguese (or other languages) work; explanations come back in your language. Keys stay in `settings.json`, never in projects or logs.
 
 ```
 mechanism Coin
