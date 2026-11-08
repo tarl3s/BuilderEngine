@@ -53,7 +53,69 @@ public sealed class LauncherWindow : Window
             if (e.Key == Key.N && e.KeyModifiers == KeyModifiers.Control) { _ = NewProjectAsync(); e.Handled = true; }
             if (e.Key == Key.O && e.KeyModifiers == KeyModifiers.Control) { _ = OpenFolderAsync(); e.Handled = true; }
         };
+        InstallSamplesOnce();
         FillRecent();
+        Opened += async (_, _) => await CheckForUpdateAsync();
+    }
+
+    readonly TextBlock _versionText = new() { Foreground = Palette.TextDim, FontSize = 12, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap };
+
+    /// <summary>
+    /// Like EasyEngine: ask GitHub for the latest release; if it is newer, ask, download it and let a small script swap the
+    /// files after BuilderEngine closes. A build run from the source code (the owner's bin\Debug) never updates this way.
+    /// </summary>
+    async Task CheckForUpdateAsync()
+    {
+        if (Updater.IsDevBuild || Environment.GetCommandLineArgs().Contains("--snap-launcher")) return;
+        var r = await Updater.CheckAsync();
+        if (r == null) return;
+        string notes = r.Notes.Length > 600 ? r.Notes[..600] + "…" : r.Notes;
+        var answer = await Dialogs.Ask(this, "A new version is ready",
+            $"BuilderEngine v{r.Version.ToString(3)} is available (you have v{Updater.Current.ToString(3)}).\n\n{notes}\n\nUpdate now? BuilderEngine closes and opens again by itself.",
+            "Update", "Later");
+        if (answer != "Update") return;
+        try
+        {
+            _versionText.Text = "Downloading the update…";
+            var progress = new Progress<double>(p => _versionText.Text = $"Downloading the update… {Math.Round(p * 100)}%");
+            var dir = await Updater.DownloadAsync(r, progress);
+            Updater.StartSwap(dir, Updater.InstallDir, Environment.ProcessId);
+            Close();
+        }
+        catch (Exception e)
+        {
+            _versionText.Text = "v" + Version();
+            await Dialogs.Ask(this, "The update failed", e.Message, "OK");
+        }
+    }
+
+    /// <summary>
+    /// Like EasyEngine's samples: the first time the start screen opens, each sample game is made in
+    /// Documents\BuilderEngine Projects and added to Recent. Settings remember which were installed
+    /// ("samplesInstalled"), so one the person removes doesn't come back.
+    /// </summary>
+    void InstallSamplesOnce()
+    {
+        try
+        {
+            var installed = _settings.GetList("samplesInstalled");
+            var recent = _settings.RecentProjects();
+            bool changed = false;
+            foreach (var (name, _, _) in Samples)
+            {
+                if (installed.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
+                string dir = Path.Combine(ProjectsRoot, name);
+                try { if (!Project.Exists(dir)) SampleGames.Make(name, dir); }
+                catch { continue; } // try again next time
+                if (!recent.Any(r => AppSettings.SameFolder(r, dir))) recent.Add(dir);
+                installed.Add(name);
+                changed = true;
+            }
+            if (!changed) return;
+            _settings.SetList("samplesInstalled", installed);
+            _settings.SetList("recentProjects", recent.Take(AppSettings.MaxRecent));
+        }
+        catch { /* samples are a convenience */ }
     }
 
     // ---------------- Layout ----------------
@@ -72,7 +134,8 @@ public sealed class LauncherWindow : Window
             Text = "Build your own mechanisms with blocks or code — every one you make makes the next game faster.",
             TextWrapping = TextWrapping.Wrap, Foreground = Palette.TextDim, Margin = new Thickness(0, 12, 0, 0)
         };
-        var version = new TextBlock { Text = "v" + Version(), Foreground = Palette.TextDim, FontSize = 12, Margin = new Thickness(0, 6, 0, 0) };
+        var version = _versionText;
+        version.Text = "v" + Version() + (Environment.GetCommandLineArgs().Contains("--updated") ? "  — updated ✓" : "");
 
         var newBtn = MainWindow.AccentButton("＋  New project");
         newBtn.HorizontalAlignment = HorizontalAlignment.Stretch;

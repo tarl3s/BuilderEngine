@@ -31,6 +31,14 @@ public sealed class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        // Every window gets the hammer icon (Assets/BuilderEngine.ico, drawn by tools/Make-Icon.ps1).
+        try
+        {
+            var icon = new Avalonia.Controls.WindowIcon(Avalonia.Platform.AssetLoader.Open(new Uri("avares://BuilderEngine/Assets/BuilderEngine.ico")));
+            Avalonia.Controls.Window.WindowOpenedEvent.AddClassHandler<Avalonia.Controls.Window>((w, _) => w.Icon ??= icon);
+        }
+        catch { /* no icon is fine */ }
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Dev and test runs (--project, --snap) go straight to the editor; a normal start shows the start screen.
