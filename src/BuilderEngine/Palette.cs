@@ -13,6 +13,7 @@ public static class Palette
     public static readonly IBrush TextDim = Solid("#A3A3A3");
     public static readonly IBrush Accent = Solid("#D97757");  // faded orange
     public static readonly IBrush AccentSoft = Solid("#2A1D17");
+    public static readonly IBrush AccentBorder = Solid("#5A3A2C");
     public static readonly IBrush AccentText = Solid("#141414");
     public static readonly IBrush Ok = Solid("#6FAE8E");
     public static readonly IBrush Error = Solid("#E07A6A");

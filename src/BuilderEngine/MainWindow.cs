@@ -1,43 +1,56 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Controls.Shapes;
 using Avalonia.Media;
-using Avalonia.Threading;
 using BuilderEngine.Script;
 
 namespace BuilderEngine;
 
 /// <summary>
-/// First editor shell: mechanism library on the left, the Builder Script editor in the middle (checked as you type),
-/// and a live preview on the right that plays a tiny test scene with the mechanism.
+/// The editor shell. Layout: top bar (tabs Scene / Mechanism, Save, Play), mechanism library on the left,
+/// the scene or the mechanism editor (blocks and/or code) in the middle, inspector + console on the right.
+/// Features live in partial files: MainWindow.Scene.cs (scene, inspector, play, project) and
+/// MainWindow.Blocks.cs (blocks view). This file only owns the shell and the shared helpers below.
 /// </summary>
-public sealed class MainWindow : Window
+public sealed partial class MainWindow : Window
 {
-    readonly Dictionary<string, string> _sources = new();   // mechanism name -> its source
-    readonly ListBox _library = new();
+    // ---- Shared state (used by every feature file) ----
+    /// <summary>Mechanism name -> its Builder Script source. The starter kit and the project's own mechanisms.</summary>
+    internal readonly Dictionary<string, string> _sources = new();
+    /// <summary>The mechanism open in the Mechanism tab.</summary>
+    internal string? _current;
+    internal readonly ListBox _library = new();
+
     readonly TextBox _code = new();
     readonly TextBlock _status = new();
     readonly Ellipse _statusDot = new() { Width = 8, Height = 8 };
-    readonly Canvas _stage = new() { Background = Brushes.Transparent, ClipToBounds = true };
     readonly TextBlock _console = new();
-    readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(16) };
-    World? _world;
-    string? _current;
+    readonly ContentControl _center = new();
+    readonly ContentControl _rightTop = new();
+    readonly Grid _mechArea = new() { ColumnDefinitions = new ColumnDefinitions("*,*") };
+    readonly Border _blocksBox = new();
+    readonly Border _codeBox = new();
+    readonly Button _tabScene = new(), _tabMech = new();
+    readonly Button _modeBlocks = new(), _modeBoth = new(), _modeCode = new();
+    Control? _sceneView, _inspector, _mechInfo, _mechPanel;
     bool _loading;
+    bool _sceneTab = true;
+    string _mode = "both";
 
     public MainWindow()
     {
         Title = "BuilderEngine";
-        Width = 1280; Height = 800;
-        MinWidth = 900; MinHeight = 560;
+        Width = 1360; Height = 840;
+        MinWidth = 960; MinHeight = 600;
         Background = Palette.Bg0;
         Foreground = Palette.Text;
 
         foreach (var (_, src) in StarterKit.Sources())
             foreach (var chunk in SplitMechanisms(src))
                 _sources[chunk.Name] = chunk.Source;
+        SceneInit();
 
         var root = new DockPanel();
         var top = TopBar();
@@ -47,47 +60,132 @@ public sealed class MainWindow : Window
         DockPanel.SetDock(status, Dock.Bottom);
         root.Children.Add(status);
 
-        var body = new Grid { ColumnDefinitions = new ColumnDefinitions("240,*,380") };
+        var body = new Grid { ColumnDefinitions = new ColumnDefinitions("230,*,330") };
         var left = LibraryPanel();
-        var center = CodePanel();
-        var right = PreviewPanel();
-        Grid.SetColumn(center, 1);
+        _mechPanel = MechanismPanel();
+        _center.Content = null;
+        var right = RightPanel();
+        Grid.SetColumn(_center, 1);
         Grid.SetColumn(right, 2);
         body.Children.Add(left);
-        body.Children.Add(center);
+        body.Children.Add(_center);
         body.Children.Add(right);
         root.Children.Add(body);
         Content = root;
 
-        _timer.Tick += (_, _) => StepGame();
-        KeyDown += (_, e) => { if (_world != null && !_code.IsFocused) { _world.KeysDown.Add(KeyName(e.Key)); _world.PressKey(KeyName(e.Key)); } };
-        KeyUp += (_, e) => _world?.KeysDown.Remove(KeyName(e.Key));
-
-        _library.SelectedIndex = _library.ItemCount > 0 ? 0 : -1;
+        _sceneView = CreateSceneView();
+        _inspector = CreateInspector();
+        _mechInfo = new TextBlock { Text = "Editing a mechanism. Switch to Scene to place it in the game.", TextWrapping = TextWrapping.Wrap, Foreground = Palette.TextDim, Margin = new Thickness(16) };
+        ShowTab(scene: true);
+        SetMode("both");
+        Closing += (_, _) => SceneOnClosing();
     }
+
+    // ---------------- Shared helpers for feature files ----------------
+
+    /// <summary>Opens a mechanism in the Mechanism tab (code + blocks).</summary>
+    internal void OpenMechanism(string name)
+    {
+        if (!_sources.ContainsKey(name)) return;
+        _current = name;
+        _loading = true;
+        _code.Text = _sources[name];
+        _loading = false;
+        if (!Equals(_library.SelectedItem, name)) _library.SelectedItem = name;
+        Check();
+        BlocksShow(_sources[name]);
+        ShowTab(scene: false);
+    }
+
+    /// <summary>The blocks view changed the mechanism: replace its source (the code view follows).</summary>
+    internal void ApplyCodeFromBlocks(string source)
+    {
+        if (_current == null) return;
+        _loading = true;
+        _code.Text = source;
+        _loading = false;
+        CommitSource(source, fromBlocks: true);
+    }
+
+    internal void ShowTab(bool scene)
+    {
+        _sceneTab = scene;
+        _center.Content = scene ? _sceneView : _mechPanel;
+        _rightTop.Content = scene ? _inspector : _mechInfo;
+        StyleTab(_tabScene, scene);
+        StyleTab(_tabMech, !scene);
+        _tabMech.Content = _current == null ? "Mechanism" : $"Mechanism: {_current}";
+    }
+
+    internal void RefreshLibrary()
+    {
+        var sel = _library.SelectedItem as string;
+        _library.ItemsSource = _sources.Keys.OrderBy(k => k).ToList();
+        if (sel != null && _sources.ContainsKey(sel)) _library.SelectedItem = sel;
+    }
+
+    /// <summary>A fresh world with every mechanism loaded; prints and errors go to the console.</summary>
+    internal World NewWorld()
+    {
+        var w = new World();
+        w.Printed += Log;
+        w.SoundPlayed += s => Log("♪ " + s);
+        foreach (var (name, src) in _sources)
+        {
+            try { w.Load(src); }
+            catch (ScriptError e) { Log($"⚠ {name}: {e}"); }
+        }
+        return w;
+    }
+
+    internal void Log(string line) => _console.Text = (_console.Text ?? "") + line + "\n";
+    internal void ClearLog() => _console.Text = "";
 
     // ---------------- Layout ----------------
 
     Control TopBar()
     {
-        var logo = new TextBlock { VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeight.Bold, FontSize = 15 };
+        var logo = new TextBlock { VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeight.Bold, FontSize = 15, Margin = new Thickness(16, 0, 24, 0) };
         logo.Inlines!.Add(new Avalonia.Controls.Documents.Run("Builder"));
         logo.Inlines.Add(new Avalonia.Controls.Documents.Run("Engine") { Foreground = Palette.Accent });
 
-        var play = AccentButton("▶  Play");
-        play.Click += (_, _) => StartPreview();
-        var stop = PlainButton("■  Stop");
-        stop.Click += (_, _) => StopPreview();
+        _tabScene.Content = "Scene";
+        _tabScene.Click += (_, _) => ShowTab(true);
+        _tabMech.Content = "Mechanism";
+        _tabMech.Click += (_, _) => { if (_current != null) ShowTab(false); };
+        var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        tabs.Children.Add(_tabScene);
+        tabs.Children.Add(_tabMech);
 
-        var bar = new DockPanel { Height = 52, Background = Palette.Bg1 };
+        var save = PlainButton("Save");
+        save.Click += (_, _) => SceneSave();
+        var stop = PlainButton("■  Stop");
+        stop.Click += (_, _) => SceneStop();
+        var play = AccentButton("▶  Play");
+        play.Click += (_, _) => { ShowTab(true); ClearLog(); ScenePlay(); };
+
         var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 16, 0) };
+        right.Children.Add(save);
         right.Children.Add(stop);
         right.Children.Add(play);
+
+        var bar = new DockPanel { Height = 52, Background = Palette.Bg1 };
         DockPanel.SetDock(right, Dock.Right);
         bar.Children.Add(right);
-        logo.Margin = new Thickness(16, 0, 0, 0);
+        DockPanel.SetDock(logo, Dock.Left);
         bar.Children.Add(logo);
+        bar.Children.Add(tabs);
         return WithBorder(bar, new Thickness(0, 0, 0, 1));
+    }
+
+    static void StyleTab(Button b, bool active)
+    {
+        b.Background = active ? Palette.AccentSoft : Brushes.Transparent;
+        b.Foreground = active ? Palette.Text : Palette.TextDim;
+        b.BorderBrush = active ? Palette.AccentBorder : Brushes.Transparent;
+        b.BorderThickness = new Thickness(1);
+        b.Padding = new Thickness(14, 7);
+        b.CornerRadius = new CornerRadius(8);
     }
 
     Control StatusBar()
@@ -112,20 +210,24 @@ public sealed class MainWindow : Window
         header.Children.Add(add);
         header.Children.Add(Label("MECHANISMS"));
 
+        var hint = new TextBlock { Text = "Click to edit. Drag onto the scene to use.", Foreground = Palette.TextDim, FontSize = 11, Margin = new Thickness(16, 0, 16, 8), TextWrapping = TextWrapping.Wrap };
+
         _library.Background = Brushes.Transparent;
         _library.Foreground = Palette.Text;
         _library.Margin = new Thickness(8, 0);
         RefreshLibrary();
-        _library.SelectionChanged += (_, _) => { if (_library.SelectedItem is string s) Open(s); };
+        _library.SelectionChanged += (_, _) => { if (_library.SelectedItem is string s && s != _current) OpenMechanism(s); };
 
         var panel = new DockPanel { Background = Palette.Bg1 };
         DockPanel.SetDock(header, Dock.Top);
         panel.Children.Add(header);
+        DockPanel.SetDock(hint, Dock.Top);
+        panel.Children.Add(hint);
         panel.Children.Add(_library);
         return WithBorder(panel, new Thickness(0, 0, 1, 0));
     }
 
-    Control CodePanel()
+    Control MechanismPanel()
     {
         _code.AcceptsReturn = true;
         _code.AcceptsTab = true;
@@ -141,55 +243,62 @@ public sealed class MainWindow : Window
         _code.TextChanged += (_, _) => { if (!_loading) OnCodeChanged(); };
         _code.AddHandler(KeyDownEvent, OnCodeKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         ScrollViewer.SetHorizontalScrollBarVisibility(_code, Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
-        return _code;
+
+        _blocksBox.Child = CreateBlocksView();
+        _blocksBox.Background = Palette.Bg0;
+        _codeBox.Child = _code;
+        _codeBox.BorderBrush = Palette.Border;
+        _codeBox.BorderThickness = new Thickness(1, 0, 0, 0);
+        Grid.SetColumn(_codeBox, 1);
+        _mechArea.Children.Add(_blocksBox);
+        _mechArea.Children.Add(_codeBox);
+
+        _modeBlocks.Content = "Blocks"; _modeBlocks.Click += (_, _) => SetMode("blocks");
+        _modeBoth.Content = "Blocks + Code"; _modeBoth.Click += (_, _) => SetMode("both");
+        _modeCode.Content = "Code"; _modeCode.Click += (_, _) => SetMode("code");
+        var modes = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(12, 8), HorizontalAlignment = HorizontalAlignment.Right };
+        modes.Children.Add(_modeBlocks);
+        modes.Children.Add(_modeBoth);
+        modes.Children.Add(_modeCode);
+        var strip = new Border { Background = Palette.Bg1, BorderBrush = Palette.Border, BorderThickness = new Thickness(0, 0, 0, 1), Child = modes };
+
+        var panel = new DockPanel();
+        DockPanel.SetDock(strip, Dock.Top);
+        panel.Children.Add(strip);
+        panel.Children.Add(_mechArea);
+        return panel;
     }
 
-    Control PreviewPanel()
+    void SetMode(string mode)
     {
-        var panel = new DockPanel { Background = Palette.Bg1 };
-        var title = Label("PREVIEW");
-        title.Margin = new Thickness(16, 16, 16, 8);
-        DockPanel.SetDock(title, Dock.Top);
-        panel.Children.Add(title);
+        _mode = mode;
+        _mechArea.ColumnDefinitions = new ColumnDefinitions(mode switch { "blocks" => "*,0", "code" => "0,*", _ => "*,*" });
+        _blocksBox.IsVisible = mode != "code";
+        _codeBox.IsVisible = mode != "blocks";
+        StyleTab(_modeBlocks, mode == "blocks");
+        StyleTab(_modeBoth, mode == "both");
+        StyleTab(_modeCode, mode == "code");
+    }
 
-        var hint = new TextBlock { Text = "Play runs a test scene: a player (arrow keys) and three copies of this mechanism.", TextWrapping = TextWrapping.Wrap, Foreground = Palette.TextDim, FontSize = 12, Margin = new Thickness(16, 0, 16, 8) };
-        DockPanel.SetDock(hint, Dock.Top);
-        panel.Children.Add(hint);
-
-        var stageBox = new Border { Height = 240, Margin = new Thickness(16, 0), CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(Color.Parse("#1A1410")), BorderBrush = Palette.Border, BorderThickness = new Thickness(1), Child = _stage, ClipToBounds = true };
-        DockPanel.SetDock(stageBox, Dock.Top);
-        panel.Children.Add(stageBox);
-
+    Control RightPanel()
+    {
+        var panel = new Grid { RowDefinitions = new RowDefinitions("*,Auto,200"), Background = Palette.Bg1 };
+        panel.Children.Add(new ScrollViewer { Content = _rightTop });
         var consoleTitle = Label("CONSOLE");
-        consoleTitle.Margin = new Thickness(16, 20, 16, 8);
-        DockPanel.SetDock(consoleTitle, Dock.Top);
+        consoleTitle.Margin = new Thickness(16, 12, 16, 6);
+        Grid.SetRow(consoleTitle, 1);
         panel.Children.Add(consoleTitle);
-
         _console.FontFamily = Palette.Mono;
         _console.FontSize = 12;
         _console.Foreground = Palette.TextDim;
         _console.TextWrapping = TextWrapping.Wrap;
-        panel.Children.Add(new ScrollViewer { Margin = new Thickness(16, 0, 16, 16), Content = _console });
+        var sv = new ScrollViewer { Margin = new Thickness(16, 0, 16, 12), Content = _console };
+        Grid.SetRow(sv, 2);
+        panel.Children.Add(sv);
         return WithBorder(panel, new Thickness(1, 0, 0, 0));
     }
 
-    // ---------------- Library and editing ----------------
-
-    void RefreshLibrary()
-    {
-        var sel = _library.SelectedItem as string;
-        _library.ItemsSource = _sources.Keys.OrderBy(k => k).ToList();
-        if (sel != null) _library.SelectedItem = sel;
-    }
-
-    void Open(string name)
-    {
-        _current = name;
-        _loading = true;
-        _code.Text = _sources[name];
-        _loading = false;
-        Check();
-    }
+    // ---------------- Editing ----------------
 
     void NewMechanism()
     {
@@ -198,27 +307,34 @@ public sealed class MainWindow : Window
         string name = $"MyMechanism{n}";
         _sources[name] = $"mechanism {name}\n    param speed: number = 100\n\n    when start\n        print \"Hello from {name}!\"\n";
         RefreshLibrary();
-        _library.SelectedItem = name;
+        SceneOnMechanismsChanged();
+        OpenMechanism(name);
     }
 
-    void OnCodeChanged()
+    void OnCodeChanged() => CommitSource(_code.Text ?? "", fromBlocks: false);
+
+    void CommitSource(string text, bool fromBlocks)
     {
         if (_current == null) return;
-        var text = _code.Text ?? "";
         _sources[_current] = text;
         var parsed = Check();
-        // Renamed in the code? Follow the new name in the library.
         if (parsed != null && parsed.Count == 1 && parsed[0].Name != _current && !_sources.ContainsKey(parsed[0].Name))
         {
-            _sources.Remove(_current);
+            // Renamed in the code: follow the new name in the library.
+            string old = _current;
+            _sources.Remove(old);
             _current = parsed[0].Name;
             _sources[_current] = text;
             RefreshLibrary();
             _library.SelectedItem = _current;
+            SceneOnMechanismRenamed(old, _current);
+            ShowTab(false);
         }
+        if (!fromBlocks && parsed != null) BlocksShow(text);
+        SceneOnMechanismsChanged();
     }
 
-    /// <summary>Indent with 4 spaces; Enter keeps the indentation and adds a level after a line ending in a block head.</summary>
+    /// <summary>Indent with 4 spaces; Enter keeps the indentation and adds a level after a block head.</summary>
     void OnCodeKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.Tab)
@@ -231,6 +347,7 @@ public sealed class MainWindow : Window
             string text = _code.Text ?? "";
             int caret = _code.CaretIndex;
             int lineStart = text.LastIndexOf('\n', Math.Max(0, caret - 1)) + 1;
+            if (caret == 0) lineStart = 0;
             string line = text[lineStart..caret];
             string indent = new(line.TakeWhile(c => c == ' ').ToArray());
             string trimmed = line.Trim();
@@ -272,90 +389,23 @@ public sealed class MainWindow : Window
         return $"{d.Name}: {d.Params.Count} param(s), {d.Uses.Count} used mechanism(s), {d.Whens.Count} 'when'(s).";
     }
 
-    void SetStatus(bool ok, string text)
+    internal void SetStatus(bool ok, string text)
     {
         _status.Text = text;
         _status.Foreground = ok ? Palette.TextDim : Palette.Error;
         _statusDot.Fill = ok ? Palette.Ok : Palette.Error;
     }
 
-    // ---------------- Preview ----------------
+    // ---------------- Small UI helpers (shared) ----------------
 
-    void StartPreview()
-    {
-        StopPreview();
-        if (_current == null) return;
-        var w = new World();
-        _console.Text = "";
-        w.Printed += Log;
-        w.SoundPlayed += s => Log("♪ " + s);
-        try
-        {
-            foreach (var src in _sources.Values) w.Load(src);
-            w.Globals["score"] = 0.0;
-            var player = w.Spawn("Player", 40, 100, ["PlayerMove"], null, "player");
-            player.Width = 24; player.Height = 32;
-            for (int i = 0; i < 3; i++)
-            {
-                var o = w.Spawn(_current, 130 + i * 70, 100, [_current]);
-                o.Width = 20; o.Height = 20;
-            }
-        }
-        catch (ScriptError e)
-        {
-            Log("⚠ " + e);
-            return;
-        }
-        _world = w;
-        Log($"Playing '{_current}'. Use the arrow keys (click the preview first).");
-        _stage.Focusable = true;
-        _stage.Focus();
-        _timer.Start();
-    }
-
-    void StopPreview()
-    {
-        _timer.Stop();
-        _world = null;
-        _stage.Children.Clear();
-    }
-
-    void StepGame()
-    {
-        if (_world == null) return;
-        _world.Step(1.0 / 60);
-        _stage.Children.Clear();
-        foreach (var o in _world.Objects)
-        {
-            bool isPlayer = o.Is("player");
-            var shape = new Rectangle
-            {
-                Width = o.Width, Height = o.Height, RadiusX = isPlayer ? 4 : o.Width / 2, RadiusY = isPlayer ? 4 : o.Height / 2,
-                Fill = isPlayer ? new SolidColorBrush(Color.Parse("#7D9CBB")) : Palette.Accent
-            };
-            if (o.AllMechanisms().Any(m => m.Vars.TryGetValue("visible", out var v) && v is bool b && !b)) shape.Opacity = 0.2;
-            Canvas.SetLeft(shape, o.X);
-            Canvas.SetTop(shape, o.Y);
-            _stage.Children.Add(shape);
-        }
-        var score = new TextBlock { Text = $"score {World.ToText(_world.Globals.GetValueOrDefault("score"))}", FontFamily = Palette.Mono, FontSize = 12, Foreground = Palette.Text };
-        Canvas.SetRight(score, 10);
-        Canvas.SetTop(score, 8);
-        _stage.Children.Add(score);
-    }
-
-    void Log(string line) => _console.Text = (_console.Text ?? "") + line + "\n";
-
-    // ---------------- Helpers ----------------
-
-    static string KeyName(Key k) => k switch
+    internal static string KeyName(Key k) => k switch
     {
         Key.Left => "left", Key.Right => "right", Key.Up => "up", Key.Down => "down", Key.Space => "space", Key.Enter => "enter",
         _ => k.ToString().ToLowerInvariant()
     };
 
-    /// <summary>Splits a file with several mechanisms into one source per mechanism (comments before it stay with it).</summary>
-    static IEnumerable<(string Name, string Source)> SplitMechanisms(string src)
+    /// <summary>Splits a file with several mechanisms into one source per mechanism.</summary>
+    internal static IEnumerable<(string Name, string Source)> SplitMechanisms(string src)
     {
         var lines = src.Replace("\r\n", "\n").Split('\n');
         var starts = new List<int>();
@@ -369,19 +419,19 @@ public sealed class MainWindow : Window
         }
     }
 
-    static TextBlock Label(string text) => new() { Text = text, FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = Palette.TextDim, VerticalAlignment = VerticalAlignment.Center, LetterSpacing = 1 };
+    internal static TextBlock Label(string text) => new() { Text = text, FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = Palette.TextDim, VerticalAlignment = VerticalAlignment.Center, LetterSpacing = 1 };
 
-    static Button AccentButton(string text) => new()
+    internal static Button AccentButton(string text) => new()
     {
         Content = text, Background = Palette.Accent, Foreground = Palette.AccentText, FontWeight = FontWeight.SemiBold,
         Padding = new Thickness(18, 8), CornerRadius = new CornerRadius(8)
     };
 
-    static Button PlainButton(string text) => new()
+    internal static Button PlainButton(string text) => new()
     {
         Content = text, Background = Palette.Bg2, Foreground = Palette.Text, BorderBrush = Palette.Border, BorderThickness = new Thickness(1),
         Padding = new Thickness(14, 7), CornerRadius = new CornerRadius(8)
     };
 
-    static Border WithBorder(Control c, Thickness t) => new() { Child = c, BorderBrush = Palette.Border, BorderThickness = t };
+    internal static Border WithBorder(Control c, Thickness t) => new() { Child = c, BorderBrush = Palette.Border, BorderThickness = t };
 }
