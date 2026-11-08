@@ -21,6 +21,9 @@ public sealed partial class MainWindow
     bool _snapMode;
     readonly Button _projectButton = PlainButton("Project");
 
+    /// <summary>The folder the start screen picked; the editor opens it (null = the last project).</summary>
+    public static string? LaunchProject;
+
     static string? ArgValue(string name)
     {
         var args = Environment.GetCommandLineArgs();
@@ -63,6 +66,8 @@ public sealed partial class MainWindow
     {
         ToolTip.SetTip(_projectButton, "Project: new, open, recent, save");
         var flyout = new MenuFlyout();
+        // An Avalonia MenuFlyout with no items never opens, so fill it now and refresh it each time it opens.
+        FillProjectMenu(flyout);
         flyout.Opening += (_, _) => FillProjectMenu(flyout);
         _projectButton.Flyout = flyout;
         UpdateTitle();
@@ -96,6 +101,23 @@ public sealed partial class MainWindow
         f.Items.Add(Item("Plugins…", ShowPluginsWindow)); // MainWindow.Plugins.cs
         f.Items.Add(Item("Show the project folder", () => OpenFolder(_projectDir)));
         f.Items.Add(Item("Show My Library folder", () => { Directory.CreateDirectory(_myLibrary.Folder); OpenFolder(_myLibrary.Folder); }));
+        if (!_projectFromArg)
+        {
+            f.Items.Add(new Separator());
+            f.Items.Add(Item("Start screen…", BackToStartScreen));
+        }
+    }
+
+    /// <summary>Saves, shows the start screen (new / open / recent / samples) and closes the editor.</summary>
+    void BackToStartScreen()
+    {
+        SceneStop();
+        TrySave();
+        var launcher = new LauncherWindow();
+        if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
+            desktop.MainWindow = launcher;
+        launcher.Show();
+        Close();
     }
 
     static void OpenFolder(string dir)

@@ -56,7 +56,8 @@ public sealed partial class MainWindow
         }
         ProjectsInit();
         if (!_projectFromArg)
-            _projectDir = _settings.Get("lastProject") is { } last && Project.Exists(last) ? last : Path.Combine(ProjectsRoot, "My Game");
+            _projectDir = LaunchProject // picked on the start screen (LauncherWindow)
+                ?? (_settings.Get("lastProject") is { } last && Project.Exists(last) ? last : Path.Combine(ProjectsRoot, "My Game"));
 
         LoadProject();
         RememberProject();
