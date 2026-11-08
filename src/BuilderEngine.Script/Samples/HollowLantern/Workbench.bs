@@ -1,0 +1,92 @@
+mechanism Workbench
+    # A workbench: stand next to it and press C (or click it) to open the crafting menu — one button per recipe, dim
+    # when something is missing; click one to craft it. Walking away closes the menu. A candle on it shows where it is.
+    param near: number = 90
+    param ready_color: Color = "#C8813A"
+    param missing_color: Color = "#3E3834"
+
+    when start
+        solid
+        tag self "workbench"
+        look "workbench.png"
+        light 70 with "#FFB060", 0.2
+        open = false
+        hinted = false
+        parts = []
+
+    when tick
+        p = find("player")
+        close = p and distance(self, p) < near
+        if close and not hinted
+            show text "Workbench: press C to craft" at 312, 372 with "#FFE2A8", 15
+            hinted = true
+        if hinted and not close
+            hide text "Workbench: press C to craft"
+            hinted = false
+        if open and not close: close_menu
+
+    when key "c"
+        toggle
+
+    when clicked
+        toggle
+
+    when told "craft" what
+        craft what
+        if crafted
+            play "craft.wav"
+            notify "Crafted: " + what
+            game = find("Game")
+            if game: tell game "crafted" what
+        else
+            notify "Missing something for " + what
+        close_menu
+        open_menu
+
+    to toggle
+        if open
+            close_menu
+            return
+        p = find("player")
+        if p and distance(self, p) < near: open_menu
+
+    to open_menu
+        open = true
+        list = recipes()
+        top = 100
+        make Panel at 230, top with 340, 44 + length(list) * 42
+        made.Panel.color = "#16120F"
+        made.Panel.title = ""
+        add made to parts
+        make Button at 230, top with 340, 34
+        made.Button.text = "WORKBENCH  (C to close)"
+        made.Button.color = "#2A211B"
+        made.Button.hover_color = "#2A211B"
+        made.Button.text_color = "#FFE2A8"
+        made.Button.text_size = 14
+        made.Button.message = "nothing"
+        made.Button.target = self
+        add made to parts
+        y = top + 40
+        for each r in list
+            make Button at 240, y with 320, 36
+            made.Button.text = recipe_text(r)
+            made.Button.text_size = 14
+            made.Button.target = self
+            made.Button.message = "craft"
+            made.Button.value = r
+            if can_craft(r)
+                made.Button.color = ready_color
+                made.Button.hover_color = "#E09A50"
+            else
+                made.Button.color = missing_color
+                made.Button.hover_color = "#4E4640"
+                made.Button.text_color = "#9A8E84"
+            add made to parts
+            y += 42
+
+    to close_menu
+        open = false
+        for each b in parts
+            destroy b
+        parts = []

@@ -1,0 +1,25 @@
+mechanism TorchBag
+    # Right-click near you (or press T) to set down a torch from the inventory. Torches light the dark for good,
+    # and creatures keep away from them. Craft torches from coal at the workbench.
+    param reach: number = 110
+
+    when mouse pressed "right" at x, y
+        if mouse_over_ui(): stop
+        put_torch x, y
+
+    when key "t"
+        put_torch self.x + self.width / 2, self.y + self.height / 2
+
+    to put_torch x, y
+        if not has("torch")
+            notify "No torches left. Craft them from coal at the workbench."
+            return
+        if distance(self.x + self.width / 2, self.y + self.height / 2, x, y) > reach: return
+        if tile_solid(x, y): return
+        cx = tile_x(x)
+        cy = tile_y(y)
+        for each t in all("torch")
+            if distance(cx, cy, t.x + t.width / 2, t.y + t.height / 2) < 24: return
+        make Torch at cx - 8, cy - 10 with 16, 20
+        take "torch", 1
+        play "torch.wav"

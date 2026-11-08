@@ -1,0 +1,170 @@
+mechanism Warden
+    # The Murk Warden, the shadow at the heart of the Hollow. It sleeps until the player comes near, then fights in
+    # three phases: slams that land where red marks glow on the floor; from 2/3 of its health, rings of murk shards
+    # (it glows before it throws them); from 1/3, it calls gloomlings and drinks the player's light. Touching it hurts.
+    # Its health bar shows at the bottom of the screen. When it falls, everyone is told "warden fallen".
+    param max_hp: number = 90
+    param wake: number = 250
+    param speed: number = 45
+
+    when start
+        tag self "enemy"
+        tag self "boss"
+        body 0, 0
+        look "warden.png"
+        light 70 with "#9B6BFF", 0.25
+        hp = max_hp
+        phase = 0
+        busy = false
+        next_touch = 0
+        wait until distance(self, find("player")) < wake
+        wake_up
+        round = 0
+        repeat forever
+            if hp <= 0: stop
+            round += 1
+            if phase == 1
+                slam 1
+                wait 1.5
+            else if phase == 2
+                shard_ring 10
+                wait 1.1
+                slam 3
+                wait 1.4
+            else
+                if round % 2 == 0 and count("gloomling") < 4
+                    summon
+                else
+                    drink_light
+                wait 0.6
+                shard_ring 14
+                wait 0.9
+                slam 3
+                wait 1.1
+
+    when tick
+        p = find("player")
+        if phase == 0 or hp <= 0 or not p
+            self.vx = 0
+            self.vy = 0
+            stop
+        if overlaps(self, p) and time >= next_touch
+            next_touch = time + 1
+            tell p "damage" 1
+            tell p "knock" self
+        if busy or distance(self, p) < 44
+            self.vx = 0
+            self.vy = 0
+            stop
+        a = angle(self, p)
+        self.vx = cos(a) * speed * (0.8 + phase * 0.2)
+        self.vy = sin(a) * speed * (0.8 + phase * 0.2)
+        face p
+
+    when told "damage" amount
+        if phase == 0 or hp <= 0: stop
+        hp -= amount
+        play "boss_hit.wav"
+        if phase == 1 and hp <= max_hp * 2 / 3
+            phase = 2
+            play "roar.wav"
+            camera shake 6 for 0.5
+            notify "The Warden cracks open... murk shards!"
+        if phase == 2 and hp <= max_hp / 3
+            phase = 3
+            play "roar.wav"
+            camera shake 8 for 0.6
+            notify "The Warden howls and calls the dark!"
+            drink_light
+        if hp <= 0
+            defeated
+            stop
+        self.opacity = 0.55
+        wait 0.08
+        self.opacity = 1
+
+    to wake_up
+        lock controls
+        camera follow self
+        play "roar.wav"
+        camera shake 6 for 0.6
+        light 130 with "#9B6BFF", 0.3
+        say "Who carries a light into my hollow?"
+        say "I will drink it, little wick."
+        camera follow find("player")
+        unlock controls
+        phase = 1
+        show bar hp of max_hp at 200, 382 with "#9B6BFF" size 400, 12
+        show text "THE MURK WARDEN" at 338, 362 with "#D8C8FF", 14
+        game = find("Game")
+        if game: tell game "boss awake"
+
+    to slam how_many
+        busy = true
+        p = find("player")
+        play "rumble.wav"
+        for each i in range(1, how_many)
+            ox = 0
+            oy = 0
+            if i > 1
+                ox = random(-80, 80)
+                oy = random(-80, 80)
+            make SlamMark at p.x + p.width / 2 - 36 + ox, p.y + p.height / 2 - 36 + oy with 72, 72
+            made.SlamMark.delay = 1.05 - phase * 0.15
+        wait 0.4
+        busy = false
+
+    to shard_ring how_many
+        busy = true
+        look "warden_glow.png"
+        light 170 with "#C9A8FF", 0.6
+        play "charge.wav"
+        wait 0.7
+        if hp <= 0: return
+        cx = self.x + self.width / 2
+        cy = self.y + self.height / 2
+        turn = random(0, 359)
+        for each i in range(0, how_many - 1)
+            a = turn + i * 360 / how_many
+            make Shard at cx - 6 + cos(a) * 30, cy - 6 + sin(a) * 30 with 12, 12
+            made.vx = cos(a) * 165
+            made.vy = sin(a) * 165
+        play "shards.wav"
+        look "warden.png"
+        light 130 with "#9B6BFF", 0.3
+        wait 0.3
+        busy = false
+
+    to summon
+        busy = true
+        play "roar.wav"
+        camera shake 4 for 0.4
+        notify "The Warden calls the gloomlings!"
+        repeat 2
+            make Gloomling at self.x + random(0, 40), self.y + random(0, 40) with 22, 22
+        wait 0.5
+        busy = false
+
+    to drink_light
+        notify "The Warden drinks your light!"
+        play "charge.wav"
+        p = find("player")
+        if p: tell p "dim" 3.5
+
+    to defeated
+        hp = 0
+        phase = 0
+        busy = true
+        hide bar hp
+        hide text "THE MURK WARDEN"
+        play "boss_die.wav"
+        camera shake 10 for 1.2
+        broadcast "warden fallen"
+        light 220 with "#E0C8FF", 0.8
+        repeat 6
+            self.opacity = 0.3
+            wait 0.1
+            self.opacity = 1
+            wait 0.1
+        fade self to 0 in 1
+        destroy self

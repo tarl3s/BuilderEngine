@@ -1,0 +1,101 @@
+mechanism HollowGame
+    # Runs Hollow Lantern: the darkness and the cave's hum, how items look, the recipes, the HUD (health, hunger, pick,
+    # goal, minimap, hotbar), the intro, the goal as you progress, and the end — the light comes back when the Warden
+    # falls. Put it on an object called "Game" (it isn't drawn); creatures and the workbench tell it what happens.
+    param darkness_amount: number = 0.96
+    param intro: yesno = true
+
+    when start
+        visible = false
+        clear inventory
+        darkness darkness_amount with "#030305"
+        play "cave_drone.wav" loop with 0.35
+        player = find("player")
+        items_and_recipes
+        hud
+        started = time
+        kills = 0
+        boss_awake = false
+        won = false
+        goal = ""
+        update_goal
+        if intro
+            lock controls
+            narrate "You wake on cold stone. Your lantern is the only light in the Hollow."
+            narrate "Deep in the heart of the cave, the Murk Warden drinks the light. Dig, craft, stay fed... and put it out for good."
+            narrate "WASD: walk.  Hold the mouse on a wall (or walk into it): dig.  C at the workbench: craft.  F: eat.  Space / click: swing.  Right-click: torch."
+            unlock controls
+        repeat forever
+            update_goal
+            wait 0.25
+
+    to items_and_recipes
+        item "stone" with "item_stone.png"
+        item "coal" with "item_coal.png"
+        item "copper" with "item_copper.png"
+        item "ember" with "item_ember.png"
+        item "skyglass" with "item_skyglass.png"
+        item "murk" with "murk.png"
+        item "glowcap" with "glowcap.png"
+        item "torch" with "torch.png"
+        item "copper pick" with "copper_pick.png"
+        item "ember pick" with "ember_pick.png"
+        item "glow stew" with "glow_stew.png"
+        item "bright lantern" with "bright_lantern.png"
+        recipe "torch" from "coal", 1 as 3
+        recipe "copper pick" from "copper", 6, "stone", 4
+        recipe "glow stew" from "glowcap", 2, "coal", 1
+        recipe "ember pick" from "ember", 4, "copper", 3, "copper pick", 1
+        recipe "bright lantern" from "skyglass", 2, "murk", 2
+
+    to hud
+        show hotbar 8
+        show text "HEALTH" at 16, 11 with "#E8B0A8", 12
+        show bar player.Health.hp of player.Health.max at 78, 13 with "#E05D5D" size 150, 10
+        show text "HUNGER" at 16, 29 with "#E8D0A0", 12
+        show bar player.Wick.hunger of 100 at 78, 31 with "#E8B04B" size 150, 10
+        show text "{player.Pickaxe.tier}" at 16, 47 with "#CFC6BC", 13
+        show text "{goal}" at 16, 68 with "#FFE2A8", 14
+        show minimap at 650, 12 with 136, 136 fog
+        minimap mark "torch" with "#FFB060"
+        minimap mark "workbench" with "#C8813A" always
+        minimap mark "enemy" with "#E05D5D"
+        minimap mark "boss" with "#B07BFF" always
+
+    to update_goal
+        if won
+            goal = "The Hollow is lit. Press R to play again."
+        else if boss_awake
+            goal = "Defeat the Murk Warden! Watch the red marks and the shards."
+        else if has("ember pick")
+            goal = "Go to the heart of the Hollow (the purple dot) and dig through the deepstone."
+        else if has("copper pick")
+            goal = "Dig glowing orange emberite, craft an Ember Pick:  ember " + text(count_item("ember")) + "/4,  copper " + text(count_item("copper")) + "/3"
+        else
+            goal = "Dig copper and stone, craft a Copper Pick at the workbench:  copper " + text(count_item("copper")) + "/6,  stone " + text(count_item("stone")) + "/4"
+
+    when told "creature down"
+        kills += 1
+
+    when told "boss awake"
+        boss_awake = true
+
+    when told "crafted" what
+        if what == "copper pick": notify "Copper Pick! Now deepstone can be broken, and you hit harder."
+        if what == "ember pick": notify "Ember Pick! Find the Warden in the middle of the cave."
+
+    when told "warden fallen"
+        won = true
+        update_goal
+        wait 1.6
+        play "win.wav"
+        darkness 0.25 in 4
+        took = time - started
+        mins = floor(took / 60)
+        secs = floor(took % 60)
+        show text "THE HOLLOW IS LIT" at 262, 150 with "#FFE2A8", 34
+        show text "The Murk Warden fell in {mins} min {secs} s.  Creatures defeated: {kills}." at 230, 198 with "#ECE2D6", 16
+        show text "Press R to play again" at 330, 226 with "#CFC6BC", 14
+
+    when key "r"
+        if won: goto_scene "Cavern"

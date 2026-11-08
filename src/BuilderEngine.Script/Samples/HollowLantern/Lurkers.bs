@@ -1,0 +1,40 @@
+mechanism Lurkers
+    # Keeps the dark busy: every few seconds, while there are fewer than 'most' creatures, one crawls out of an open
+    # spot in the dark — out of the player's sight, never near a torch or in the Warden's hall. Near the heart of the
+    # cave it is a DeepGloom. Put it on any object (it isn't drawn).
+    param most: number = 7
+    param every: seconds = 4
+    param first: seconds = 6
+    param deep_near: number = 20
+
+    when start
+        visible = false
+        calm = false
+        wait first
+        repeat forever
+            if not calm and count("gloomling") < most: spawn_one
+            wait every
+
+    when told "warden fallen"
+        calm = true
+
+    to spawn_one
+        p = find("player")
+        if not p: return
+        mid = map_width() / 2
+        cs = tile_size()
+        repeat 30
+            x = tile_x(random(64, map_width() - 64))
+            y = tile_y(random(64, map_height() - 64))
+            d = distance(x, y, p.x + p.width / 2, p.y + p.height / 2)
+            if tile_at(x, y) == "" and d > 420 and d < 1000 and distance(x, y, mid, mid) > 10 * cs and not near_torch(x, y)
+                if distance(x, y, mid, mid) < deep_near * cs
+                    make DeepGloom at x - 13, y - 13 with 26, 26
+                else
+                    make Gloomling at x - 11, y - 11 with 22, 22
+                return
+
+    to near_torch x, y
+        for each t in all("torch")
+            if distance(x, y, t.x, t.y) < 260: return true
+        return false

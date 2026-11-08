@@ -1,0 +1,10 @@
+mechanism DeepGloom from Gloomling
+    # A bigger, meaner gloomling that lives near the heart of the Hollow: tougher, faster, bites harder,
+    # and almost always leaves a murk gem.
+    param picture = "deep_gloom.png"
+    param toughness = 6
+    param speed = 70
+    param hunt_speed = 118
+    param notice = 280
+    param bite = 2
+    param loot_chance = 85

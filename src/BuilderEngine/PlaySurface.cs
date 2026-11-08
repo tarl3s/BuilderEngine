@@ -186,6 +186,7 @@ sealed partial class PlaySurface : Control, ICustomHitTest
                     DrawObjects(ctx, _uiOrder, new Rect(0, 0, cam.BaseWidth, cam.BaseHeight));
             DrawHudItems(ctx, anchored: false, area, scale);
             DrawHotbar(ctx, area, scale);
+            DrawMinimap(ctx, area, scale); // PlaySurface.Minimap.cs
             DrawOverlay(ctx, area, _world.FadeAmount, _world.FadeColor, _fadeBrush);
             DrawOverlay(ctx, area, _world.FlashAmount, _world.FlashColor, _flashBrush);
             DrawDialogue(ctx, area, scale);

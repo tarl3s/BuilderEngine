@@ -1,0 +1,12 @@
+mechanism Glowcap
+    # A glowing mushroom of the Hollow: walk over it to pick it up. Eat it with F, or cook glow stew at the workbench.
+    when start
+        tag self "glowcap"
+        look "glowcap.png"
+        light 40 with "#7FF0D0" strength 0.7
+
+    when touched by "player"
+        give "glowcap", 1
+        play "pickup.wav"
+        notify "+1 glowcap"
+        destroy self

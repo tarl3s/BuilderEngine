@@ -1,0 +1,22 @@
+mechanism SlamMark
+    # A red mark on the floor: it glows brighter for 'delay' seconds, then the Warden's slam lands on it and hurts
+    # the player if they are still standing there.
+    param delay: seconds = 0.9
+    param damage: number = 2
+
+    when start
+        look "slam_mark.png"
+        layer -1
+        self.opacity = 0.3
+        light 55 with "#FF4030" strength 0.6
+        fade self to 0.95 in delay
+        p = find("player")
+        if p and overlaps(self, p)
+            tell p "damage" damage
+            tell p "knock" self
+        play "slam.wav"
+        camera shake 4 for 0.2
+        look "slam_hit.png"
+        light 85 with "#FFB070" strength 0.8
+        fade self to 0 in 0.35
+        destroy self

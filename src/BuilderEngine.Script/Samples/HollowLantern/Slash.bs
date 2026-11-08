@@ -1,0 +1,10 @@
+mechanism Slash
+    # The pickaxe's swing: a quick bright arc that fades away.
+    param flip: yesno = false
+
+    when start
+        look "slash.png"
+        layer 3
+        if flip: face left
+        fade self to 0 in 0.18
+        destroy self

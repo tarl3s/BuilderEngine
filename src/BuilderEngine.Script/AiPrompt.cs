@@ -73,6 +73,9 @@ public static class AiPrompt
         var project = new StringBuilder();
         AppendProject(project, ctx);
         if (request.Length > 1500) request = request[..1500];
+        // The engine's word lists grow with every feature: a huge project's list gives way so the whole stays in budget.
+        int projectRoom = Math.Max(400, MaxChars - system.Length - request.Length - 1500);
+        if (project.Length > projectRoom) { string cut = Cut(project.ToString(), projectRoom); project.Clear().AppendLine(cut); }
 
         // The mode's part (open mechanism + request) gets what's left after the fixed parts; the examples get the rest.
         string? open = ctx.OpenSource;

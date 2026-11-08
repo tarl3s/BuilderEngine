@@ -1,0 +1,109 @@
+mechanism Wick
+    # The lantern-bearer. Walks in four directions (WASD or the arrows; walls stop it), carries a lantern that lights
+    # the dark and reveals the minimap, gets hungry (eat with F), is pushed back when something hits it, and starts
+    # the cave over when its light goes out. Uses Health: 10 hearts.
+    uses Health max 10, safe_time 0.8
+    param speed: number = 150
+    param lantern: number = 165
+    param hunger_every: seconds = 2.5
+    param sight: number = 6
+
+    when start
+        body 0, 0
+        look "wick.png"
+        hunger = 100
+        bright = false
+        dimmed = false
+        dead = false
+        knock_until = 0
+        set_lantern
+
+    when tick
+        dx = 0
+        dy = 0
+        if key("left") or key("a"): dx -= 1
+        if key("right") or key("d"): dx += 1
+        if key("up") or key("w"): dy -= 1
+        if key("down") or key("s"): dy += 1
+        if dx != 0 and dy != 0
+            dx *= 0.7071
+            dy *= 0.7071
+        if dx < 0: face left
+        if dx > 0: face right
+        self.vx = dx * speed
+        self.vy = dy * speed
+        if time < knock_until
+            self.vx += knock_x
+            self.vy += knock_y
+        minimap reveal sight
+        if not bright and has("bright lantern")
+            bright = true
+            set_lantern
+            notify "The bright lantern pushes the dark back!"
+
+    when start
+        # Hunger goes down slowly; with nothing in the belly, health does.
+        repeat forever
+            wait hunger_every
+            if hunger > 0
+                hunger -= 1
+            else
+                tell self "damage" 1
+                if Health.hp > 0: notify "You are starving! Eat something (F)."
+
+    when key "f"
+        if has("glow stew")
+            take "glow stew", 1
+            hunger = min(100, hunger + 60)
+            tell self "heal" 4
+            play "eat.wav"
+            notify "Glow stew: warm and filling."
+        else if has("glowcap")
+            take "glowcap", 1
+            hunger = min(100, hunger + 18)
+            tell self "heal" 1
+            play "eat.wav"
+        else
+            notify "Nothing to eat. Look for glowcaps (glowing mushrooms)."
+
+    when told "knock" hitter
+        if not hitter: stop
+        a = angle(hitter, self)
+        knock_x = cos(a) * 280
+        knock_y = sin(a) * 280
+        knock_until = time + 0.16
+
+    when told "dim" how_long
+        dimmed = true
+        set_lantern
+        wait how_long
+        dimmed = false
+        set_lantern
+
+    when Health.hurt
+        if Health.hp <= 0: stop
+        play "hurt.wav"
+        flash "#7A1010"
+        camera shake 3 for 0.2
+        repeat 4
+            self.opacity = 0.35
+            wait 0.08
+            self.opacity = 1
+            wait 0.08
+
+    when Health.died
+        if dead: stop
+        dead = true
+        play "hurt.wav"
+        lock controls
+        light lantern * 0.3 with "#FFD9A0", 0.6
+        fade out in 1.5
+        narrate "Your lantern gutters out... and the Hollow keeps you."
+        unlock controls
+        goto_scene "Cavern"
+
+    to set_lantern
+        r = lantern
+        if bright: r = r * 1.45
+        if dimmed: r = r * 0.5
+        light r with "#FFD9A0", 0.12

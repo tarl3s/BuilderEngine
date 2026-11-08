@@ -1,0 +1,54 @@
+# Starter kit: finding the way, and a minimap.
+#   chase player at 90          (every tick) walk to it the short way round solid tiles
+#   path_next(player)           the point to head for now, as [x, y]       can_see(player)   no wall in between
+#   angle(self, player)  sin(a)  cos(a)       directions in degrees (0 = right, 90 = down)
+#   overlaps(self, player)      the boxes are on top of each other right now
+#   show minimap at 650, 12 with 136, 136 fog       minimap mark "enemy" with "#E05D5D"      minimap reveal 6
+
+mechanism Hunter
+    # Hunts the nearest object with a tag: once it is close and in plain sight, it walks to it the short way round
+    # walls (and keeps after it until it is far away). For top-down games: it has no gravity.
+    param target: text = "player"
+    param speed: number = 90
+    param notice: number = 240
+    param give_up: number = 520
+
+    when start
+        body 0, 0
+        hunting = false
+
+    when tick
+        t = nearest(target)
+        if not t
+            self.vx = 0
+            self.vy = 0
+            stop
+        d = distance(self, t)
+        if not hunting and d < notice and can_see(t): hunting = true
+        if d > give_up: hunting = false
+        if hunting
+            chase t at speed
+        else
+            self.vx = 0
+            self.vy = 0
+
+mechanism Minimap
+    # A small map of the tile world in a corner of the screen, with a dot for each enemy. With 'fog' on, only the
+    # cells near the player show, as they explore. Put it on any object (it isn't drawn).
+    param x: number = 650
+    param y: number = 12
+    param size: number = 136
+    param fog: yesno = true
+    param sight: number = 6
+    param dots: text = "enemy"
+
+    when start
+        visible = false
+        if fog
+            show minimap at x, y with size, size fog
+        else
+            show minimap at x, y with size, size
+        if dots != "": minimap mark dots with "#E05D5D"
+
+    when tick
+        if fog: minimap reveal sight at find("player")
