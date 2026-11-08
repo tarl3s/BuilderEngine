@@ -216,7 +216,11 @@ public sealed class Project
         return n;
     }
 
-    /// <summary>The demo every new project starts with: a player, coins, a patrolling slime and the ground.</summary>
+    /// <summary>What "New project" makes: one empty scene, nothing in it (the person builds everything).</summary>
+    public static Project CreateEmpty(string name = "My Game") =>
+        new() { Name = name, Scenes = [new Scene { Id = 1, Name = "Level 1", Width = 800, Height = 450 }] };
+
+    /// <summary>A small two-level platformer demo (used by tests and as an example): a player, coins, a slime, doors.</summary>
     public static Project CreateDemo(string name = "My Game")
     {
         var s = new Scene { Name = "Level 1", Width = 800, Height = 450 };

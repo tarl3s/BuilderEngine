@@ -75,18 +75,18 @@ public sealed partial class MainWindow
             try { _project = Project.Load(_projectDir); }
             catch (Exception e)
             {
-                // Keep the broken file for the person to look at, start again with the demo.
+                // Keep the broken file for the person to look at, start again with an empty project.
                 string broken = Path.Combine(_projectDir, $"project.broken-{DateTime.Now:yyyyMMdd-HHmmss}.json");
                 try { File.Move(Path.Combine(_projectDir, Project.FileName), broken); } catch { }
-                Log($"⚠ Couldn't read the project ({e.Message}). It was kept as {Path.GetFileName(broken)}; a new demo scene was made.");
-                _project = Project.CreateDemo(ProjectNameFromFolder());
+                Log($"⚠ Couldn't read the project ({e.Message}). It was kept as {Path.GetFileName(broken)}; a new empty project was made.");
+                _project = Project.CreateEmpty(ProjectNameFromFolder());
                 AdoptProjectMechanisms();
                 TrySave();
             }
         }
         else
         {
-            _project = Project.CreateDemo(ProjectNameFromFolder());
+            _project = Project.CreateEmpty(ProjectNameFromFolder());
             AdoptProjectMechanisms(); // before saving: saving keeps only the mechanisms it finds in _sources
             TrySave();
         }
@@ -251,15 +251,19 @@ public sealed partial class MainWindow
         {
             Text = "Drag to move · Drag on empty space to select several · Alt = no snap · Ctrl+wheel to zoom · Right-click for more · F1 = all shortcuts",
             Foreground = Palette.TextDim, FontSize = 11, VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(16, 0, 0, 0), HorizontalAlignment = HorizontalAlignment.Right
+            TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Right, Margin = new Thickness(16, 0, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Stretch, ClipToBounds = true
         };
-        var dock = new DockPanel { Margin = new Thickness(12, 6) };
-        DockPanel.SetDock(left, Dock.Left);
-        dock.Children.Add(left);
-        DockPanel.SetDock(_cursorPos, Dock.Right);
-        dock.Children.Add(_cursorPos); // X / Y of the mouse in the scene (MainWindow.SceneKeys.cs)
-        dock.Children.Add(hint);
-        return dock;
+        // Three columns, each with its own room: the buttons, the hint (shrinks and ends with …), the mouse X/Y
+        // (MainWindow.SceneKeys.cs). A DockPanel let the hint draw over the X/Y when the left part grew after opening.
+        var bar = new Grid { Margin = new Thickness(12, 6), ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+        bar.Children.Add(left);
+        Grid.SetColumn(hint, 1);
+        bar.Children.Add(hint);
+        _cursorPos.TextAlignment = TextAlignment.Right;
+        Grid.SetColumn(_cursorPos, 2);
+        bar.Children.Add(_cursorPos);
+        return bar;
     }
 
     Control PlayBar()

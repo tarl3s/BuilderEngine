@@ -149,7 +149,7 @@ public sealed partial class MainWindow
         for (int k = 2; Directory.Exists(dir); k++) dir = Path.Combine(ProjectsRoot, $"{clean} {k}");
         try
         {
-            Project.CreateDemo(name).Save(dir);
+            Project.CreateEmpty(name).Save(dir);
             Sounds.WriteDefaults(dir);
             return dir;
         }
