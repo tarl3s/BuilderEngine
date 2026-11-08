@@ -86,7 +86,8 @@ public sealed partial class MainWindow
         }
         else
         {
-            _project = Project.CreateEmpty(ProjectNameFromFolder());
+            // A new folder starts empty; the --snap dev checks need the demo (a player, coins, doors) to click through.
+            _project = _snapMode ? Project.CreateDemo(ProjectNameFromFolder()) : Project.CreateEmpty(ProjectNameFromFolder());
             AdoptProjectMechanisms(); // before saving: saving keeps only the mechanisms it finds in _sources
             TrySave();
         }
