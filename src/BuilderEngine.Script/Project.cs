@@ -57,11 +57,102 @@ public sealed partial class Project
     public static Project Load(string folder)
     {
         var p = FromJson(File.ReadAllText(Path.Combine(folder, FileName)));
+        p.ReadMechanisms(folder);
+        return p;
+    }
+
+    /// <summary>How <see cref="Open"/> went.</summary>
+    public enum OpenResult { Loaded, Recovered, Unreadable }
+
+    /// <summary>
+    /// Opens a project folder the way the editor does. <see cref="OpenResult.Recovered"/>: project.json wasn't JSON — it
+    /// was kept aside and an empty project with the folder's mechanisms came back (<see cref="RecoverBroken"/>).
+    /// <see cref="OpenResult.Unreadable"/>: the files are there but can't be read right now (a cloud folder offline, no
+    /// permission) — an empty project comes back that must NOT be saved over them. <paramref name="problem"/> says why.
+    /// </summary>
+    public static Project Open(string folder, string name, out OpenResult result, out string problem)
+    {
+        problem = "";
+        try
+        {
+            result = OpenResult.Loaded;
+            return Load(folder);
+        }
+        catch (JsonException e)
+        {
+            try
+            {
+                var p = RecoverBroken(folder, name, out string kept);
+                result = OpenResult.Recovered;
+                problem = $"Couldn't read the project ({e.Message}). It was kept as {kept}; a new empty project was made (its mechanisms are kept).";
+                return p;
+            }
+            catch (Exception io) when (io is IOException or UnauthorizedAccessException) { return Unreadable(io, out result, out problem); }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return Unreadable(e, out result, out problem); }
+
+        Project Unreadable(Exception e, out OpenResult r, out string why)
+        {
+            r = OpenResult.Unreadable;
+            why = $"Couldn't open the project files ({e.Message}). Nothing will be saved over them: fix the problem and open the project again.";
+            return CreateEmpty(name);
+        }
+    }
+
+    /// <summary>mechanisms/*.bs → <see cref="Mechanisms"/> (file name → text).</summary>
+    void ReadMechanisms(string folder)
+    {
         string mechDir = Path.Combine(folder, MechanismsFolder);
         if (Directory.Exists(mechDir))
             foreach (var f in Directory.GetFiles(mechDir, "*.bs").Order(StringComparer.OrdinalIgnoreCase))
-                p.Mechanisms[Path.GetFileNameWithoutExtension(f)] = File.ReadAllText(f);
+                Mechanisms[Path.GetFileNameWithoutExtension(f)] = File.ReadAllText(f);
+    }
+
+    /// <summary>
+    /// project.json can't be read (it isn't JSON — cut short, hand-edited…): it is kept as <c>project.broken-….json</c>
+    /// (<paramref name="keptAs"/>) and an empty project with the folder's own mechanisms comes back, so saving it never
+    /// deletes the mechanisms/ files (saving removes every .bs file the project doesn't have).
+    /// </summary>
+    public static Project RecoverBroken(string folder, string name, out string keptAs)
+    {
+        string stamp = $"project.broken-{DateTime.Now:yyyyMMdd-HHmmss}";
+        keptAs = stamp + ".json";
+        for (int k = 2; File.Exists(Path.Combine(folder, keptAs)); k++) keptAs = $"{stamp}-{k}.json";
+        File.Move(Path.Combine(folder, FileName), Path.Combine(folder, keptAs));
+        var p = CreateEmpty(name);
+        p.ReadMechanisms(folder);
         return p;
+    }
+
+    /// <summary>
+    /// The project's mechanisms one per name, as the editor lists them (<see cref="Mechanisms"/> is one entry per file).
+    /// A file with several mechanisms is split, the comments above the first one staying with it. Nothing in a file is
+    /// ever dropped, because the editor saves exactly what this returns: a file that has no <c>mechanism</c>/<c>system</c>
+    /// line at the start (a draft, a typo), or whose mechanism name another file already has, comes back whole under its
+    /// file name (made unique) and shows up as a mechanism with a problem to fix.
+    /// </summary>
+    public List<(string Name, string Source)> SplitMechanismFiles()
+    {
+        var list = new List<(string Name, string Source)>();
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(string name, string src) { taken.Add(name); list.Add((name, src)); }
+        foreach (var (file, raw) in Mechanisms.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            string text = raw.Replace("\r\n", "\n");
+            var chunks = Systems.Split(text).ToList();
+            bool clash = chunks.Any(c => taken.Contains(c.Name))
+                         || chunks.Select(c => c.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() < chunks.Count;
+            if (chunks.Count == 0 || clash) Add(MechanismLibrary.UniqueName(file, taken.Contains), text);
+            else if (chunks.Count == 1) Add(chunks[0].Name, text); // the whole file: comments above it stay
+            else
+            {
+                // The text above the first mechanism line (its comments) belongs to the first mechanism.
+                int first = text.IndexOf(chunks[0].Source.TrimEnd('\n'), StringComparison.Ordinal);
+                Add(chunks[0].Name, text[..Math.Max(0, first)] + chunks[0].Source);
+                foreach (var c in chunks.Skip(1)) Add(c.Name, c.Source);
+            }
+        }
+        return list;
     }
 
     static void WriteAllTextSafe(string path, string text)
@@ -72,7 +163,8 @@ public sealed partial class Project
         File.Move(tmp, path, overwrite: true);
     }
 
-    static string SafeFileName(string name)
+    /// <summary>A mechanism name as a file name (characters Windows can't use become _): projects and My Library.</summary>
+    internal static string SafeFileName(string name)
     {
         var sb = new StringBuilder(name.Length);
         foreach (var c in name) sb.Append(Path.GetInvalidFileNameChars().Contains(c) ? '_' : c);
@@ -214,14 +306,13 @@ public sealed partial class Project
 
     // ---------------- Editing helpers (headless, testable) ----------------
 
-    /// <summary>A mechanism was renamed: every object that uses it now uses the new name. Returns how many changed.</summary>
+    /// <summary>A mechanism was renamed: every object that uses it (prefab templates too) now uses the new name. Returns how many changed.</summary>
     public int RenameMechanism(string oldName, string newName)
     {
         int n = 0;
-        foreach (var s in Scenes)
-            foreach (var o in s.Objects)
-                foreach (var m in o.Mechanisms)
-                    if (string.Equals(m.Name, oldName, StringComparison.OrdinalIgnoreCase)) { m.Name = newName; n++; }
+        foreach (var o in Scenes.SelectMany(s => s.Objects).Concat(Prefabs.Select(pf => pf.Template)))
+            foreach (var m in o.Mechanisms)
+                if (string.Equals(m.Name, oldName, StringComparison.OrdinalIgnoreCase)) { m.Name = newName; n++; }
         if (Mechanisms.Remove(oldName, out var src)) Mechanisms[newName] = src;
         return n;
     }

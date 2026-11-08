@@ -49,6 +49,8 @@ public sealed class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // An "ollama serve" BuilderEngine started for the local AI stops with it (one the person started stays).
+            desktop.Exit += (_, _) => BuilderEngine.Script.OllamaManager.Stop();
             // Dev and test runs (--project, --snap) go straight to the editor; a normal start shows the start screen.
             var args = desktop.Args ?? [];
             bool direct = args.Contains("--project") || args.Contains("--snap");

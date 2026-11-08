@@ -43,11 +43,20 @@ public static class GameExport
         return s.Length == 0 ? "My Game" : s;
     }
 
-    /// <summary>Copies a project folder for playing: everything but saves, plugins, backups and half-written files.</summary>
-    public static int CopyProject(string projectDir, string dest)
+    /// <summary>
+    /// Copies a project folder for playing: everything but saves, plugins, backups, half-written files and exported games
+    /// kept inside the project (<paramref name="exportFolder"/>, the export being made, and any folder with a
+    /// <c>game/project.json</c>) — exporting into the project's own folder never copies an export into the next one.
+    /// </summary>
+    public static int CopyProject(string projectDir, string dest, string? exportFolder = null)
     {
         int n = 0;
         Directory.CreateDirectory(dest);
+        var skip = new List<string> { Path.GetFullPath(dest) };
+        if (exportFolder != null) skip.Add(Path.GetFullPath(exportFolder));
+        foreach (var dir in Directory.GetDirectories(projectDir, "*", SearchOption.AllDirectories))
+            if (Project.Exists(Path.Combine(dir, GameFolder))) skip.Add(Path.GetFullPath(dir));
+        bool Skipped(string file) => skip.Any(d => Path.GetFullPath(file).StartsWith(d.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
         foreach (var file in Directory.GetFiles(projectDir, "*", SearchOption.AllDirectories))
         {
             string rel = Path.GetRelativePath(projectDir, file);
@@ -55,6 +64,7 @@ public static class GameExport
             string fname = Path.GetFileName(file);
             if (rel != fname && top.ToLowerInvariant() is Project.SavesFolder or "plugins" or ".backup" or ".git") continue;
             if (fname.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) || fname.StartsWith("project.broken-", StringComparison.OrdinalIgnoreCase)) continue;
+            if (Skipped(file)) continue;
             string to = Path.Combine(dest, rel);
             Directory.CreateDirectory(Path.GetDirectoryName(to)!);
             File.Copy(file, to, overwrite: true);
@@ -111,7 +121,7 @@ public static class GameExport
 
         progress?.Invoke("Copying the project…");
         string game = Path.Combine(folder, GameFolder);
-        int files = CopyProject(o.ProjectDir, game);
+        int files = CopyProject(o.ProjectDir, game, exportFolder: folder);
         if (o.IconImage is { Length: > 0 } icon && Images.Resolve(o.ProjectDir, icon) is { } iconPath)
             File.Copy(iconPath, Path.Combine(game, IconFile), overwrite: true);
         if (Directory.Exists(Path.Combine(o.ProjectDir, "plugins")) && Directory.EnumerateFiles(Path.Combine(o.ProjectDir, "plugins"), "*.dll").Any())

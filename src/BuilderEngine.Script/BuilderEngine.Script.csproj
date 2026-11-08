@@ -4,6 +4,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>BuilderEngine.Script</RootNamespace>
+    <!-- CA2255 ([ModuleInitializer] in a library): here on purpose. Feature files register their commands into
+         World.Installers (and samples into SampleGames.All) from a module initializer, which the runtime runs once,
+         before any type of this assembly is used — so before the first World is made. The installers never set the same
+         command or function, so their order doesn't matter (tested: AuditDataTests, "installers don't depend on their order"). -->
+    <NoWarn>$(NoWarn);CA2255</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\BuilderEngine.Plugin\BuilderEngine.Plugin.csproj" />

@@ -3,7 +3,8 @@
 # listing every file (the updater removes exactly those when the next version comes).
 # The release also has player/ (the exported-games player, see GameExport.cs).
 # The tag vX.Y.Z must already be pushed.   powershell -ExecutionPolicy Bypass -File tools\Publish-Release.ps1 -NotesFile notes.md
-param([Parameter(Mandatory)][string]$NotesFile, [string]$Version = '', [switch]$NoUpload)
+param([string]$NotesFile = '', [string]$Version = '', [switch]$NoUpload)
+if (-not $NoUpload -and -not $NotesFile) { throw "-NotesFile is needed to publish (or pass -NoUpload to only build the zip)" }
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $gh = 'C:\Program Files\GitHub CLI\gh.exe'
@@ -25,7 +26,16 @@ if (-not (Test-Path (Join-Path $out 'player\BuilderEngine.Player.exe'))) { throw
 $manifest = 'builderengine-files.txt'
 $files = Get-ChildItem $out -Recurse -File | ForEach-Object { $_.FullName.Substring($out.Length + 1) }
 ($files + $manifest) | Set-Content (Join-Path $out $manifest) -Encoding ASCII
-Compress-Archive -Path (Join-Path $out '*') -DestinationPath $zip -CompressionLevel Optimal
+# Not Compress-Archive (nor ZipFile.CreateFromDirectory): in Windows PowerShell 5.1 both write entries as "player\x.dll".
+# Backslashes are not valid zip paths (other unzip tools make files with "\" in their names), so each entry is named here.
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+$stream = [System.IO.File]::Create($zip)
+$archive = New-Object System.IO.Compression.ZipArchive($stream, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+    foreach ($rel in ($files + $manifest)) {
+        [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, (Join-Path $out $rel), $rel.Replace('\', '/'), [System.IO.Compression.CompressionLevel]::Optimal)
+    }
+} finally { $archive.Dispose(); $stream.Dispose() }
 "built $zip ($([Math]::Round((Get-Item $zip).Length / 1MB, 1)) MB, $($files.Count + 1) files)"
 
 if (-not $NoUpload) {

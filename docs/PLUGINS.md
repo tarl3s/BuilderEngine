@@ -97,3 +97,8 @@ Programmers who want everything can also reference `BuilderEngine.Script.dll`: `
 - `Register` runs once when the plugin loads (to list what it adds) and again for every world: each game, each scene
   it goes to, each editor tool. Keep it quick.
 - Plugins load from memory (the dll isn't locked): rebuild it, then press *Reload*.
+- Two plugins can't add the same command or function: the first one to load (plugins load in file-name order) keeps
+  it, the other is told in the Plugins window and the console, and its copy is left out of every world.
+- Plugins run on the game's own thread, with no time limit: a `Register` or a command that hangs freezes the editor
+  (there is no sandbox — see the warning above). A plugin that throws is caught and reported.
+- Exported games don't include plugins (Export game says so).

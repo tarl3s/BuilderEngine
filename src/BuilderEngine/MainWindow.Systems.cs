@@ -148,7 +148,7 @@ public sealed partial class MainWindow
             if (r != "Remove") return;
         }
         Checkpoint();
-        var result = Systems.Remove(_sources, _project.Scenes, _scene, name, OriginalSource);
+        var result = Systems.Remove(_sources, _project.Scenes, _scene, name, OriginalSource, _project.Prefabs.Select(p => p.Template));
         if (_current != null && !_sources.ContainsKey(_current)) { _current = null; ShowTab(scene: true); }
         RefreshLibrary();
         SceneOnMechanismsChanged();

@@ -1,11 +1,10 @@
-using System.Text.RegularExpressions;
 using BuilderEngine.Script;
 
 namespace BuilderEngine;
 
 // VARIANTS: 'mechanism RedSlime from Slime' (rules in BuilderEngine.Script/Variants.cs). The library and the inspector
 // show "RedSlime (from Slime)"; the library's right-click menu makes one ("Make a variant…"); renaming the parent
-// renames the 'from' of its variants. The inspector shows a variant's params merged with its parent's (DefOf).
+// renames the 'from' of its variants (and 'uses'/'includes' lines elsewhere). The inspector shows a variant's params merged with its parent's (DefOf).
 public sealed partial class MainWindow
 {
     /// <summary>"RedSlime (from Slime)" for a variant, otherwise the name.</summary>
@@ -55,15 +54,18 @@ public sealed partial class MainWindow
         return string.Join("\n", lines) + "\n";
     }
 
-    /// <summary>A mechanism was renamed: variants that come from it follow, and so do its breakpoints.</summary>
+    /// <summary>
+    /// A mechanism was renamed: the mechanisms that refer to it follow — variants that come from it, 'uses' and
+    /// 'includes' lines, the signals they listen to (MechanismLibrary.RenameReferences) — and so do its breakpoints.
+    /// </summary>
     void VariantsOnRenamed(string oldName, string newName)
     {
         _debugger.RenameMechanism(oldName, newName);
-        string esc = Regex.Escape(oldName);
         foreach (var key in _sources.Keys.ToList())
         {
+            if (string.Equals(key, newName, StringComparison.OrdinalIgnoreCase)) continue; // its own source is the one being typed
             string src = _sources[key];
-            string renamed = Regex.Replace(src, $@"(?m)^(\s*mechanism\s+\w+\s+from\s+){esc}\b", m => m.Groups[1].Value + newName);
+            string renamed = MechanismLibrary.RenameReferences(src, oldName, newName);
             if (renamed != src) _sources[key] = renamed;
         }
     }

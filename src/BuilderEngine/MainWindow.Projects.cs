@@ -127,7 +127,7 @@ public sealed partial class MainWindow
     static void OpenFolder(string dir)
     {
         try { Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true }); }
-        catch { /* no file manager */ }
+        catch (System.ComponentModel.Win32Exception) { /* no file manager */ }
     }
 
     // ---------------- New / open / switch ----------------

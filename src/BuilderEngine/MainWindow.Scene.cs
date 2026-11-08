@@ -18,6 +18,8 @@ public sealed partial class MainWindow
     string _projectDir = "";
     /// <summary>Opened with --project: an explicit (maybe throwaway) folder that must not become the "last project".</summary>
     bool _projectFromArg;
+    /// <summary>The project folder exists but its files couldn't be read (offline cloud folder, permissions): never saved over.</summary>
+    bool _projectUnreadable;
     /// <summary>The starter kit as shipped, to tell which mechanisms belong to the project (new or edited ones).</summary>
     Dictionary<string, string> _starterSources = new();
 
@@ -70,17 +72,16 @@ public sealed partial class MainWindow
 
     void LoadProject()
     {
+        _projectUnreadable = false;
         if (_eeproj != null) LoadEeproj(); // an EasyEngine project (MainWindow.Link.cs)
         else if (Project.Exists(_projectDir))
         {
-            try { _project = Project.Load(_projectDir); }
-            catch (Exception e)
+            // A broken project.json is kept aside (the mechanisms stay); files that can't be read are never saved over (Project.Open).
+            _project = Project.Open(_projectDir, ProjectNameFromFolder(), out var opened, out string problem);
+            _projectUnreadable = opened == Project.OpenResult.Unreadable;
+            if (opened != Project.OpenResult.Loaded) Log("⚠ " + problem);
+            if (opened == Project.OpenResult.Recovered)
             {
-                // Keep the broken file for the person to look at, start again with an empty project.
-                string broken = Path.Combine(_projectDir, $"project.broken-{DateTime.Now:yyyyMMdd-HHmmss}.json");
-                try { File.Move(Path.Combine(_projectDir, Project.FileName), broken); } catch { }
-                Log($"⚠ Couldn't read the project ({e.Message}). It was kept as {Path.GetFileName(broken)}; a new empty project was made.");
-                _project = Project.CreateEmpty(ProjectNameFromFolder());
                 AdoptProjectMechanisms();
                 TrySave();
             }
@@ -101,12 +102,14 @@ public sealed partial class MainWindow
         LinkOnProjectLoaded();    // the file watcher and live link (MainWindow.Link.cs)
     }
 
-    /// <summary>The project's own mechanisms join the editor's sources (the demo brings its cutscene, Intro).</summary>
+    /// <summary>
+    /// The project's own mechanisms join the editor's sources (the demo brings its cutscene, Intro). Every file comes in
+    /// whole — a draft without a 'mechanism' line too — because saving writes back exactly what is here (Project.SplitMechanismFiles).
+    /// </summary>
     void AdoptProjectMechanisms()
     {
-        foreach (var (_, src) in _project.Mechanisms)
-            foreach (var chunk in SplitMechanisms(src))
-                _sources[chunk.Name] = chunk.Source;
+        foreach (var (name, src) in _project.SplitMechanismFiles())
+            _sources[name] = src;
     }
 
     string ProjectNameFromFolder() => Path.GetFileName(_projectDir.TrimEnd('\\', '/')) is { Length: > 0 } n ? n : "My Game";
@@ -124,6 +127,11 @@ public sealed partial class MainWindow
 
     bool TrySave()
     {
+        if (_projectUnreadable)
+        {
+            SetStatus(false, "Not saved: this project's files couldn't be read when it opened, so they aren't saved over. Open it again.");
+            return false;
+        }
         try
         {
             SyncProjectMechanisms();

@@ -22,14 +22,14 @@ public sealed class MechanismLibrary(string folder)
             .Order(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    string FileOf(string name) => Path.Combine(Folder, SafeFileName(name) + ".bs");
+    string FileOf(string name) => Path.Combine(Folder, Project.SafeFileName(name) + ".bs"); // the same file names as a project's mechanisms
 
     public bool Contains(string name) => File.Exists(FileOf(name));
 
     public string? Read(string name)
     {
         try { return File.Exists(FileOf(name)) ? File.ReadAllText(FileOf(name)) : null; }
-        catch (IOException) { return null; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; } // locked or not allowed: as if it weren't there
     }
 
     /// <summary>Is there already a mechanism with this name in the library, and is it the same?</summary>
@@ -88,10 +88,16 @@ public sealed class MechanismLibrary(string folder)
         return Regex.Replace(source, $@"(?m)^(\s*when\s+){esc}\.", m => m.Groups[1].Value + newName + ".");
     }
 
-    static string SafeFileName(string name)
+    /// <summary>
+    /// Another mechanism's source after <paramref name="oldName"/> was renamed: its <c>from Old</c>, <c>uses Old</c>,
+    /// <c>includes Old</c> lines and the signals it listens to (<c>when Old.died</c>) follow. Texts and longer names
+    /// (<c>"Old"</c>, <c>OldBar</c>) are left alone; the renamed mechanism's own line is <see cref="RenameSource"/>'s job.
+    /// </summary>
+    public static string RenameReferences(string source, string oldName, string newName)
     {
-        var sb = new StringBuilder(name.Length);
-        foreach (var c in name) sb.Append(Path.GetInvalidFileNameChars().Contains(c) ? '_' : c);
-        return sb.Length == 0 ? "Mechanism" : sb.ToString();
+        string esc = Regex.Escape(oldName);
+        source = Regex.Replace(source, $@"(?m)^(\s*(?:mechanism|system)\s+\w+\s+from\s+){esc}\b", m => m.Groups[1].Value + newName);
+        source = Regex.Replace(source, $@"(?m)^(\s*(?:uses|includes)\s+){esc}\b", m => m.Groups[1].Value + newName);
+        return Regex.Replace(source, $@"(?m)^(\s*when\s+){esc}\.", m => m.Groups[1].Value + newName + ".");
     }
 }

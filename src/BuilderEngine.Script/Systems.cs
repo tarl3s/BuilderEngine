@@ -230,10 +230,11 @@ public static class Systems
     /// Removes a system from a scene: its objects (an object with other mechanisms only loses the system). When no
     /// scene uses it any more, its source leaves the project — unless it was changed from <paramref name="original"/>
     /// (the starter or My Library copy), so your own work is never thrown away — and so do the mechanisms it copied in
-    /// that nothing else uses and nobody changed.
+    /// that nothing else uses (no scene object, none of <paramref name="prefabs"/>' templates, no mechanism left in the
+    /// project — the kept system itself included — through 'uses' / 'from' / 'includes' / 'make') and nobody changed.
     /// </summary>
     public static RemoveResult Remove(IDictionary<string, string> sources, IEnumerable<Scene> scenes, Scene scene, string systemName,
-        Func<string, string?>? original = null)
+        Func<string, string?>? original = null, IEnumerable<SceneObject>? prefabs = null)
     {
         int removed = 0;
         foreach (var o in scene.Objects.ToList())
@@ -243,8 +244,8 @@ public static class Systems
             if (o.Mechanisms.Count == 0) scene.Objects.Remove(o);
             removed++;
         }
-        var all = scenes.ToList();
-        bool Used(string n) => all.Any(s => s.Objects.Any(o => o.Has(n)));
+        var all = scenes.SelectMany(s => s.Objects).Concat(prefabs ?? []).ToList();
+        bool Used(string n) => all.Any(o => o.Has(n));
         var gone = new List<string>();
         bool sourceRemoved = false;
         if (!Used(systemName) && sources.TryGetValue(systemName, out var src))
@@ -260,7 +261,7 @@ public static class Systems
                 foreach (var m in Members(def))
                 {
                     if (IsStarterMechanism(m) || Used(m) || !sources.TryGetValue(m, out var ms)) continue;
-                    if (OtherSystemsBring(sources, m, systemName)) continue;
+                    if (Needed(sources, m)) continue;
                     var mo = original?.Invoke(m);
                     var chunk = mo == null ? null : Split(mo).FirstOrDefault(c => string.Equals(c.Name, m, StringComparison.OrdinalIgnoreCase)).Source;
                     if (chunk != null && MechanismLibrary.Compare(chunk, ms) == NameClash.Same)
@@ -273,12 +274,21 @@ public static class Systems
         return new RemoveResult(removed, sourceRemoved, gone);
     }
 
-    static bool OtherSystemsBring(IDictionary<string, string> sources, string mechanism, string except)
+    /// <summary>
+    /// Does a mechanism still in the project need this one — a system that includes it (the removed system's source is
+    /// already gone; an edited one that stays keeps its parts), or any mechanism that uses, makes or comes from it?
+    /// </summary>
+    static bool Needed(IDictionary<string, string> sources, string mechanism)
     {
         foreach (var (name, src) in sources)
         {
-            if (string.Equals(name, except, StringComparison.OrdinalIgnoreCase) || !IsSystemSource(src)) continue;
-            if (Parse(src) is { } d && Members(d).Contains(mechanism, StringComparer.OrdinalIgnoreCase)) return true;
+            if (string.Equals(name, mechanism, StringComparison.OrdinalIgnoreCase)) continue;
+            List<MechanismDef> defs;
+            try { defs = Parser.Parse(src); }
+            catch (ScriptError) { continue; } // a mechanism that doesn't parse yet can't be checked
+            foreach (var d in defs)
+                if (string.Equals(d.Base, mechanism, StringComparison.OrdinalIgnoreCase) || Members(d).Contains(mechanism, StringComparer.OrdinalIgnoreCase))
+                    return true;
         }
         return false;
     }

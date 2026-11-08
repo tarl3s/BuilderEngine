@@ -24,8 +24,32 @@ public sealed class AppSettings(string folder, bool readOnly = false)
 
     JsonObject Load()
     {
-        try { return File.Exists(FilePath) ? Project.Parse(File.ReadAllText(FilePath)) as JsonObject ?? new() : new(); }
-        catch { return new(); }
+        TryLoad(out var o, out _);
+        return o;
+    }
+
+    /// <summary>
+    /// Reads the file (missing = empty). A file that isn't JSON (cut short, hand-edited) reads as empty with
+    /// <paramref name="broken"/> set. False when the file is there but can't be read (locked, no permission).
+    /// </summary>
+    bool TryLoad(out JsonObject o, out bool broken)
+    {
+        o = new JsonObject();
+        broken = false;
+        string text;
+        try
+        {
+            if (!File.Exists(FilePath)) return true;
+            text = File.ReadAllText(FilePath);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+        try
+        {
+            if (Project.Parse(text) is JsonObject read) { o = read; return true; }
+        }
+        catch (JsonException) { }
+        broken = true;
+        return true;
     }
 
     bool Store(JsonObject o)
@@ -39,41 +63,47 @@ public sealed class AppSettings(string folder, bool readOnly = false)
             File.Move(tmp, FilePath, overwrite: true);
             return true;
         }
-        catch { return false; } // settings are a convenience
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; } // settings are a convenience: callers get false
+    }
+
+    /// <summary>
+    /// Changes the file: read it, change it, write it back. Never when it couldn't be read (that would write an empty
+    /// file over it); a file that wasn't JSON is first kept as <c>settings.broken-….json</c>, so its keys (API keys, the
+    /// recent list…) can still be found.
+    /// </summary>
+    bool Update(Action<JsonObject> change)
+    {
+        if (ReadOnly || !TryLoad(out var o, out bool broken)) return false;
+        if (broken)
+        {
+            try { File.Copy(FilePath, Path.Combine(Folder, $"settings.broken-{DateTime.Now:yyyyMMdd-HHmmss}.json"), overwrite: true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; } // not kept: don't replace it either
+        }
+        change(o);
+        return Store(o);
     }
 
     public string? Get(string key) => Load()[key] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
 
-    public bool Set(string key, string value)
-    {
-        var o = Load();
-        o[key] = value;
-        return Store(o);
-    }
+    public bool Set(string key, string value) => Update(o => o[key] = value);
 
     public List<string> GetList(string key) =>
         Load()[key] is JsonArray a ? a.OfType<JsonValue>().Select(v => v.TryGetValue<string>(out var s) ? s : null).OfType<string>().ToList() : [];
 
-    public bool SetList(string key, IEnumerable<string> values)
-    {
-        var o = Load();
-        o[key] = new JsonArray(values.Select(v => (JsonNode?)JsonValue.Create(v)).ToArray());
-        return Store(o);
-    }
+    public bool SetList(string key, IEnumerable<string> values) =>
+        Update(o => o[key] = new JsonArray(values.Select(v => (JsonNode?)JsonValue.Create(v)).ToArray()));
 
     // ---------------- Recent projects ----------------
 
     public List<string> RecentProjects() => GetList("recentProjects");
 
     /// <summary>Opened a project: it becomes <c>lastProject</c> and goes to the top of the recent list.</summary>
-    public bool RememberProject(string folder)
+    public bool RememberProject(string folder) => Update(o =>
     {
-        var o = Load();
         o["lastProject"] = folder;
         var list = o["recentProjects"] is JsonArray a ? a.OfType<JsonValue>().Select(v => v.TryGetValue<string>(out var s) ? s : null).OfType<string>() : [];
         o["recentProjects"] = new JsonArray(AddRecent(list, folder).Select(v => (JsonNode?)JsonValue.Create(v)).ToArray());
-        return Store(o);
-    }
+    });
 
     /// <summary>Puts a folder at the top of a recent list: no duplicates (same folder written differently counts), at most <see cref="MaxRecent"/>.</summary>
     public static List<string> AddRecent(IEnumerable<string> list, string folder, int max = MaxRecent)
@@ -88,7 +118,7 @@ public sealed class AppSettings(string folder, bool readOnly = false)
     {
         static string N(string p)
         {
-            try { p = Path.GetFullPath(p); } catch { }
+            try { p = Path.GetFullPath(p); } catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { } // not a path: compared as written
             return p.Replace('/', '\\').TrimEnd('\\');
         }
         return string.Equals(N(a), N(b), StringComparison.OrdinalIgnoreCase);

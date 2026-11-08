@@ -118,10 +118,12 @@ public sealed class PluginManager : IDisposable
     public LoadedPlugin Add(IBuilderPlugin plugin, string source = "built-in")
     {
         string name, description;
+        Exception? nameFailed = null;
         try { name = plugin.Name; description = plugin.Description; }
-        catch { name = plugin.GetType().Name; description = ""; }
+        catch (Exception e) { name = plugin.GetType().Name; description = ""; nameFailed = e; } // plugin code: anything may come out
         var lp = new LoadedPlugin(plugin, string.IsNullOrWhiteSpace(name) ? plugin.GetType().Name : name, description ?? "", source);
         Plugins.Add(lp);
+        if (nameFailed != null) Logged?.Invoke($"⚠ Plugin {lp.Name} ({source}): its Name or Description failed ({Inner(nameFailed).Message}); the class name is used.");
         try { plugin.Register(new Recorder(this, lp)); }
         catch (Exception e)
         {
@@ -211,6 +213,13 @@ public sealed class PluginManager : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// The other plugin that already adds this command (or function), or null: the first plugin to add a name keeps it,
+    /// a later one is told when it loads and left out of every world — never a silent replacement.
+    /// </summary>
+    LoadedPlugin? OwnerOf(string name, bool function, LoadedPlugin except) =>
+        Plugins.FirstOrDefault(p => p != except && p.Commands.Any(c => c.IsFunction == function && string.Equals(c.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)));
+
     // ---------------- Hosts ----------------
 
     /// <summary>Records what a plugin adds when it loads (nothing runs).</summary>
@@ -225,6 +234,7 @@ public sealed class PluginManager : IDisposable
         public void AddCommand(string name, Action<IPluginCommand> run, string help = "", params string[] inputs)
         {
             if (CheckName(name, function: false) is { } why) { manager.Report($"Plugin {lp.Name}: {why} — that command was left out."); return; }
+            if (manager.OwnerOf(name, function: false, except: lp) is { } owner) { manager.Report($"Plugin {lp.Name}: the plugin {owner.Name} already adds a command called '{name.Trim()}' — this one was left out."); return; }
             if (lp.Commands.Any(c => !c.IsFunction && string.Equals(c.Name, name.Trim(), StringComparison.OrdinalIgnoreCase))) return;
             lp.Commands.Add(new PluginCommandInfo(name.Trim(), help ?? "", inputs ?? [], lp.Name, false));
         }
@@ -232,6 +242,7 @@ public sealed class PluginManager : IDisposable
         public void AddFunction(string name, Func<List<object?>, object?> run, string help = "", params string[] inputs)
         {
             if (CheckName(name, function: true) is { } why) { manager.Report($"Plugin {lp.Name}: {why} — that function was left out."); return; }
+            if (manager.OwnerOf(name, function: true, except: lp) is { } owner) { manager.Report($"Plugin {lp.Name}: the plugin {owner.Name} already adds a function called '{name.Trim()}' — this one was left out."); return; }
             if (lp.Commands.Any(c => c.IsFunction && string.Equals(c.Name, name.Trim(), StringComparison.OrdinalIgnoreCase))) return;
             lp.Commands.Add(new PluginCommandInfo(name.Trim(), help ?? "", inputs ?? [], lp.Name, true));
         }
@@ -248,7 +259,7 @@ public sealed class PluginManager : IDisposable
 
         public void AddCommand(string name, Action<IPluginCommand> run, string help = "", params string[] inputs)
         {
-            if (CheckName(name, function: false) != null) return; // reported when it loaded
+            if (CheckName(name, function: false) != null || manager.OwnerOf(name, function: false, except: lp) != null) return; // reported when it loaded
             string key = name.Trim();
             string plugin = lp.Name;
             world.Commands[key] = c =>
@@ -261,7 +272,7 @@ public sealed class PluginManager : IDisposable
 
         public void AddFunction(string name, Func<List<object?>, object?> run, string help = "", params string[] inputs)
         {
-            if (CheckName(name, function: true) != null) return;
+            if (CheckName(name, function: true) != null || manager.OwnerOf(name, function: true, except: lp) != null) return; // reported when it loaded
             string key = name.Trim();
             string plugin = lp.Name;
             world.Functions[key] = args =>

@@ -125,7 +125,7 @@ public static class ParamTypes
             case null: return [];
             case List<object?> l: return l;
             case string s when s.TrimStart().StartsWith('['):
-                try { if (Project.Value(Project.Parse(s)) is List<object?> parsed) return parsed; } catch (Exception) { }
+                try { if (Project.Value(Project.Parse(s)) is List<object?> parsed) return parsed; } catch (System.Text.Json.JsonException) { } // not a JSON list: no items
                 return [];
             case string { Length: 0 }: return [];
             default: return [value];
