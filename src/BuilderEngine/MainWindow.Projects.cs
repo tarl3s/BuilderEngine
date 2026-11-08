@@ -35,6 +35,7 @@ public sealed partial class MainWindow
     void ProjectsInit()
     {
         _snapMode = ArgValue("--snap") != null;
+        _askWhenCloseCantSave = !_snapMode; // MainWindow.Scene.cs: closing when the save fails asks first
         string? dir = ArgValue("--appdata") ?? Environment.GetEnvironmentVariable("BUILDERENGINE_APPDATA");
         if (string.IsNullOrWhiteSpace(dir) && _snapMode) dir = Path.Combine(Path.GetFullPath(ArgValue("--snap")!), "appdata");
         _appDataRedirected = !string.IsNullOrWhiteSpace(dir);
@@ -116,7 +117,14 @@ public sealed partial class MainWindow
     void BackToStartScreen()
     {
         SceneStop();
-        TrySave();
+        // The save failed: ask first (MainWindow.Scene.cs), like closing the window does.
+        if (!TrySave() && !_projectUnreadable && _askWhenCloseCantSave) { _ = AskLeaveUnsavedAsync(ShowStartScreenAndClose); return; }
+        ShowStartScreenAndClose();
+    }
+
+    void ShowStartScreenAndClose()
+    {
+        _leaveWithoutSaving = true; // already saved (or the person chose to leave): closing doesn't save or ask again
         var launcher = new LauncherWindow();
         if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
             desktop.MainWindow = launcher;

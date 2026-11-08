@@ -1,9 +1,13 @@
 using BuilderEngine.Script;
 
 // Tiny test runner: no NuGet packages. Exit code = number of failures.
+// `--only <text>` runs just the tests whose name contains the text (the section titles still print).
 int pass = 0, fail = 0;
+int onlyArg = Array.IndexOf(args, "--only");
+string? only = onlyArg >= 0 && onlyArg + 1 < args.Length ? args[onlyArg + 1] : null;
 void Test(string name, Action body)
 {
+    if (only != null && !name.Contains(only, StringComparison.OrdinalIgnoreCase)) return;
     try { body(); pass++; Console.WriteLine($"  ok   {name}"); }
     catch (Exception e) { fail++; Console.WriteLine($"  FAIL {name}: {e.Message}"); }
 }
@@ -263,7 +267,10 @@ string DumpE(Expr? e) => e switch
     CallExpr c => $"{c.Name}[{string.Join(" ", c.Args.Select(DumpE))}]",
     ListExpr l => $"<list {string.Join(" ", l.Items.Select(DumpE))}>",
     IndexExpr x => $"(at {DumpE(x.Target)} {DumpE(x.Index)})",
-    _ => "?"
+    MemberExpr m => $"(dot {DumpE(m.Target)} {m.Name})",
+    RecordExpr r => $"<record {string.Join(" ", r.Fields.Select(f => "'" + f.Key + "'=" + DumpE(f.Value)))}>",
+    // A node the dump doesn't know would dump as the same "?" before and after printing: fail instead of hiding a change.
+    _ => throw new Exception("the test's Dump doesn't know " + e.GetType().Name + ": add it")
 };
 string DumpL(List<Stmt>? list) => list == null ? "null" : "{" + string.Join("; ", list.Select(DumpS)) + "}";
 string DumpS(Stmt s) => s switch
@@ -285,11 +292,12 @@ string DumpS(Stmt s) => s switch
     ForEachStmt f => $"foreach {f.Var} {DumpE(f.List)} {DumpL(f.Body)}",
     WhileStmt w => $"while {DumpE(w.Cond)} {DumpL(w.Body)}",
     ReturnStmt r => $"return {DumpE(r.Value)}",
-    _ => "?"
+    _ => throw new Exception("the test's Dump doesn't know " + s.GetType().Name + ": add it")
 };
 string Dump(List<MechanismDef> defs) => string.Join("\n", defs.Select(m =>
-    $"M {m.Name}\n" +
-    string.Concat(m.Params.Select(p => $" P {p.Name}:{p.Type}={DumpE(p.Default)}\n")) +
+    $"M {m.Name} base={m.Base} system={m.IsSystem}\n" +
+    string.Concat(m.Includes.Select(u => $" I {u.Name} {DumpE(u.Positional)} {string.Join(",", u.Args.Select(kv => kv.Key + "=" + DumpE(kv.Value)))}\n")) +
+    string.Concat(m.Params.Select(p => $" P {p.Name}:{p.Type}={DumpE(p.Default)} options=[{string.Join(",", p.Options ?? [])}]\n")) +
     string.Concat(m.Uses.Select(u => $" U {u.Name} {DumpE(u.Positional)} {string.Join(",", u.Args.Select(kv => kv.Key + "=" + DumpE(kv.Value)))}\n")) +
     string.Concat(m.Whens.Select(w => $" W {w.Event.Kind}|{w.Event.Filter}|{w.Event.Bind}|{w.Event.Source}|{w.Event.Name} {DumpL(w.Body)}\n")) +
     string.Concat(m.Procs.Select(p => $" TO {p.Name}({string.Join(",", p.Params)}) {DumpL(p.Body)}\n"))));
@@ -1258,6 +1266,7 @@ SystemsTests.Run(Test); // systems (sets of mechanisms that work together) and "
 LinkTests.Run(Test); // the EasyEngine ⇄ BuilderEngine link: .eeproj round-trips, layers, ids, live link (LinkTests.cs)
 AuditDataTests.Run(Test); // the data audit: project files, mechanisms, settings, plugins, export, big projects (AuditDataTests.cs)
 AuditRuntimeTests.Run(Test); // the runtime audit: crash-proof scripts, runaway loops, values, saves, long play, allocations (AuditRuntimeTests.cs)
+AuditEditorTests.Run(Test, RoundTrip); // long random plays of the samples, sample code round-trips, save/load/play (AuditEditorTests.cs)
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;

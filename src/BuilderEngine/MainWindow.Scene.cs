@@ -151,10 +151,36 @@ public sealed partial class MainWindow
         if (TrySave()) SetStatus(true, $"Saved “{_project.Name}” to {_projectDir}");
     }
 
-    void SceneOnClosing()
+    /// <summary>The person chose "Close without saving" (or saved on a retry): closing doesn't ask again.</summary>
+    bool _leaveWithoutSaving;
+    /// <summary>Ask before closing when the save fails. Off in --snap runs (no modal dialogs); the lifecycle snap turns it on.</summary>
+    bool _askWhenCloseCantSave;
+
+    /// <summary>
+    /// Closing saves first. When that save failed the window closed anyway and every change since the last save was
+    /// lost without a word (audit D-13): now the close is cancelled and the person chooses. A project whose files
+    /// couldn't be read is never saved (Project.Open), so closing it doesn't ask.
+    /// </summary>
+    void SceneOnClosing(WindowClosingEventArgs e)
     {
         SceneStop();
-        TrySave();
+        if (TrySave() || _projectUnreadable || _leaveWithoutSaving || !_askWhenCloseCantSave) return;
+        e.Cancel = true;
+        _ = AskLeaveUnsavedAsync(Close);
+    }
+
+    /// <summary>The save failed: "Save again" (tries once more), "Close without saving" (runs <paramref name="leave"/>) or "Cancel".</summary>
+    async Task AskLeaveUnsavedAsync(Action leave)
+    {
+        string? answer = await Dialogs.Ask(this, "Couldn't save",
+            "This project couldn't be saved (the console says why). If you leave now, the changes since the last save are lost.",
+            "Save again", "Close without saving", "Cancel");
+        if (answer == "Save again")
+        {
+            if (TrySave()) { _leaveWithoutSaving = true; leave(); }
+            else _ = AskLeaveUnsavedAsync(leave);
+        }
+        else if (answer == "Close without saving") { _leaveWithoutSaving = true; leave(); }
     }
 
     // ---------------- Mechanism changes from the shell ----------------
@@ -247,7 +273,8 @@ public sealed partial class MainWindow
         var fit = SmallButton("Fit", "Show the whole scene (Home)");
         fit.Click += (_, _) => _canvas.Fit();
 
-        var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        // Wraps onto a second line when the scene area is narrow: at 1024 px wide the zoom buttons and Fit were cut off.
+        var left = new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 8, LineSpacing = 4, VerticalAlignment = VerticalAlignment.Center };
         left.Children.Add(ScenePicker());
         left.Children.Add(new Border { Width = 1, Height = 20, Background = Palette.Border, Margin = new Thickness(4, 0) });
         left.Children.Add(add);
@@ -266,14 +293,17 @@ public sealed partial class MainWindow
             TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Right, Margin = new Thickness(16, 0, 0, 0),
             HorizontalAlignment = HorizontalAlignment.Stretch, ClipToBounds = true
         };
-        // Three columns, each with its own room: the buttons, the hint (shrinks and ends with …), the mouse X/Y
-        // (MainWindow.SceneKeys.cs). A DockPanel let the hint draw over the X/Y when the left part grew after opening.
-        var bar = new Grid { Margin = new Thickness(12, 6), ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
-        bar.Children.Add(left);
-        Grid.SetColumn(hint, 1);
-        bar.Children.Add(hint);
+        // Two columns, each with its own room: the buttons with the hint after them (the hint shrinks and ends with …;
+        // the buttons wrap when even they don't fit), and the mouse X/Y (MainWindow.SceneKeys.cs). A DockPanel for the
+        // whole bar let the hint draw over the X/Y when the left part grew after opening.
+        var bar = new Grid { Margin = new Thickness(12, 6), ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        var buttonsAndHint = new DockPanel();
+        DockPanel.SetDock(left, Dock.Left);
+        buttonsAndHint.Children.Add(left);
+        buttonsAndHint.Children.Add(hint);
+        bar.Children.Add(buttonsAndHint);
         _cursorPos.TextAlignment = TextAlignment.Right;
-        Grid.SetColumn(_cursorPos, 2);
+        Grid.SetColumn(_cursorPos, 1);
         bar.Children.Add(_cursorPos);
         return bar;
     }

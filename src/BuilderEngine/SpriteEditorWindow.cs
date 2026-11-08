@@ -63,6 +63,34 @@ sealed class SpriteEditorWindow : Window
         PickColor(_canvas.UsedColors(1).FirstOrDefault() is var first && first != 0 ? first : 0xFF000000);
         KeyDown += OnKey;
         _view.Refresh();
+        MarkSaved();
+        Closing += OnClosing;
+    }
+
+    // ---------------- Unsaved changes ----------------
+
+    // The picture as it was opened or last saved. Esc, Cancel and the window's X used to throw a drawing away without a word.
+    uint[] _savedPixels = [];
+    int _savedW, _savedH;
+    bool _discardConfirmed;
+
+    void MarkSaved()
+    {
+        _savedPixels = (uint[])_canvas.Pixels.Clone();
+        _savedW = _canvas.Width;
+        _savedH = _canvas.Height;
+    }
+
+    /// <summary>The picture differs from the one opened (or last saved).</summary>
+    internal bool HasUnsavedChanges => _canvas.Width != _savedW || _canvas.Height != _savedH || !_canvas.Pixels.AsSpan().SequenceEqual(_savedPixels);
+
+    async void OnClosing(object? sender, WindowClosingEventArgs e)
+    {
+        if (_discardConfirmed || !HasUnsavedChanges) return;
+        e.Cancel = true;
+        var answer = await Dialogs.Ask(this, "Keep your drawing?", "This picture has changes that aren't saved yet.", "Save", "Discard", "Keep drawing");
+        if (answer == "Save") await SaveAsync(); // closes when it saved
+        else if (answer == "Discard") { _discardConfirmed = true; Close(); }
     }
 
     // ---------------- Layout ----------------
@@ -321,6 +349,7 @@ sealed class SpriteEditorWindow : Window
         {
             PixelArt.Save(Path.Combine(Images.Folder(_projectDir), name), _canvas.ToPng());
             SavedName = name;
+            MarkSaved();
             return true;
         }
         catch (Exception e)

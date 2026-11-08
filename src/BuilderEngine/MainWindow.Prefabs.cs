@@ -155,6 +155,9 @@ public sealed partial class MainWindow
         _prefabTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         _prefabTimer.Tick += (_, _) => SyncPrefabs();
         _prefabTimer.Start();
+        // A running DispatcherTimer is rooted by the dispatcher: left running, it kept every closed editor window (and
+        // its project) alive and syncing forever after "Start screen…" (MainWindow.LifecycleSnap.cs checks this).
+        Closed += (_, _) => _prefabTimer.Stop();
     }
 
     // ---------------- Placing, saving ----------------
