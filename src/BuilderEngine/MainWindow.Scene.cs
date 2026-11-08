@@ -61,6 +61,8 @@ public sealed partial class MainWindow
         LoadProject();
         RememberProject();
         UpdateTitle();
+        NumberWheel.Install(); // the wheel steps a focused number field (NumberWheel.cs)
+        ListSearch.Install();  // type to search in open dropdowns and menus (ListSearch.cs)
         AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
         SceneSnapIfAsked();
     }
@@ -187,7 +189,10 @@ public sealed partial class MainWindow
         _canvas.Edited = SyncTransformFields;
         _canvas.ViewChanged = () => _zoomText.Text = $"{Math.Round(_canvas.Zoom * 100)}%";
         _canvas.MechanismDropped = OnMechanismDropped;
-        _canvas.KeyCommand = OnSceneKey;
+        _canvas.PictureAspect = PictureAspectOf;
+        _canvas.DoubleClicked = o => BeginRename(o.Id);
+        _canvas.MenuRequested = ShowSceneMenu;
+        _canvas.PointerWorldChanged = ShowCursorPos;
         _canvas.ToolPointer = OnToolPointer;
 
         _editBar = EditBar();
@@ -222,11 +227,11 @@ public sealed partial class MainWindow
             grid.Padding = new Thickness(10, 5);
             _canvas.InvalidateVisual();
         };
-        var minus = SmallButton("−", "Zoom out");
+        var minus = SmallButton("−", "Zoom out (Ctrl+wheel zooms at the mouse, Ctrl+-)");
         minus.Click += (_, _) => _canvas.ZoomBy(1 / 1.25);
-        var plus = SmallButton("+", "Zoom in");
+        var plus = SmallButton("+", "Zoom in (Ctrl+wheel zooms at the mouse, Ctrl++)");
         plus.Click += (_, _) => _canvas.ZoomBy(1.25);
-        var fit = SmallButton("Fit", "Show the whole scene");
+        var fit = SmallButton("Fit", "Show the whole scene (Home)");
         fit.Click += (_, _) => _canvas.Fit();
 
         var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
@@ -243,13 +248,15 @@ public sealed partial class MainWindow
 
         var hint = new TextBlock
         {
-            Text = "Drag to move · Alt = no snap · Space or middle-drag to pan · Wheel to zoom",
+            Text = "Drag to move · Drag on empty space to select several · Alt = no snap · Ctrl+wheel to zoom · Right-click for more · F1 = all shortcuts",
             Foreground = Palette.TextDim, FontSize = 11, VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(16, 0, 0, 0), HorizontalAlignment = HorizontalAlignment.Right
         };
         var dock = new DockPanel { Margin = new Thickness(12, 6) };
         DockPanel.SetDock(left, Dock.Left);
         dock.Children.Add(left);
+        DockPanel.SetDock(_cursorPos, Dock.Right);
+        dock.Children.Add(_cursorPos); // X / Y of the mouse in the scene (MainWindow.SceneKeys.cs)
         dock.Children.Add(hint);
         return dock;
     }
@@ -262,6 +269,7 @@ public sealed partial class MainWindow
         text.VerticalAlignment = VerticalAlignment.Center;
         text.FontSize = 12;
         var stop = PlainButton("■  Stop");
+        ToolTip.SetTip(stop, "Back to editing (Esc)");
         stop.Click += (_, _) => SceneStop();
         var row = new DockPanel { Margin = new Thickness(12, 6) };
         DockPanel.SetDock(stop, Dock.Right);
@@ -390,84 +398,6 @@ public sealed partial class MainWindow
         _canvas.Focus();
     }
 
-    void DeleteSelected()
-    {
-        if (Selected is not { } o) return;
-        Checkpoint();
-        _scene.Objects.Remove(o);
-        Select(0);
-        SetStatus(true, $"Deleted {o.Name}. Ctrl+Z brings it back.");
-    }
-
-    void DuplicateSelected()
-    {
-        if (Selected is not { } o) return;
-        Checkpoint();
-        var copy = o.Clone();
-        copy.Name = UniqueName(BaseName(o.Name));
-        copy.X += 16;
-        copy.Y += 16;
-        _scene.Add(copy);
-        Select(copy.Id);
-    }
-
-    void Nudge(double dx, double dy)
-    {
-        if (Selected is not { } o) return;
-        Checkpoint("nudge" + o.Id);
-        o.X += dx;
-        o.Y += dy;
-        _canvas.InvalidateVisual();
-        SyncTransformFields();
-    }
-
-    /// <summary>"Coin 3" -> "Coin"; used to number copies.</summary>
-    static string BaseName(string name)
-    {
-        int sp = name.LastIndexOf(' ');
-        return sp > 0 && int.TryParse(name[(sp + 1)..], out _) ? name[..sp] : name;
-    }
-
-    string UniqueName(string baseName)
-    {
-        bool Taken(string n) => _scene.Objects.Any(o => string.Equals(o.Name, n, StringComparison.OrdinalIgnoreCase));
-        if (!Taken(baseName)) return baseName;
-        int i = 2;
-        while (Taken($"{baseName} {i}")) i++;
-        return $"{baseName} {i}";
-    }
-
-    bool OnSceneKey(KeyEventArgs e)
-    {
-        if (_play != null) return false;
-        if (ToolKey(e)) return true;
-        bool ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
-        double step = (e.KeyModifiers & KeyModifiers.Alt) != 0 ? 1 : SceneCanvas.GridStep;
-        switch (e.Key)
-        {
-            case Key.Delete or Key.Back: DeleteSelected(); return true;
-            case Key.D when ctrl: DuplicateSelected(); return true;
-            case Key.Escape: Select(0); return true;
-            case Key.Left: Nudge(-step, 0); return true;
-            case Key.Right: Nudge(step, 0); return true;
-            case Key.Up: Nudge(0, -step); return true;
-            case Key.Down: Nudge(0, step); return true;
-        }
-        return false;
-    }
-
-    void OnWindowKeyDown(object? sender, KeyEventArgs e)
-    {
-        bool ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
-        if (!ctrl) return;
-        if (e.Key == Key.S) { SceneSave(); e.Handled = true; return; }
-        if (e.Key == Key.O && !_snapMode) { _ = OpenProjectAsync(); e.Handled = true; return; }
-        if (!_sceneTab || _play != null || FocusManager?.GetFocusedElement() is TextBox) return;
-        bool shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
-        if (e.Key == Key.Y || (e.Key == Key.Z && shift)) { Redo(); e.Handled = true; }
-        else if (e.Key == Key.Z) { Undo(); e.Handled = true; }
-    }
-
     // ---------------- Undo ----------------
 
     /// <summary>Remembers the scene before a change. Changes with the same key in a row (typing, spinning) are one step.</summary>
@@ -519,7 +449,7 @@ public sealed partial class MainWindow
         _checkpointKey = null;
         _project.Scenes[_sceneIndex] = Scene.FromJson(json);
         _canvas.Scene = _scene;
-        if (_scene.Find(_canvas.SelectedId) == null) _canvas.SelectedId = 0;
+        KeepSelectionAfterRestore(); // the objects of the selection that still exist (MainWindow.SceneKeys.cs)
         _canvas.InvalidateVisual();
         RebuildInspector();
         RefreshScenes();

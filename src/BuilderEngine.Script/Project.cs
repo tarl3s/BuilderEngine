@@ -437,6 +437,12 @@ public sealed class SceneObject
     public string Image { get; set; } = "";
     public List<string> Tags { get; set; } = [];
     public List<SceneMechanism> Mechanisms { get; set; } = [];
+    /// <summary>Editor only: a locked object can't be clicked, moved, resized or deleted in the scene (the game ignores it).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Locked { get; set; }
+    /// <summary>Editor only: resizing keeps the width/height proportions (the picture's, else the box's).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool KeepAspect { get; set; }
 
     public SceneObject Clone() => FromNode((JsonObject)JsonSerializer.SerializeToNode(this, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })!);
 
@@ -454,6 +460,8 @@ public sealed class SceneObject
             Height = Math.Max(1, Project.Num(o, "height", 32)),
             Color = Project.Str(o, "color", "#D97757"),
             Image = Project.Str(o, "image", ""),
+            Locked = Project.Value(Project.Get(o, "locked")) is true,
+            KeepAspect = Project.Value(Project.Get(o, "keepAspect")) is true,
         };
         switch (Project.Get(o, "tags"))
         {

@@ -23,6 +23,7 @@ public sealed partial class MainWindow
             try
             {
                 await Task.Delay(800);
+                if (ArgValue("--snap-only") == "qol") { await SnapQol(dir); Close(); return; } // just the editor conveniences (MainWindow.QolSnap.cs)
                 Snap(dir, "1_scene");
                 if (_scene.Objects.FirstOrDefault(o => o.Mechanisms.Count > 0 && o.Tags.Contains("player")) is { } player) Select(player.Id);
                 await Task.Delay(300);
@@ -56,6 +57,7 @@ public sealed partial class MainWindow
                 await SnapDebugFeatures(dir); // MainWindow.DebugSnap.cs
                 await SnapTools(dir); // MainWindow.ToolsSnap.cs
                 await SnapAiFeatures(dir);
+                await SnapQol(dir); // MainWindow.QolSnap.cs
             }
             catch (Exception e) { File.WriteAllText(Path.Combine(dir, "error.txt"), e.ToString()); }
             Close();

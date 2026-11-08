@@ -228,6 +228,7 @@ public sealed class ToolRunner
     {
         foreach (var (go, so) in _map.ToList())
         {
+            if (so.Locked) { if (go.Destroyed) { _map.Remove(go); _back.Remove(so); } continue; } // locked in the editor: tools never change it
             if (go.Destroyed)
             {
                 _scene!.Objects.Remove(so);
@@ -286,6 +287,7 @@ public sealed class ToolRunner
         var list = new List<GameObject>();
         foreach (var so in _scene!.Objects.AsEnumerable().Reverse())
         {
+            if (so.Locked) continue; // locked objects are invisible to tools
             if (!_back.TryGetValue(so, out var go) || go.Destroyed) continue;
             if (x >= go.X && x < go.X + go.Width && y >= go.Y && y < go.Y + go.Height) list.Add(go);
         }

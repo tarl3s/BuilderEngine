@@ -165,13 +165,21 @@ public sealed partial class MainWindow : Window
         tabs.Children.Add(_tabMech);
 
         var save = PlainButton("Save");
+        ToolTip.SetTip(save, "Save the project (Ctrl+S)");
         save.Click += (_, _) => SceneSave();
         var stop = PlainButton("■  Stop");
+        ToolTip.SetTip(stop, "Stop playing (Esc)");
         stop.Click += (_, _) => SceneStop();
         var play = AccentButton("▶  Play");
+        ToolTip.SetTip(play, "Play the scene you are editing (F5)");
+        var help = PlainButton("?");
+        help.Padding = new Thickness(12, 7);
+        ToolTip.SetTip(help, "Keyboard shortcuts (F1)");
+        help.Click += (_, _) => ShowShortcuts();
         play.Click += (_, _) => { ShowTab(true); ClearLog(); ScenePlay(); };
 
         var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 16, 0) };
+        right.Children.Add(help);
         right.Children.Add(save);
         right.Children.Add(stop);
         right.Children.Add(play);

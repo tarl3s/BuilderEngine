@@ -36,8 +36,10 @@ public sealed partial class MainWindow
         _inspectorDirty = false;
         if (_canvas is not null) _canvas.Images = Pictures; // follows a project switch
         _numX = _numY = _numW = _numH = null;
+        _nameBox = null;
         _inspectorRoot.Children.Clear();
         if (_play != null) DebugPanel(); // MainWindow.Debug.cs
+        else if (_canvas is not null && _canvas.SelectedIds.Count > 1) MultiInspector(); // MainWindow.InspectorQol.cs
         else if (Selected is { } o) ObjectInspector(o);
         else SceneSettings();
         UpdateCanvasOverlay(); // the selected object's paths (MainWindow.ParamPickers.cs)
@@ -80,9 +82,10 @@ public sealed partial class MainWindow
 
         _inspectorRoot.Children.Add(new TextBlock
         {
-            Text = $"{s.Objects.Count} object(s).\n\nClick an object to edit it. Drag a mechanism from the library onto the scene to make an object with it, or onto an object to give it that mechanism.",
+            Text = $"{s.Objects.Count} object(s).\n\nClick an object to edit it (drag on empty space or Shift+click to select several). Drag a mechanism from the library onto the scene to make an object with it, or onto an object to give it that mechanism.",
             TextWrapping = TextWrapping.Wrap, Foreground = Palette.TextDim, FontSize = 12, Margin = new Thickness(0, 8, 0, 0)
         });
+        if (s.Objects.Count > 0) _inspectorRoot.Children.Add(ObjectList()); // every object, locked ones too (MainWindow.InspectorQol.cs)
     }
 
     // ---------------- An object ----------------
@@ -96,21 +99,28 @@ public sealed partial class MainWindow
         var del = LinkButton("Delete", "Delete key");
         del.Foreground = Palette.Error;
         del.Click += (_, _) => DeleteSelected();
+        var lockButton = LockButton(o); // MainWindow.InspectorQol.cs
+        actions.Children.Add(lockButton);
         actions.Children.Add(dup);
         actions.Children.Add(del);
         DockPanel.SetDock(actions, Dock.Right);
         head.Children.Add(actions);
         head.Children.Add(Label("OBJECT"));
         _inspectorRoot.Children.Add(head);
+        if (o.Locked) _inspectorRoot.Children.Add(LockedNote());
 
-        _inspectorRoot.Children.Add(Field("Name", TextField(o.Name, null, v => { Checkpoint("name" + o.Id); o.Name = v; _canvas.InvalidateVisual(); })));
+        _nameBox = TextField(o.Name, null, v => { Checkpoint("name" + o.Id); o.Name = v; _canvas.InvalidateVisual(); });
+        ToolTip.SetTip(_nameBox, "F2 or a double-click on the object brings you here");
+        _inspectorRoot.Children.Add(Field("Name", _nameBox));
 
         _numX = Num(o.X, 8, double.MinValue, v => { Checkpoint("x" + o.Id); o.X = v; _canvas.InvalidateVisual(); });
         _numY = Num(o.Y, 8, double.MinValue, v => { Checkpoint("y" + o.Id); o.Y = v; _canvas.InvalidateVisual(); });
-        _numW = Num(o.Width, 8, 1, v => { Checkpoint("w" + o.Id); o.Width = v; _canvas.InvalidateVisual(); });
-        _numH = Num(o.Height, 8, 1, v => { Checkpoint("h" + o.Id); o.Height = v; _canvas.InvalidateVisual(); });
+        _numW = Num(o.Width, 8, 1, v => { Checkpoint("w" + o.Id); SetSide(o, v, width: true); });
+        _numH = Num(o.Height, 8, 1, v => { Checkpoint("h" + o.Id); SetSide(o, v, width: false); });
         _inspectorRoot.Children.Add(Pair(Field("X", _numX), Field("Y", _numY)));
         _inspectorRoot.Children.Add(Pair(Field("Width", _numW), Field("Height", _numH)));
+        _inspectorRoot.Children.Add(SizeRow(o));  // Keep proportions, Original size (MainWindow.InspectorQol.cs)
+        _inspectorRoot.Children.Add(OrderRow(o)); // draw order (MainWindow.InspectorQol.cs)
 
         _inspectorRoot.Children.Add(Field("Colour", Swatch(Swatches, o.Color, c =>
         {
@@ -137,6 +147,7 @@ public sealed partial class MainWindow
         foreach (var m in o.Mechanisms.ToList())
             _inspectorRoot.Children.Add(MechanismCard(o, m));
         _inspectorRoot.Children.Add(AddMechanismPicker(o));
+        if (o.Locked) DisableAllBut(head, lockButton); // a locked object is read-only until unlocked (MainWindow.InspectorQol.cs)
     }
 
     /// <summary>The canvas moved or resized the selection: show the new numbers without rebuilding.</summary>
