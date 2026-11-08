@@ -73,7 +73,7 @@ public sealed partial class MainWindow
             catch (Exception e)
             {
                 _eeprojBroken = true;
-                _project = Project.CreateEmpty(Path.GetFileNameWithoutExtension(_eeproj));
+                _project = Project.CreateEmpty(Path.GetFileNameWithoutExtension(_eeproj) ?? "EasyEngine project");
                 Log($"⚠ Couldn't read the EasyEngine project ({e.Message}). It won't be saved over: fix it in EasyEngine and open it again.");
                 return;
             }

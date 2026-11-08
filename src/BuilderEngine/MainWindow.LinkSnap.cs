@@ -31,7 +31,7 @@ public sealed partial class MainWindow
             Check($"the first scene shows every object of the file ({fileObjects})", _scene.Objects.Count == fileObjects);
             var withPictures = _scene.Objects.Where(o => o.Image.Length > 0).ToList();
             Check($"every picture is found in Assets/sprites ({withPictures.Count})", withPictures.All(o => Pictures.Get(o.Image) != null));
-            Check("the title says EasyEngine and live link", Title.Contains("(EasyEngine)") && Title.Contains("🔗 Live link"));
+            Check("the title says EasyEngine and live link", (Title ?? "").Contains("(EasyEngine)") && (Title ?? "").Contains("🔗 Live link"));
 
             var target = _scene.Objects.FirstOrDefault(o => EasyLink.HasEasyBehaviors(o) && o.Image.Length > 0 && !o.Locked)
                 ?? _scene.Objects.First(o => EasyLink.HasEasyBehaviors(o) && !o.Locked);
