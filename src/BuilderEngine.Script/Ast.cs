@@ -50,4 +50,44 @@ public sealed record ParamDef(string Name, string Type, Expr? Default, int Line)
 /// <summary><c>uses Health max 2</c>: Name "Health", Args {max: 2}; <c>uses Sprite "slime.png"</c>: Positional.</summary>
 public sealed record UsesDef(string Name, Expr? Positional, Dictionary<string, Expr> Args, int Line);
 
-public sealed record MechanismDef(string Name, List<ParamDef> Params, List<UsesDef> Uses, List<WhenDef> Whens, int Line);
+public sealed record MechanismDef(string Name, List<ParamDef> Params, List<UsesDef> Uses, List<WhenDef> Whens, int Line)
+{
+    /// <summary>The commands this mechanism makes (<c>to name params</c>), in the order they are written.</summary>
+    public List<ProcDef> Procs { get; init; } = [];
+}
+
+// ---- Builder Script 2: user commands, waiting, parallel, loops, lists ----
+
+/// <summary><c>[1, 2, 3]</c>: a list value.</summary>
+public sealed record ListExpr(List<Expr> Items, int Line) : Expr(Line);
+/// <summary><c>items[0]</c>: one item of a list (0 is the first, -1 the last) or one letter of a text.</summary>
+public sealed record IndexExpr(Expr Target, Expr Index, int Line) : Expr(Line);
+
+/// <summary><c>wait until hp &lt;= 0</c>: pauses until the condition is true (checked once per step).</summary>
+public sealed record WaitUntilStmt(Expr Cond, int Line) : Stmt(Line);
+/// <summary>
+/// <c>wait for died</c> / <c>wait for Health.died</c> / <c>wait for other.Health.died</c>: pauses until that signal
+/// is emitted. The last name is the signal; what comes before it (if anything) is the object or mechanism it comes from.
+/// </summary>
+public sealed record WaitSignalStmt(string[] Path, int Line) : Stmt(Line)
+{
+    public string Full => string.Join('.', Path);
+}
+/// <summary><c>wait for key "space"</c>: pauses until that key is pressed.</summary>
+public sealed record WaitKeyStmt(Expr Key, int Line) : Stmt(Line);
+/// <summary><c>together</c>: each statement inside runs at the same time; continues when all of them have finished.</summary>
+public sealed record TogetherStmt(List<Stmt> Body, int Line) : Stmt(Line);
+/// <summary><c>run patrol</c> (or <c>run</c> + a block): starts it in the background and goes on without waiting.</summary>
+public sealed record RunStmt(List<Stmt> Body, int Line) : Stmt(Line);
+/// <summary><c>for each enemy in all("enemy")</c>: the body once per item, with the item in <c>Var</c>.</summary>
+public sealed record ForEachStmt(string Var, Expr List, List<Stmt> Body, int Line) : Stmt(Line);
+/// <summary><c>while hp &gt; 0</c>: repeats while the condition is true (one round per frame if nothing inside waits).</summary>
+public sealed record WhileStmt(Expr Cond, List<Stmt> Body, int Line) : Stmt(Line);
+/// <summary><c>return value</c>: ends a user command (inside <c>to</c>), optionally giving back a value.</summary>
+public sealed record ReturnStmt(Expr? Value, int Line) : Stmt(Line);
+
+/// <summary>
+/// <c>to attack target, power</c>: a command the person makes. Called like any command (<c>attack Boss, 3</c>);
+/// when it gives back a value with <c>return</c> it can also be used in a value (<c>damage_for(3)</c>).
+/// </summary>
+public sealed record ProcDef(string Name, List<string> Params, List<Stmt> Body, int Line);

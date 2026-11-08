@@ -21,6 +21,9 @@ static class BlockColors
     public static readonly BlockLook Message = new(B("#1D2A36"), B("#B9D0E6"));  // emit, tell
     public static readonly BlockLook Command = new(B("#1F1F1F"), B("#E0E0E0"));  // commands, variables
     public static readonly BlockLook Setting = new(B("#2A1D17"), B("#F2C9B6"));  // param, uses
+    public static readonly BlockLook Proc = new(B("#33203A"), B("#EBCDF4"));     // to, my commands, return
+    public static readonly BlockLook Parallel = new(B("#1C2E27"), B("#BFE8D3")); // together, run
+    public static readonly BlockLook List = new(B("#262033"), B("#D5CCF0"));     // add / remove (lists)
     public static readonly IBrush PillBg = B("#121212");
     public static readonly IBrush PillText = B("#ECECEC");
     public static readonly IBrush PillDim = B("#9A9A9A");
@@ -145,6 +148,13 @@ sealed partial class BlocksView : Border
 
     /// <summary>Every text a block shows goes through here, so blocks can be translated later (code keywords stay English).</summary>
     internal static string BlockText(string english) => english;
+
+    /// <summary>
+    /// The project's other mechanisms (parsed), so the palette can list their commands under MY COMMANDS and a call
+    /// block can show its inputs by name. Set by the window; empty when not set.
+    /// </summary>
+    public Func<IReadOnlyList<MechanismDef>>? ProjectDefs { get; set; }
+    IReadOnlyList<MechanismDef> _project = [];
 
     sealed record BlockOps(Action? Up, Action? Down, Action? Duplicate, Action Delete, string? ExtraText = null, string? ExtraTip = null, Action? Extra = null);
 
@@ -369,6 +379,8 @@ sealed partial class BlocksView : Border
         _mechSlots.Clear();
         _revealControl = null;
         _blocks.Children.Clear();
+        _project = ProjectDefs?.Invoke() ?? [];
+        RefreshMyCommands();
         if (_defs.Count == 0)
             _blocks.Children.Add(Note(_stale ? "" : "Empty — start with 'mechanism Name' in the code."));
         for (int mi = 0; mi < _defs.Count; mi++) _blocks.Children.Add(MechanismBlock(mi));
@@ -389,7 +401,7 @@ sealed partial class BlocksView : Border
     {
         if (_defs.Count == 0) return null;
         var m = _defs[MechIndex()];
-        return m.Whens.Count > 0 ? m.Whens[^1].Body : null;
+        return m.Whens.Count > 0 ? m.Whens[^1].Body : m.Procs.Count > 0 ? m.Procs[0].Body : null;
     }
 
     void Select(List<Stmt> body)
@@ -426,6 +438,9 @@ sealed partial class BlocksView : Border
             stack.Children.Add(PaletteItem(label, look, tip, id, _ => AddStatement(id)));
         }
 
+        // MY COMMANDS first: the commands the person made are the blocks they reach for most.
+        Section("MY COMMANDS");
+        stack.Children.Add(_myCommands);
         Section("EVENTS");
         stack.Children.Add(PaletteItem("when ▾", BlockColors.Event, "when start / tick / touched by / told / key / a signal (drag it to place a 'when start')", "when", item =>
         {
@@ -440,18 +455,29 @@ sealed partial class BlocksView : Border
             FlyoutBase.ShowAttachedFlyout(item);
         }));
         Add("wait", BlockColors.Event);
+        Add("waituntil", BlockColors.Event);
+        Add("waitfor", BlockColors.Event);
+        Add("waitkey", BlockColors.Event);
         Section("CONTROL");
         Add("if", BlockColors.Control);
         Add("ifelse", BlockColors.Control);
         Add("repeat", BlockColors.Control);
         Add("forever", BlockColors.Control);
+        Add("while", BlockColors.Control);
+        Add("foreach", BlockColors.Control);
         Add("stop", BlockColors.Control);
+        Section("AT THE SAME TIME");
+        Add("together", BlockColors.Parallel);
+        Add("run", BlockColors.Parallel);
         Section("MESSAGES");
         Add("emit", BlockColors.Message);
         Add("tell", BlockColors.Message);
         Section("VARIABLES");
         Add("set", BlockColors.Command);
         Add("change", BlockColors.Command);
+        Section("LISTS");
+        Add("listadd", BlockColors.List);
+        Add("listremove", BlockColors.List);
         Section("COMMANDS");
         foreach (var id in new[] { "print", "play", "spawn", "destroy", "move", "goto" }) Add(id, BlockColors.Command);
         Section("MECHANISM");
@@ -470,15 +496,17 @@ sealed partial class BlocksView : Border
         };
     }
 
-    Border PaletteItem(string label, BlockLook look, string tip, string dragId, Action<Border> click)
+    Border PaletteItem(string label, BlockLook look, string tip, string dragId, Action<Border> click) =>
+        PaletteItem(new TextBlock { Text = BlockText(label), Foreground = look.Fg, FontWeight = FontWeight.SemiBold, FontSize = 12.5 }, look, tip, dragId, click);
+
+    Border PaletteItem(Control content, BlockLook look, string tip, string dragId, Action<Border> click)
     {
         var b = new Border
         {
             Background = look.Bg, CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 6),
-            Cursor = new Cursor(StandardCursorType.Hand),
-            Child = new TextBlock { Text = BlockText(label), Foreground = look.Fg, FontWeight = FontWeight.SemiBold, FontSize = 12.5 }
+            Cursor = new Cursor(StandardCursorType.Hand), Child = content
         };
-        ToolTip.SetTip(b, tip);
+        ToolTip.SetTip(b, BlockText(tip));
         b.PointerEntered += (_, _) => b.Opacity = 0.8;
         b.PointerExited += (_, _) => b.Opacity = 1;
         // Clicking adds the block where the orange rail is (on release); dragging places it exactly.
@@ -487,17 +515,27 @@ sealed partial class BlocksView : Border
         return b;
     }
 
+    /// <summary>A new statement for a palette id: a built-in block, or a call to a user command ("call:name").</summary>
+    Stmt NewBlock(string id) => _paletteFactories.TryGetValue(id, out var make) ? make() : BlockEdits.NewStatement(id);
+
     void AddStatement(string id)
     {
         if (_stale || _defs.Count == 0) return;
         var body = _selBody;
+        if (id == "return")
+        {
+            // 'return' only goes inside a 'to': use the selected one, or the mechanism's first.
+            var m = _defs[MechIndex()];
+            if (body == null || !_bodies.ContainsKey(body) || !BlockEdits.InProc(m, body)) body = m.Procs.Count > 0 ? m.Procs[0].Body : null;
+            if (body == null) return;
+        }
         if (body == null || !_bodies.ContainsKey(body))
         {
             var w = BlockEdits.NewWhen(EventKind.Start);
             _defs[MechIndex()].Whens.Add(w);
             body = w.Body;
         }
-        var s = BlockEdits.NewStatement(id);
+        var s = NewBlock(id);
         body.Add(s);
         // The place you were adding into stays selected, so several clicks add blocks one after another.
         _selBody = body;
@@ -667,11 +705,16 @@ sealed partial class BlocksView : Border
         return p;
     }
 
-    /// <summary>The inside of a C-shaped block: a coloured rail on the left and the child blocks.</summary>
-    Control Body(List<Stmt> body, BlockLook look, int mi)
+    /// <summary>
+    /// The inside of a C-shaped block: a coloured rail on the left and the child blocks. A parallel rail ('together')
+    /// is split in two lengthwise, so the blocks beside it read as running side by side.
+    /// </summary>
+    Control Body(List<Stmt> body, BlockLook look, int mi, bool parallel = false)
     {
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("14,*") };
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions(parallel ? "18,*" : "14,*") };
         var rail = new Border { Background = look.Bg };
+        if (parallel)
+            rail.Child = new Border { Width = 3, Background = BlockColors.PillBg, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2), CornerRadius = new CornerRadius(1.5) };
         var stack = new StackPanel();
         var area = new Border { Padding = new Thickness(6, 3, 0, 3), Background = Brushes.Transparent, Child = stack, MinHeight = 26 };
         Grid.SetColumn(area, 1);
@@ -768,11 +811,14 @@ sealed partial class BlocksView : Border
             usesPanel.Children.Add(row);
         }
 
-        if (ps.Count + us.Count > 0 && m.Whens.Count > 0) panel.Children.Add(new Border { Height = 8 });
+        if (ps.Count + us.Count > 0 && m.Whens.Count + m.Procs.Count > 0) panel.Children.Add(new Border { Height = 8 });
         for (int i = 0; i < m.Whens.Count; i++) whensPanel.Children.Add(WhenBlock(m.Whens, i, mi));
         panel.Children.Add(whensPanel);
-        _mechSlots.Add(new MechSlot(panel, paramsPanel, usesPanel, whensPanel));
-        if (ps.Count + us.Count + m.Whens.Count == 0) panel.Children.Add(Note("Empty mechanism — add a 'when' from the palette."));
+        var procsPanel = new StackPanel();
+        for (int i = 0; i < m.Procs.Count; i++) procsPanel.Children.Add(ProcBlock(m.Procs, i, mi));
+        panel.Children.Add(procsPanel);
+        _mechSlots.Add(new MechSlot(panel, paramsPanel, usesPanel, whensPanel, procsPanel));
+        if (ps.Count + us.Count + m.Whens.Count + m.Procs.Count == 0) panel.Children.Add(Note("Empty mechanism — add a 'when' from the palette."));
         return panel;
     }
 
@@ -822,7 +868,8 @@ sealed partial class BlocksView : Border
         {
             IfStmt i => IfBlock(list, j, i, mi, dup),
             RepeatStmt r => RepeatBlock(list, j, r, mi, dup),
-            _ => SimpleBlock(list, j, s, dup)
+            TogetherStmt or RunStmt or ForEachStmt or WhileStmt => NewCBlock(list, j, s, mi, dup),
+            _ => SimpleBlock(list, j, s, dup, mi)
         };
         block.Margin = new Thickness(0, 0, 0, 3);
         Mark(s, block);
@@ -864,11 +911,12 @@ sealed partial class BlocksView : Border
         return outer;
     }
 
-    Control SimpleBlock(List<Stmt> list, int j, Stmt s, Action dup)
+    Control SimpleBlock(List<Stmt> list, int j, Stmt s, Action dup, int mi)
     {
         BlockLook look;
         WrapPanel parts;
-        switch (s)
+        if (NewSimpleBlock(list, j, s, mi) is { } made) (look, parts) = made;
+        else switch (s)
         {
             case AssignStmt a:
             {
@@ -906,8 +954,8 @@ sealed partial class BlocksView : Border
                     ListField(t.Args, l => list[j] = ((TellStmt)list[j]) with { Args = l }));
                 break;
             case CommandStmt c:
-                look = BlockColors.Command;
-                parts = Parts(Word(c.Name, look.Fg), ListField(c.Args, l => list[j] = ((CommandStmt)list[j]) with { Args = l }));
+                look = c.Name is "add" or "remove" ? BlockColors.List : BlockColors.Command;
+                parts = CommandParts(list, j, c, look);
                 break;
             default:
                 look = BlockColors.Command;

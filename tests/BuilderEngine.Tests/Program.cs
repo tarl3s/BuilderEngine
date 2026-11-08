@@ -261,6 +261,8 @@ string DumpE(Expr? e) => e switch
     UnaryExpr u => $"({u.Op} {DumpE(u.Operand)})",
     BinaryExpr b => $"({b.Op} {DumpE(b.Left)} {DumpE(b.Right)})",
     CallExpr c => $"{c.Name}[{string.Join(" ", c.Args.Select(DumpE))}]",
+    ListExpr l => $"<list {string.Join(" ", l.Items.Select(DumpE))}>",
+    IndexExpr x => $"(at {DumpE(x.Target)} {DumpE(x.Index)})",
     _ => "?"
 };
 string DumpL(List<Stmt>? list) => list == null ? "null" : "{" + string.Join("; ", list.Select(DumpS)) + "}";
@@ -273,14 +275,24 @@ string DumpS(Stmt s) => s switch
     EmitStmt e => $"emit {e.Signal} [{string.Join(" ", e.Args.Select(DumpE))}]",
     TellStmt t => $"tell {DumpE(t.Target)} {DumpE(t.Message)} [{string.Join(" ", t.Args.Select(DumpE))}]",
     StopStmt => "stop",
-    CommandStmt c => $"cmd {c.Name} [{string.Join(" ", c.Args.Select(DumpE))}]",
+    CommandStmt c => $"cmd {c.Name} [{string.Join(" ", c.Args.Select(DumpE))}]" +
+        (c.Named == null ? "" : string.Concat(c.Named.Select(kv => $" {kv.Key}:[{string.Join(" ", kv.Value.Select(DumpE))}]"))),
+    WaitUntilStmt u => $"waituntil {DumpE(u.Cond)}",
+    WaitSignalStmt f => $"waitfor {f.Full}",
+    WaitKeyStmt k => $"waitkey {DumpE(k.Key)}",
+    TogetherStmt t => $"together {DumpL(t.Body)}",
+    RunStmt r => $"run {DumpL(r.Body)}",
+    ForEachStmt f => $"foreach {f.Var} {DumpE(f.List)} {DumpL(f.Body)}",
+    WhileStmt w => $"while {DumpE(w.Cond)} {DumpL(w.Body)}",
+    ReturnStmt r => $"return {DumpE(r.Value)}",
     _ => "?"
 };
 string Dump(List<MechanismDef> defs) => string.Join("\n", defs.Select(m =>
     $"M {m.Name}\n" +
     string.Concat(m.Params.Select(p => $" P {p.Name}:{p.Type}={DumpE(p.Default)}\n")) +
     string.Concat(m.Uses.Select(u => $" U {u.Name} {DumpE(u.Positional)} {string.Join(",", u.Args.Select(kv => kv.Key + "=" + DumpE(kv.Value)))}\n")) +
-    string.Concat(m.Whens.Select(w => $" W {w.Event.Kind}|{w.Event.Filter}|{w.Event.Bind}|{w.Event.Source}|{w.Event.Name} {DumpL(w.Body)}\n"))));
+    string.Concat(m.Whens.Select(w => $" W {w.Event.Kind}|{w.Event.Filter}|{w.Event.Bind}|{w.Event.Source}|{w.Event.Name} {DumpL(w.Body)}\n")) +
+    string.Concat(m.Procs.Select(p => $" TO {p.Name}({string.Join(",", p.Params)}) {DumpL(p.Body)}\n"))));
 void RoundTrip(string src)
 {
     var first = Parser.Parse(src);
@@ -918,6 +930,278 @@ Test("a command can wait, multi-word names match", () =>
     var o = w.Spawn("o", 0, 0, ["A"]);
     Run(w, 0.3); Eq(null, o.Mechanisms[0].Vars.GetValueOrDefault("done"));
     Run(w, 0.4); Eq(true, o.Mechanisms[0].Vars["done"]);
+});
+
+// ---------------- Builder Script 2: user commands, waiting, parallel, loops, lists, finding objects ----------------
+Console.WriteLine("Language: user commands");
+object? V(GameObject o, string name) => o.Mechanisms[0].Vars.GetValueOrDefault(name);
+(World, GameObject) One(string src, double run = 1.0 / 60)
+{
+    var w = NewWorld(src);
+    var o = w.Spawn("o", 0, 0, [Parser.Parse(src)[0].Name]);
+    Run(w, run);
+    return (w, o);
+}
+Test("to: parses a command with inputs, 'to' still works as a connector inside", () =>
+{
+    var m = Parser.Parse("mechanism A\n    to slide who, x\n        move who to x, 0 in 1\n    when start: slide self, 3\n")[0];
+    Eq(1, m.Procs.Count); Eq("slide", m.Procs[0].Name); Eq("who,x", string.Join(",", m.Procs[0].Params));
+    var c = (CommandStmt)m.Procs[0].Body[0];
+    Eq("move", c.Name); Eq(2, c.Named!["to"].Count);
+});
+Test("a user command runs with its inputs as locals", () =>
+{
+    var (w, o) = One("mechanism A\n    when start\n        hits = 0\n        hit 2\n        hit 3\n    to hit amount\n        temp = amount * 10\n        hits += amount\n");
+    Eq(5.0, V(o, "hits"));
+    Eq(null, V(o, "temp"), "new names inside 'to' are locals");
+    Eq(null, V(o, "amount"), "inputs are locals");
+});
+Test("a user command can return a value and be used in an expression", () =>
+{
+    var (w, o) = One("mechanism A\n    when start\n        a = double(4) + 1\n        b = fact(5)\n        c = sign(-3)\n    to double x\n        return x * 2\n    to fact n\n        if n <= 1: return 1\n        return n * fact(n - 1)\n    to sign x\n        if x < 0\n            return -1\n        return 1\n");
+    Eq(9.0, V(o, "a")); Eq(120.0, V(o, "b")); Eq(-1.0, V(o, "c"), "return ends the command early");
+});
+Test("a waiting command: the caller waits for it to finish", () =>
+{
+    var (w, o) = One("mechanism A\n    when start\n        step = 1\n        pause_then 0.5\n        step = 3\n    to pause_then t\n        wait t\n        step = 2\n");
+    Eq(1.0, V(o, "step"));
+    Run(w, 0.3); Eq(1.0, V(o, "step"));
+    Run(w, 0.3); Eq(3.0, V(o, "step"));
+});
+Test("commands of used mechanisms, of any mechanism by name, and Mechanism.name", () =>
+{
+    var w = NewWorld("mechanism Tools\n    param flashes: number = 0\n    to flash times\n        flashes += times\n    to twice x\n        return x * 2\nmechanism Hero\n    uses Tools\n    when start\n        flash 2\n        n = twice(5)\nmechanism Other\n    when start\n        flash 1\n        Tools.flash 4\n        m = Tools.twice(3)\n");
+    var h = w.Spawn("h", 0, 0, ["Hero"]);
+    var x = w.Spawn("x", 0, 0, ["Other"]);
+    w.Step(1.0 / 60);
+    Eq(0, w.Errors.Count, string.Join(" | ", w.Errors));
+    Eq(2.0, h.Mechanisms[0].Children["Tools"].Vars["flashes"], "runs in the used mechanism's own variables");
+    Eq(10.0, V(h, "n"));
+    Eq(6.0, V(x, "m"));
+    Eq(5.0, x.Helpers!["Tools"].Vars["flashes"], "a mechanism the object doesn't have runs in a quiet copy");
+});
+Test("an existing mechanism variable is changed from inside a command", () =>
+{
+    var (w, o) = One("mechanism A\n    param lives: number = 3\n    when start: lose\n    to lose\n        lives -= 1\n");
+    Eq(2.0, V(o, "lives"));
+});
+Test("errors: ambiguous command, wrong number of values, recursion, waits in a value", () =>
+{
+    var w = NewWorld("mechanism P\n    to boom\n        print 1\nmechanism Q\n    to boom\n        print 2\nmechanism A\n    when start: boom\n");
+    w.Spawn("a", 0, 0, ["A"]); w.Step(1.0 / 60);
+    Eq(true, w.Errors.Count == 1 && w.Errors[0].Contains("P.boom"), string.Join(" | ", w.Errors));
+    var (w2, _) = One("mechanism A\n    when start: hit 1, 2\n    to hit amount\n        x = amount\n");
+    Eq(true, w2.Errors[0].Contains("needs 1 value(s) (hit amount), but got 2"), w2.Errors[0]);
+    var (w3, _) = One("mechanism A\n    when start: down 1\n    to down n\n        down n + 1\n");
+    Eq(true, w3.Errors[0].Contains("more than 100 times"), w3.Errors[0]);
+    var (w4, _) = One("mechanism A\n    when start: x = slow(1)\n    to slow n\n        wait 1\n        return n\n");
+    Eq(true, w4.Errors[0].Contains("can't be used inside a value"), w4.Errors[0]);
+    var (w5, _) = One("mechanism A\n    when start: atack\n    to attack\n        x = 1\n");
+    Eq(true, w5.Errors[0].Contains("Did you mean 'attack'"), w5.Errors[0]);
+    var (w6, _) = One("mechanism A\n    when start: x = dubble(2)\n    to double n\n        return n * 2\n");
+    Eq(true, w6.Errors[0].Contains("Did you mean 'double'"), w6.Errors[0]);
+});
+Test("errors when writing: return outside 'to', bad names, 'to' inside a when", () =>
+{
+    Throws("only works inside a command made with 'to'", () => Parser.Parse("mechanism A\n    when start\n        return 1\n"));
+    Throws("already a command", () => Parser.Parse("mechanism A\n    to move x\n        print x\n"));
+    Throws("already a function", () => Parser.Parse("mechanism A\n    to length x\n        print x\n"));
+    Throws("Builder Script word", () => Parser.Parse("mechanism A\n    to while\n        print 1\n"));
+    Throws("goes directly inside the mechanism", () => Parser.Parse("mechanism A\n    when start\n        to x\n"));
+    Throws("two commands called 'a'", () => Parser.Parse("mechanism A\n    to a\n        stop\n    to a\n        stop\n"));
+    Throws("two inputs", () => Parser.Parse("mechanism A\n    to a x, x\n        stop\n"));
+    Throws("'param', 'uses' or 'when'", () => Parser.Parse("mechanism A\n    print 1\n"));
+});
+
+Console.WriteLine("Language: waiting, together, run");
+Test("wait until: checked each step, goes on at once when already true", () =>
+{
+    var (w, o) = One("mechanism A\n    when start\n        wait until true\n        a = 1\n        wait until ready\n        b = 1\n");
+    Eq(1.0, V(o, "a")); Eq(null, V(o, "b"));
+    Run(w, 0.2); Eq(null, V(o, "b"));
+    o.Mechanisms[0].Vars["ready"] = true;
+    w.Step(1.0 / 60); Eq(1.0, V(o, "b"));
+});
+Test("wait for a signal: own, Health.died, other.Health.died", () =>
+{
+    var w = NewWorld("mechanism Boss\n    uses Health max 1\n    when start\n        wait for Health.died\n        print \"boss down\"\n    when start\n        wait for died\n        print \"own died\"\n    when told \"kill\"\n        emit died\nmechanism Fan\n    when touched by other\n        wait for other.Health.died\n        print \"fan saw it\"\n");
+    var boss = w.Spawn("Boss", 0, 0, ["Boss"]);
+    w.Spawn("Fan", 0, 0, ["Fan"]);
+    Run(w, 0.2);
+    Eq(0, w.Output.Count);
+    w.Tell(boss, "damage", [1.0]); w.Step(1.0 / 60);
+    Eq(true, w.Output.Contains("boss down") && w.Output.Contains("fan saw it"), string.Join(" | ", w.Output));
+    Eq(true, w.Output.Contains("own died"), "'wait for died' takes it from any mechanism of the object");
+    Eq(1, w.Output.Count(x => x == "boss down"), "a wait ends once");
+    Eq(0, w.Errors.Count, string.Join(" | ", w.Errors));
+});
+Test("wait for key: only a press after it started waiting", () =>
+{
+    var (w, o) = One("mechanism A\n    when key \"space\"\n        n += 1\n        wait for key \"space\"\n        done = true\n");
+    w.PressKey("space"); w.Step(1.0 / 60);
+    Eq(1.0, V(o, "n")); Eq(null, V(o, "done"), "the press that started it doesn't count");
+    w.PressKey("x"); w.Step(1.0 / 60);
+    Eq(null, V(o, "done"));
+    w.PressKey("space"); w.Step(1.0 / 60);
+    Eq(true, V(o, "done"));
+});
+Test("together: branches run at the same time, it ends with the slowest", () =>
+{
+    var (w, o) = One("mechanism A\n    when start\n        together\n            wait 0.2\n            fast = time\n            repeat 3\n                wait 0.2\n            slow_done = true\n        after = true\n");
+    Eq(null, V(o, "after"));
+    Run(w, 0.3);
+    Eq(true, V(o, "fast") is double, "the instant branch ran");
+    Eq(null, V(o, "after"), "still waiting for the slow branch");
+    Run(w, 0.35);
+    Eq(true, V(o, "after"), "continues after the slowest branch");
+});
+Test("together: waiting user commands in parallel", () =>
+{
+    var (w, o) = One("mechanism A\n    when start\n        n = 0\n        together\n            grow 0.5\n            grow 0.25\n        done = time\n    to grow t\n        wait t\n        n += 1\n");
+    Run(w, 0.6);
+    Eq(2.0, V(o, "n"));
+    Eq(true, (double)V(o, "done")! is > 0.45 and < 0.6, $"done at {V(o, "done")}");
+});
+Test("run: starts in the background and doesn't block", () =>
+{
+    var (w, o) = One("mechanism A\n    when start\n        turns = 0\n        run spin\n        run\n            wait 0.3\n            late = true\n        after = true\n    to spin\n        repeat forever\n            turns += 1\n            wait 0.1\n");
+    Eq(true, V(o, "after"), "the line after run ran at once");
+    Eq(1.0, V(o, "turns"), "the background task started right away");
+    Run(w, 0.5);
+    Eq(true, V(o, "late"));
+    Eq(true, (double)V(o, "turns")! >= 5, $"turns {V(o, "turns")}");
+});
+Test("a tick with a run task still runs every step", () =>
+{
+    var (w, o) = One("mechanism A\n    when tick\n        ticks += 1\n        if ticks == 1: run keep\n    to keep\n        wait 5\n", 0.5);
+    Eq(true, (double)V(o, "ticks")! >= 29, $"ticks {V(o, "ticks")}");
+});
+
+Console.WriteLine("Language: loops and lists");
+Test("for each over range, a list literal and objects", () =>
+{
+    var (w, o) = One("mechanism A\n    when start\n        for each i in range(1, 4)\n            sum += i\n        for each word in [\"a\", \"b\"]\n            s += word\n        for each n in range(10, 1, -3)\n            down += text(n) + \" \"\n");
+    Eq(10.0, V(o, "sum")); Eq("ab", V(o, "s")); Eq("10 7 4 1 ", V(o, "down"));
+});
+Test("for each can wait inside; while runs once per frame without a wait", () =>
+{
+    var (w, o) = One("mechanism A\n    when start\n        for each i in [1, 2, 3]\n            last = i\n            wait 0.1\n    when start\n        while n < 1000\n            n += 1\n", 0.05);
+    Eq(1.0, V(o, "last"));
+    Run(w, 0.3);
+    Eq(3.0, V(o, "last"));
+    Eq(true, (double)V(o, "n")! < 40, $"while without wait is one round per frame (n {V(o, "n")})");
+});
+Test("lists: add, remove, index, length, contains, join, random_item", () =>
+{
+    var (w, o) = One("mechanism A\n    when start\n        add \"sword\" to bag\n        add \"key\", \"map\" to bag\n        remove \"key\" from bag\n        first = bag[0]\n        last = bag[-1]\n        n = length(bag)\n        has = contains(bag, \"map\")\n        no = contains(bag, \"key\")\n        all_items = join(bag, \"+\")\n        pick = random_item(bag)\n        shown = text(bag)\n        nums = [1, 2] \n        same = nums == [1, 2]\n        letters = length(\"hello\")\n");
+    Eq(0, w.Errors.Count, string.Join(" | ", w.Errors));
+    Eq("sword", V(o, "first")); Eq("map", V(o, "last")); Eq(2.0, V(o, "n"));
+    Eq(true, V(o, "has")); Eq(false, V(o, "no")); Eq("sword+map", V(o, "all_items"));
+    Eq(true, V(o, "pick") is "sword" or "map");
+    Eq("[\"sword\", \"map\"]", V(o, "shown")); Eq(true, V(o, "same")); Eq(5.0, V(o, "letters"));
+});
+Test("lists: friendly errors", () =>
+{
+    var (w, _) = One("mechanism A\n    when start\n        items = [1, 2, 3]\n        x = items[5]\n");
+    Eq(true, w.Errors[0].Contains("has 3 item(s), so there's no item 5"), w.Errors[0]);
+    var (w2, _) = One("mechanism A\n    when start\n        for each i in 5\n            x = i\n");
+    Eq(true, w2.Errors[0].Contains("range(1, 10)"), w2.Errors[0]);
+    var (w3, _) = One("mechanism A\n    when start\n        add 1 items\n");
+    Eq(true, w3.Errors[0].Contains("add 5 to items"), w3.Errors[0]);
+    var (w4, _) = One("mechanism A\n    when start\n        x = nothing_here[0]\n");
+    Eq(true, w4.Errors[0].Contains("Make one first"), w4.Errors[0]);
+});
+
+Console.WriteLine("Language: finding objects");
+Test("nearest, all, count, find, distance, has_tag", () =>
+{
+    var w = NewWorld("mechanism Hunter\n    when start\n        target = nearest(\"enemy\")\n        n = count(\"enemy\")\n        k = length(all(\"enemy\"))\n        boss = find(\"Boss\")\n        d = distance(self, target)\n        d4 = distance(0, 0, 3, 4)\n        tagged = has_tag(target, \"enemy\")\n        nobody = nearest(\"ghost\")\n        for each e in all(\"enemy\")\n            tell e \"hit\"\nmechanism Enemy\n    when told \"hit\"\n        hit = true\n");
+    var h = w.Spawn("Hunter", 0, 0, ["Hunter"]);
+    var far = w.Spawn("Far", 300, 0, ["Enemy"], null, "enemy");
+    var near = w.Spawn("Near", 100, 0, ["Enemy"], null, "enemy");
+    w.Spawn("Boss", 500, 0, null, null, "boss");
+    w.Step(1.0 / 60);
+    Eq(0, w.Errors.Count, string.Join(" | ", w.Errors));
+    Eq(near, V(h, "target")); Eq(2.0, V(h, "n")); Eq(2.0, V(h, "k"));
+    Eq("Boss", ((GameObject)V(h, "boss")!).Name);
+    Eq(100.0, V(h, "d")); Eq(5.0, V(h, "d4")); Eq(true, V(h, "tagged")); Eq(null, V(h, "nobody"));
+    Eq(true, V(far, "hit")); Eq(true, V(near, "hit"));
+    var (w2, _) = One("mechanism A\n    when start: x = distance(self, nearest(\"ghost\"))\n");
+    Eq(true, w2.Errors[0].Contains("found none"), w2.Errors[0]);
+});
+
+Console.WriteLine("Language: printer and blocks");
+Test("round-trip: every new statement and value", () => RoundTrip(
+    "mechanism T\n    uses Tools\n\n    when start\n        wait until hp <= 0 or done\n        wait for died\n        wait for Health.died\n        wait for other.Health.died\n        wait for key \"space\"\n" +
+    "        together\n            move self to 1, 2 in 3\n            spin 2\n        run spin 3\n        run\n            wait 1\n            x = 1\n        run repeat forever\n            wait 1\n        run:\n" +
+    "        together:\n        for each e in all(\"enemy\")\n            tell e \"hit\" [1, 2]\n        while hp > 0\n            wait 1\n        if a: run x = 1\n" +
+    "        items = [1, [2, 3], \"x\"]\n        y = items[0] + items[-1][0] + (a + b)[1] + all(\"x\")[0] + Tools.twice(2)\n        Tools.flash 2\n        add 5 to items\n        remove 5 from items\n        wait (until)\n        tell (a) ([1])\n        tell a b, [1]\n\n" +
+    "    to spin turns\n        repeat turns\n            wait 0.1\n        return\n\n    to twice x\n        return x * 2\n\n    to empty:\n"));
+Test("printer: canonical form of a 'to' and its call", () =>
+{
+    Eq("mechanism A\n    when start\n        greet \"Bo\", 2\n\n    to greet who, n\n        repeat n\n            print \"hi \" + who\n",
+        Printer.Print(Parser.Parse("mechanism A\n  to greet who n\n    repeat n\n      print \"hi \" + who\n  when start\n    greet \"Bo\" 2\n")));
+});
+Test("words of the new statements still work as variables", () =>
+{
+    var (w, o) = One("mechanism A\n    when start\n        run = 1\n        while = 2\n        together = run + while\n");
+    Eq(3.0, V(o, "together"));
+});
+Test("block edits: new blocks print, parse and nest", () =>
+{
+    var m = Parser.Parse("mechanism T\n    when start:\n")[0];
+    var body = m.Whens[0].Body;
+    foreach (var id in new[] { "while", "foreach", "together", "run", "waituntil", "waitfor", "waitkey", "listadd", "listremove" })
+        body.Add(BlockEdits.NewStatement(id));
+    var proc = BlockEdits.NewProc(m);
+    m.Procs.Add(proc);
+    Eq("do_something2", BlockEdits.NewProc(m).Name);
+    proc.Body.Add(BlockEdits.NewStatement("return"));
+    proc.Body.Add(BlockEdits.NewCall("do_something", 0));
+    RoundTrip(Printer.Print([m]));
+    Eq(true, Printer.Print([m]).Contains("add \"key\" to items"));
+    var together = (TogetherStmt)body[2];
+    Eq(true, BlockEdits.MoveStatement(body, 0, together.Body, 0), "a while into the together");
+    Eq(true, BlockEdits.Contains(together, ((WhileStmt)together.Body[0]).Body));
+    BlockEdits.Duplicate(body, 1);
+    ((TogetherStmt)body[2]).Body.Clear();
+    Eq(1, ((TogetherStmt)body[1]).Body.Count, "duplicate is deep");
+    var path = BlockEdits.PathOf(m, proc.Body)!;
+    Eq("1", string.Join(",", path), "'to' bodies come after the whens");
+    Eq(true, ReferenceEquals(proc.Body, BlockEdits.BodyAt(m, path)));
+    Eq(true, BlockEdits.InProc(m, proc.Body)); Eq(false, BlockEdits.InProc(m, body));
+    Eq(true, BlockEdits.IsMechanismLevel("to"));
+    BlockEdits.Duplicate(m.Procs, 0);
+    Eq("do_something_copy", m.Procs[1].Name);
+});
+Test("block edits: renaming a command renames its calls", () =>
+{
+    var m = Parser.Parse("mechanism A\n    when start\n        hit 1\n        if hp > 0\n            x = hit(2) + 1\n    to hit n\n        if n > 0: hit n - 1\n        return n\n")[0];
+    Eq(3, BlockEdits.RenameCalls(m, "hit", "strike"));
+    m.Procs[0] = m.Procs[0] with { Name = "strike" };
+    string code = Printer.Print([m]);
+    Eq(false, code.Contains("hit"), code);
+    Eq(null, BlockEdits.CheckProcName(m, "smash"));
+    Eq(true, BlockEdits.CheckProcName(m, "print") != null);
+    Eq("a,b", string.Join(",", BlockEdits.ParseProcParams("a, b")));
+    Throws("two inputs", () => BlockEdits.ParseProcParams("a a"));
+});
+Test("palette: MY COMMANDS lists own, used and project commands", () =>
+{
+    var defs = Parser.Parse("mechanism Hero\n    uses Tools\n    to dash\n        stop\nmechanism Tools\n    to flash times\n        stop\nmechanism Fx\n    to boom\n        stop\n    to flash\n        stop\nmechanism Empty\n");
+    var cmds = BlockEdits.CommandsFor(defs[0], defs);
+    Eq("dash|This mechanism, flash|From Tools, boom|In this project, Fx.flash|In this project",
+        string.Join(", ", cmds.Select(c => c.CallName + "|" + c.Group)));
+    Eq("times", BlockEdits.FindCommand("flash", defs[0], defs)!.Params[0]);
+    Eq(0, BlockEdits.FindCommand("Fx.flash", defs[0], defs)!.Params.Count);
+    Eq(null, BlockEdits.FindCommand("print", defs[0], defs));
+});
+Test("starter kit still runs without errors", () =>
+{
+    var w = NewWorld("");
+    foreach (var name in new[] { "Coin", "Health", "Patrol", "Blink", "PlayerMove", "Platformer" }) w.Spawn(name, 0, 0, [name]);
+    Run(w, 0.5);
+    Eq(0, w.Errors.Count, string.Join(" | ", w.Errors));
 });
 
 Console.WriteLine();

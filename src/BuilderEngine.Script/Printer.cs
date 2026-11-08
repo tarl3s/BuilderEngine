@@ -47,7 +47,17 @@ public static class Printer
             sb.Append(Indent).Append(WhenHead(w.Event));
             PrintBody(sb, w.Body, 2);
         }
+        foreach (var p in m.Procs)
+        {
+            if (gap) sb.Append('\n');
+            gap = true;
+            sb.Append(Indent).Append(ProcHead(p));
+            PrintBody(sb, p.Body, 2);
+        }
     }
+
+    /// <summary><c>to attack target, power</c></summary>
+    public static string ProcHead(ProcDef p) => "to " + p.Name + (p.Params.Count == 0 ? "" : " " + string.Join(", ", p.Params));
 
     public static string Print(ParamDef p)
     {
@@ -137,6 +147,34 @@ public static class Printer
                 sb.Append(r.Count == null ? "repeat forever" : "repeat " + RepeatCount(r.Count));
                 PrintBody(sb, r.Body, indent + 1);
                 break;
+            case TogetherStmt t:
+                Pad(sb, indent);
+                sb.Append("together");
+                PrintBody(sb, t.Body, indent + 1);
+                break;
+            case WhileStmt w:
+                Pad(sb, indent);
+                sb.Append("while ").Append(Print(w.Cond));
+                PrintBody(sb, w.Body, indent + 1);
+                break;
+            case ForEachStmt f:
+                Pad(sb, indent);
+                sb.Append("for each ").Append(f.Var).Append(" in ").Append(Print(f.List));
+                PrintBody(sb, f.Body, indent + 1);
+                break;
+            case RunStmt r when !IsSimple(r):
+                if (r.Body.Count == 1)
+                {
+                    // 'run repeat forever' + its block: the inner block printed with "run " in front of its first line.
+                    string inner = Print(r.Body[0], indent);
+                    int at = indent * Indent.Length;
+                    sb.Append(inner, 0, at).Append("run ").Append(inner, at, inner.Length - at);
+                    break;
+                }
+                Pad(sb, indent);
+                sb.Append("run");
+                PrintBody(sb, r.Body, indent + 1);
+                break;
             default:
                 Pad(sb, indent);
                 sb.Append(Simple(s)).Append('\n');
@@ -149,6 +187,16 @@ public static class Printer
         string c = Print(count);
         return c is "forever" or "times" ? "(" + c + ")" : c;
     }
+
+    /// <summary>'wait until' / 'wait for' are other statements: a value starting with those words gets parentheses.</summary>
+    static string WaitSeconds(Expr seconds)
+    {
+        string c = Print(seconds);
+        return StartsWithWord(c, "until") || StartsWithWord(c, "for") ? "(" + c + ")" : c;
+    }
+
+    static bool StartsWithWord(string s, string word) =>
+        s.StartsWith(word, StringComparison.Ordinal) && (s.Length == word.Length || !(char.IsLetterOrDigit(s[word.Length]) || s[word.Length] == '_'));
 
     static void PrintIf(StringBuilder sb, IfStmt s, int indent, string word)
     {
@@ -172,13 +220,23 @@ public static class Printer
         PrintBody(sb, s.Else, indent + 1);
     }
 
-    public static bool IsSimple(Stmt s) => s is not (IfStmt or RepeatStmt);
+    public static bool IsSimple(Stmt s) => s switch
+    {
+        IfStmt or RepeatStmt or TogetherStmt or WhileStmt or ForEachStmt => false,
+        RunStmt r => r.Body.Count == 1 && IsSimple(r.Body[0]),
+        _ => true
+    };
 
     /// <summary>A one-line statement (not if/repeat) without indentation or newline.</summary>
     public static string Simple(Stmt s) => s switch
     {
         AssignStmt a => string.Join('.', a.Target) + " " + a.Op + " " + Print(a.Value),
-        WaitStmt w => "wait " + Print(w.Seconds),
+        WaitStmt w => "wait " + WaitSeconds(w.Seconds),
+        WaitUntilStmt u => "wait until " + Print(u.Cond),
+        WaitSignalStmt f => "wait for " + f.Full,
+        WaitKeyStmt k => "wait for key " + Print(k.Key),
+        ReturnStmt r => r.Value == null ? "return" : "return " + Print(r.Value),
+        RunStmt { Body.Count: 1 } r when IsSimple(r.Body[0]) => "run " + Simple(r.Body[0]),
         StopStmt => "stop",
         EmitStmt e => "emit " + e.Signal + ArgsTail(e.Args),
         TellStmt t => Tell(t),
@@ -198,14 +256,14 @@ public static class Printer
     {
         string target = Print(t.Target), msg = Print(t.Message);
         // "tell a -x" would read as "a - x" and "tell a (x)" as a call: parenthesize when needed.
-        if (msg.StartsWith('-')) msg = "(" + msg + ")";
+        if (msg.StartsWith('-') || msg.StartsWith('[')) msg = "(" + msg + ")";
         if (msg.StartsWith('(')) target = "(" + target + ")";
         var sb = new StringBuilder("tell ").Append(target).Append(' ').Append(msg);
         for (int i = 0; i < t.Args.Count; i++)
         {
             string a = Print(t.Args[i]);
             // The first value may follow the message with a space unless it could join it ("-1", "(x)").
-            sb.Append(i == 0 && !a.StartsWith('-') && !a.StartsWith('(') ? " " : ", ").Append(a);
+            sb.Append(i == 0 && !a.StartsWith('-') && !a.StartsWith('(') && !a.StartsWith('[') ? " " : ", ").Append(a);
         }
         return sb.ToString();
     }
@@ -222,6 +280,9 @@ public static class Printer
         UnaryExpr u => u.Op + Wrap(u.Operand, Prec(u.Operand) < 7),
         BinaryExpr b => Wrap(b.Left, Prec(b.Left) < BinaryPrec(b.Op)) + " " + b.Op + " " + Wrap(b.Right, Prec(b.Right) <= BinaryPrec(b.Op)),
         CallExpr c => c.Name + "(" + Args(c.Args) + ")",
+        ListExpr l => "[" + Args(l.Items) + "]",
+        // Only names, calls, lists, items and parenthesized values can be followed by [ ].
+        IndexExpr x => (x.Target is NameExpr or CallExpr or ListExpr or IndexExpr ? Print(x.Target) : "(" + Print(x.Target) + ")") + "[" + Print(x.Index) + "]",
         _ => throw new ArgumentException($"Unknown expression '{e.GetType().Name}'.")
     };
 

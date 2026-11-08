@@ -28,7 +28,7 @@ public sealed class ScriptError(string message, int line) : Exception(message)
 /// <summary>Turns source text into tokens; indentation becomes Indent/Dedent tokens (like Python).</summary>
 public static class Lexer
 {
-    static readonly string[] Ops = ["+=", "-=", "*=", "/=", "==", "!=", "<>", "<=", ">=", "+", "-", "*", "/", "%", "=", "<", ">", "(", ")", ",", ".", ":"];
+    static readonly string[] Ops = ["+=", "-=", "*=", "/=", "==", "!=", "<>", "<=", ">=", "+", "-", "*", "/", "%", "=", "<", ">", "(", ")", "[", "]", ",", ".", ":"];
 
     public static List<Token> Tokenize(string source)
     {
@@ -36,7 +36,7 @@ public static class Lexer
         var indents = new Stack<int>();
         indents.Push(0);
         var lines = source.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-        int depth = 0; // open parentheses: newlines inside are ignored
+        int depth = 0; // open parentheses / brackets: newlines inside are ignored
 
         for (int ln = 0; ln < lines.Length; ln++)
         {
@@ -112,8 +112,8 @@ public static class Lexer
                 foreach (var o in Ops)
                     if (string.CompareOrdinal(line, i, o, 0, o.Length) == 0) { op = o; break; }
                 if (op == null) throw new ScriptError($"I don't understand the symbol '{c}'.", lineNo);
-                if (op == "(") depth++;
-                if (op == ")") depth = Math.Max(0, depth - 1);
+                if (op is "(" or "[") depth++;
+                if (op is ")" or "]") depth = Math.Max(0, depth - 1);
                 tokens.Add(new Token(Tok.Op, op, lineNo));
                 i += op.Length;
             }

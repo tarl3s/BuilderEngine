@@ -14,7 +14,7 @@ namespace BuilderEngine;
 // (where it lands, refusing a block inside itself) is in BlockEdits, so it is tested headless.
 sealed partial class BlocksView
 {
-    enum DragKind { Palette, Stmt, When, Param, Uses }
+    enum DragKind { Palette, Stmt, When, Param, Uses, Proc }
 
     /// <summary>What is being dragged: a palette item (by id) or an existing block (its list and index).</summary>
     sealed record DragSrc(DragKind Kind, System.Collections.IList? List, int Index, string? PaletteId, Control Visual, Action? Click = null);
@@ -22,8 +22,8 @@ sealed partial class BlocksView
     /// <summary>A statement list on screen: its area, its blocks (top to bottom), mechanism and nesting depth.</summary>
     sealed record StmtSlot(List<Stmt> List, Control Area, List<Control> Items, int Mech, int Depth);
 
-    /// <summary>A mechanism on screen and the columns of its params, uses and whens.</summary>
-    sealed record MechSlot(Control Panel, Panel Params, Panel Uses, Panel Whens);
+    /// <summary>A mechanism on screen and the columns of its params, uses, whens and 'to' commands.</summary>
+    sealed record MechSlot(Control Panel, Panel Params, Panel Uses, Panel Whens, Panel Procs);
 
     /// <summary>Where a drop lands: a list and an index (or the delete zone), and where to draw the line.</summary>
     sealed record DropAt(System.Collections.IList? List, int Index, int Mech, Rect Line, bool Delete = false);
@@ -202,12 +202,14 @@ sealed partial class BlocksView
     DropAt? StatementTarget(Point p, Rect view, DragSrc src)
     {
         var moving = src.Kind == DragKind.Stmt ? (Stmt)src.List![src.Index]! : null;
+        bool onlyInProc = src.PaletteId == "return" || moving is ReturnStmt; // 'return' only goes inside a 'to'
         StmtSlot? best = null;
         Rect bestRect = default;
         double bestDist = double.MaxValue;
         foreach (var slot in _stmtSlots)
         {
             if (moving != null && BlockEdits.Contains(moving, slot.List)) continue; // never inside itself
+            if (onlyInProc && (slot.Mech >= _defs.Count || !BlockEdits.InProc(_defs[slot.Mech], slot.List))) continue;
             if (BoundsIn(slot.Area) is not { } r || !r.Intersects(view)) continue;
             // Inside an area wins (the deepest one); otherwise the nearest area takes it.
             double d = r.Contains(p) ? -1 - slot.Depth : Distance(r, p);
@@ -221,7 +223,7 @@ sealed partial class BlocksView
 
     DropAt? MechanismTarget(Point p, Rect view, DragSrc src)
     {
-        var kind = src.Kind == DragKind.Palette ? src.PaletteId switch { "param" => DragKind.Param, "uses" => DragKind.Uses, _ => DragKind.When } : src.Kind;
+        var kind = src.Kind == DragKind.Palette ? src.PaletteId switch { "param" => DragKind.Param, "uses" => DragKind.Uses, "to" => DragKind.Proc, _ => DragKind.When } : src.Kind;
         int mi = -1;
         Rect mechRect = default;
         double bestDist = double.MaxValue;
@@ -238,6 +240,7 @@ sealed partial class BlocksView
         {
             DragKind.Param => (slot.Params, (System.Collections.IList)m.Params),
             DragKind.Uses => (slot.Uses, m.Uses),
+            DragKind.Proc => (slot.Procs, m.Procs),
             _ => (slot.Whens, (System.Collections.IList)m.Whens)
         };
         var rows = Rows(panel.Children);
@@ -312,8 +315,13 @@ sealed partial class BlocksView
                         break;
                     case "param": added = BlockEdits.NewParam(_defs[t.Mech]); break;
                     case "uses": added = BlockEdits.NewUses(); break;
+                    case "to":
+                        var proc = BlockEdits.NewProc(_defs[t.Mech]);
+                        added = proc;
+                        _selBody = proc.Body;
+                        break;
                     default:
-                        added = BlockEdits.NewStatement(src.PaletteId!);
+                        added = NewBlock(src.PaletteId!);
                         _selBody = (List<Stmt>)t.List; // the place you dropped into becomes the selected one
                         break;
                 }
@@ -334,6 +342,9 @@ sealed partial class BlocksView
                 break;
             case DragKind.Uses:
                 changed = BlockEdits.MoveItem((List<UsesDef>)src.List!, src.Index, (List<UsesDef>)t.List, t.Index);
+                break;
+            case DragKind.Proc:
+                changed = BlockEdits.MoveItem((List<ProcDef>)src.List!, src.Index, (List<ProcDef>)t.List, t.Index);
                 break;
             default:
                 changed = false;

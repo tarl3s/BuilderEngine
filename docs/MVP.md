@@ -62,6 +62,39 @@ mechanism Coin
 | `tell` | send a message to another object (`tell other "damage" 1`) |
 | `stop` | end this `when` right now |
 
+### Your own commands, waiting, doing things at once
+
+```
+mechanism Boss
+    uses Health max 5
+
+    when start
+        together                      # both at the same time; goes on when both are done
+            slide_to 400, 1
+            shake 4
+        run taunt                     # starts in the background, doesn't wait
+        wait for Health.died
+        for each e in all("enemy")
+            tell e "flee"
+
+    to slide_to x, seconds            # a command you make: use it like any other
+        move self to x, 200 in seconds
+        wait seconds
+
+    to damage_for level               # 'return' makes it usable in values: damage_for(3)
+        return level * 2
+```
+
+| Write | Meaning |
+|---|---|
+| `to name a, b` | make a command (inside: `a`, `b` and new names are its own); call it `name 1, 2` or, with `return x`, `name(1, 2)`. The commands of mechanisms you `uses`, or of any other one, work too (`Tools.flash 2` picks one) |
+| `wait until hp <= 0` | wait until it's true |
+| `wait for died` / `wait for Health.died` / `wait for other.Health.died` / `wait for key "space"` | wait for a signal or a key press |
+| `together` / `run` | do each line at the same time / start something without waiting |
+| `for each x in list` / `while cond` | go through a list (`range(1, 10)` for numbers) / repeat while true (once per frame) |
+| `[1, 2]`, `list[0]`, `add x to list`, `remove x from list` | lists: `length(l)`, `contains(l, x)`, `random_item(l)`, `join(l, ", ")`, `text(x)` |
+| `nearest("enemy")`, `all("coin")`, `count("enemy")`, `find("Boss")` | find objects by tag or name; `distance(a, b)`, `has_tag(o, "x")` |
+
 ### Physics
 
 Physics is a set of starter-kit mechanisms (`StarterKit/Physics.bs`) — open them to see how they work.

@@ -16,7 +16,7 @@ public sealed partial class MainWindow
     /// <summary>Creates the blocks view shown left of the code (called once).</summary>
     Control CreateBlocksView()
     {
-        _blocksView = new BlocksView();
+        _blocksView = new BlocksView { ProjectDefs = BlocksProjectDefs };
         _blocksView.Edited += source =>
         {
             _blocksTimer?.Stop();
@@ -43,6 +43,28 @@ public sealed partial class MainWindow
     }
 
     static string BlocksNorm(string s) => s.Replace("\r\n", "\n");
+
+    /// <summary>Parsed sources, by text, so the palette's MY COMMANDS doesn't reparse every mechanism on each redraw.</summary>
+    readonly Dictionary<string, List<Script.MechanismDef>> _blocksParsed = new();
+
+    /// <summary>The project's mechanisms other than the open one (those that parse), for MY COMMANDS and call blocks.</summary>
+    IReadOnlyList<Script.MechanismDef> BlocksProjectDefs()
+    {
+        if (_blocksParsed.Count > 400) _blocksParsed.Clear();
+        var list = new List<Script.MechanismDef>();
+        foreach (var (name, src) in _sources)
+        {
+            if (name == _current) continue;
+            if (!_blocksParsed.TryGetValue(src, out var defs))
+            {
+                try { defs = Script.Parser.Parse(src); }
+                catch (Script.ScriptError) { defs = []; }
+                _blocksParsed[src] = defs;
+            }
+            list.AddRange(defs);
+        }
+        return list;
+    }
 
     /// <summary>The open mechanism's source changed in the code view (it parses): redraw the blocks.</summary>
     void BlocksShow(string source)
@@ -118,8 +140,57 @@ public sealed partial class MainWindow
             _blocksView.Undo();
             await Task.Delay(200);
             Check("undo after the pointer edits", _sources[_current] == original);
+            await SnapLanguageBlocks(dir, Check);
         }
         catch (Exception e) { Check("no exception: " + e.Message, false); }
         finally { File.WriteAllLines(Path.Combine(dir, "blocks_checks.txt"), lines); }
+    }
+
+    /// <summary>
+    /// Builder Script 2 in blocks: a boss written with 'to' commands, 'together', 'run', 'for each' and a list; its
+    /// commands in the palette's MY COMMANDS (clicking one adds a call), and the named parts of a command as fields.
+    /// </summary>
+    async Task SnapLanguageBlocks(string dir, Action<string, bool> check)
+    {
+        const string tools = "mechanism FxTools\n    to shake power\n        repeat 3\n            move power, 0\n            wait 0.05\n            move -power, 0\n            wait 0.05\n";
+        const string boss = "mechanism BossFight\n    uses Health max 5\n    param speed: number = 120\n\n    when start\n        loot = []\n        together\n            slide_to 400, 1\n            shake 4\n        run taunt\n        wait for Health.died\n        for each item in [\"gem\", \"key\"]\n            add item to loot\n        print \"loot: \" + join(loot, \", \")\n\n" +
+            "    to slide_to x, seconds\n        move self to x, 200 in seconds\n        wait seconds\n\n    to taunt\n        while not self.on_ground\n            wait 0.5\n        print \"Is that all?\"\n\n    to power_for level\n        return level * 2\n";
+        string? previous = _current;
+        _sources["FxTools"] = tools;
+        _sources["BossFight"] = boss;
+        RefreshLibrary();
+        try
+        {
+            OpenMechanism("BossFight");
+            await Task.Delay(700);
+            Snap(dir, "12_blocks_commands");
+            if (_blocksView!.Bounds.Width > 0) SnapControl(_blocksView, dir, "12b_blocks_commands_view");
+            string mode = _mode;
+            SetMode("blocks");
+            await Task.Delay(400);
+            _blocksView.DebugScrollToCommands();
+            await Task.Delay(300);
+            Snap(dir, "12c_blocks_to_commands");
+            SetMode(mode);
+            await Task.Delay(300);
+            check("the boss shows as blocks (no error banner)", _blocksView.DebugHasBlocks);
+            check("MY COMMANDS lists its own and the project's commands", _blocksView.DebugPaletteHas("call:slide_to") && _blocksView.DebugPaletteHas("call:shake") && _blocksView.DebugPaletteHas("call:power_for"));
+            string before = _sources["BossFight"];
+            _blocksView.DebugSelectFirstBody();
+            bool clicked = _blocksView.DebugPointer("call:shake", drag: false);
+            await Task.Delay(300);
+            check("clicking a command in MY COMMANDS adds a call with its input", clicked && BlocksNorm(_sources["BossFight"]).Contains("        shake 0\n"));
+            _blocksView.Undo();
+            await Task.Delay(200);
+            check("undo removes it", _sources["BossFight"] == before);
+            check("the code printed by the blocks still parses and keeps the commands", Script.Parser.Parse(_sources["BossFight"])[0].Procs.Count == 3);
+        }
+        finally
+        {
+            if (previous != null && _sources.ContainsKey(previous)) OpenMechanism(previous);
+            _sources.Remove("BossFight");
+            _sources.Remove("FxTools");
+            RefreshLibrary();
+        }
     }
 }

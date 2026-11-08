@@ -7,11 +7,7 @@ namespace BuilderEngine.Script;
 /// </summary>
 public static class BlockEdits
 {
-    static readonly HashSet<string> Keywords =
-    [
-        "mechanism", "param", "uses", "when", "if", "else", "repeat", "forever", "wait", "emit", "tell", "stop",
-        "and", "or", "not", "true", "false"
-    ];
+    static HashSet<string> Keywords => Parser.Keywords;
 
     // ---------------- List operations ----------------
 
@@ -55,6 +51,18 @@ public static class BlockEdits
                 break;
             case RepeatStmt r:
                 yield return r.Body;
+                break;
+            case TogetherStmt t:
+                yield return t.Body;
+                break;
+            case RunStmt r:
+                yield return r.Body;
+                break;
+            case ForEachStmt f:
+                yield return f.Body;
+                break;
+            case WhileStmt w:
+                yield return w.Body;
                 break;
         }
     }
@@ -111,19 +119,25 @@ public static class BlockEdits
         return n;
     }
 
-    /// <summary>Palette blocks that belong to the mechanism itself, not inside a when: when, param, uses.</summary>
-    public static bool IsMechanismLevel(string paletteId) => paletteId is "when" or "param" or "uses";
+    /// <summary>Palette blocks that belong to the mechanism itself, not inside a when: when, param, uses, to.</summary>
+    public static bool IsMechanismLevel(string paletteId) => paletteId is "when" or "param" or "uses" or "to";
+
+    /// <summary>The top-level bodies of a mechanism: every when's, then every 'to' command's.</summary>
+    public static List<Stmt>? TopBody(MechanismDef m, int index) =>
+        index < 0 ? null : index < m.Whens.Count ? m.Whens[index].Body
+            : index - m.Whens.Count < m.Procs.Count ? m.Procs[index - m.Whens.Count].Body : null;
 
     /// <summary>
     /// The address of a statement list inside a mechanism, so it can be found again after the code is parsed anew:
-    /// [when index, then for each level: block index, branch (0 = then / body, 1 = else)]. Null when it isn't there.
+    /// [top index (whens first, then 'to' commands), then for each level: block index, branch (0 = then / body, 1 = else)].
+    /// Null when it isn't there.
     /// </summary>
     public static int[]? PathOf(MechanismDef m, List<Stmt> body)
     {
-        for (int w = 0; w < m.Whens.Count; w++)
+        for (int w = 0; TopBody(m, w) is { } top; w++)
         {
             var path = new List<int> { w };
-            if (Find(m.Whens[w].Body, body, path)) return [.. path];
+            if (Find(top, body, path)) return [.. path];
         }
         return null;
 
@@ -147,8 +161,7 @@ public static class BlockEdits
     /// <summary>The statement list at a <see cref="PathOf"/> address, or null when the mechanism no longer has it.</summary>
     public static List<Stmt>? BodyAt(MechanismDef m, int[] path)
     {
-        if (path.Length == 0 || path.Length % 2 == 0 || path[0] < 0 || path[0] >= m.Whens.Count) return null;
-        var list = m.Whens[path[0]].Body;
+        if (path.Length == 0 || path.Length % 2 == 0 || TopBody(m, path[0]) is not { } list) return null;
         for (int k = 1; k < path.Length; k += 2)
         {
             int i = path[k], branch = path[k + 1];
@@ -166,13 +179,181 @@ public static class BlockEdits
     {
         IfStmt i => i with { Then = CloneList(i.Then), Else = i.Else == null ? null : CloneList(i.Else) },
         RepeatStmt r => r with { Body = CloneList(r.Body) },
+        TogetherStmt t => t with { Body = CloneList(t.Body) },
+        RunStmt r => r with { Body = CloneList(r.Body) },
+        ForEachStmt f => f with { Body = CloneList(f.Body) },
+        WhileStmt w => w with { Body = CloneList(w.Body) },
         EmitStmt e => e with { Args = [.. e.Args] },
         TellStmt t => t with { Args = [.. t.Args] },
-        CommandStmt c => c with { Args = [.. c.Args] },
+        CommandStmt c => c with { Args = [.. c.Args], Named = c.Named?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()) },
         _ => s // the rest hold only immutable values
     };
 
     public static List<Stmt> CloneList(List<Stmt> list) => list.Select(Clone).ToList();
+
+    public static void Duplicate(List<ProcDef> list, int index)
+    {
+        var p = list[index];
+        string name = p.Name + "_copy";
+        for (int n = 2; list.Any(x => x.Name == name); n++) name = p.Name + "_copy" + n;
+        list.Insert(index + 1, p with { Name = name, Params = [.. p.Params], Body = CloneList(p.Body) });
+    }
+
+    // ---------------- User commands ----------------
+
+    /// <summary>True when the statement list is inside a 'to' command (where 'return' can go).</summary>
+    public static bool InProc(MechanismDef m, List<Stmt> body) => PathOf(m, body) is { } p && p[0] >= m.Whens.Count;
+
+    /// <summary>A new 'to' command with a name the mechanism doesn't use yet (do_something, do_something2...).</summary>
+    public static ProcDef NewProc(MechanismDef m)
+    {
+        string name = "do_something";
+        for (int n = 2; m.Procs.Any(p => p.Name == name); n++) name = "do_something" + n;
+        return new ProcDef(name, [], [], 0);
+    }
+
+    /// <summary>A call to a user command, one starting value (0) per input.</summary>
+    public static CommandStmt NewCall(string name, int inputs) =>
+        new(name, Enumerable.Range(0, inputs).Select(_ => (Expr)new NumberExpr(0, 0)).ToList(), 0);
+
+    /// <summary>Reads a command's inputs typed in a block (<c>target, power</c>): names, no duplicates.</summary>
+    public static List<string> ParseProcParams(string text)
+    {
+        var list = new List<string>();
+        foreach (var raw in text.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (CheckName(raw) is { } err) throw new ScriptError(err, 0);
+            if (list.Contains(raw)) throw new ScriptError($"There are two inputs called '{raw}'.", 0);
+            list.Add(raw);
+        }
+        return list;
+    }
+
+    /// <summary>Null when a user command may have this name in this mechanism; else why not.</summary>
+    public static string? CheckProcName(MechanismDef m, string name, ProcDef? self = null)
+    {
+        if (CheckName(name) is { } err) return err;
+        if (Parser.CheckCommandName(name) is { } bad) return bad;
+        if (m.Procs.Any(p => p != self && p.Name == name)) return $"'{m.Name}' already has a command called '{name}'.";
+        return null;
+    }
+
+    /// <summary>
+    /// Renames the calls to a user command inside one mechanism (statements and values, at any depth), so renaming
+    /// a 'to' block keeps its callers working. Returns how many calls changed.
+    /// </summary>
+    public static int RenameCalls(MechanismDef m, string oldName, string newName)
+    {
+        int n = 0;
+        foreach (var w in m.Whens) n += RenameIn(w.Body, oldName, newName);
+        foreach (var p in m.Procs) n += RenameIn(p.Body, oldName, newName);
+        return n;
+    }
+
+    static int RenameIn(List<Stmt> list, string oldName, string newName)
+    {
+        int n = 0;
+        for (int i = 0; i < list.Count; i++)
+        {
+            var s = list[i];
+            if (s is CommandStmt c && c.Name == oldName) { list[i] = s = c with { Name = newName }; n++; }
+            var renamed = RenameExprs(list[i], oldName, newName, ref n);
+            list[i] = renamed;
+            foreach (var b in Bodies(renamed)) n += RenameIn(b, oldName, newName);
+        }
+        return n;
+    }
+
+    static Stmt RenameExprs(Stmt s, string o, string nn, ref int n)
+    {
+        int count = 0;
+        Expr R(Expr e) => RenameExpr(e, o, nn, ref count);
+        List<Expr> RL(List<Expr> l) => l.Select(R).ToList();
+        Stmt result = s switch
+        {
+            AssignStmt a => a with { Value = R(a.Value) },
+            IfStmt i => i with { Cond = R(i.Cond) },
+            RepeatStmt r when r.Count != null => r with { Count = R(r.Count) },
+            WaitStmt w => w with { Seconds = R(w.Seconds) },
+            WaitUntilStmt u => u with { Cond = R(u.Cond) },
+            WhileStmt w => w with { Cond = R(w.Cond) },
+            ForEachStmt f => f with { List = R(f.List) },
+            ReturnStmt r when r.Value != null => r with { Value = R(r.Value) },
+            EmitStmt e => e with { Args = RL(e.Args) },
+            TellStmt t => t with { Target = R(t.Target), Message = R(t.Message), Args = RL(t.Args) },
+            CommandStmt c => c with { Args = RL(c.Args), Named = c.Named?.ToDictionary(kv => kv.Key, kv => RL(kv.Value)) },
+            _ => s
+        };
+        n += count;
+        return count > 0 ? result : s;
+    }
+
+    static Expr RenameExpr(Expr e, string o, string nn, ref int n)
+    {
+        int count = 0;
+        Expr R(Expr x) => RenameExpr(x, o, nn, ref count);
+        Expr result = e switch
+        {
+            CallExpr c => c with { Name = c.Name == o ? Counted(nn, ref count) : c.Name, Args = c.Args.Select(R).ToList() },
+            UnaryExpr u => u with { Operand = R(u.Operand) },
+            BinaryExpr b => b with { Left = R(b.Left), Right = R(b.Right) },
+            ListExpr l => l with { Items = l.Items.Select(R).ToList() },
+            IndexExpr x => x with { Target = R(x.Target), Index = R(x.Index) },
+            _ => e
+        };
+        n += count;
+        return count > 0 ? result : e;
+
+        static string Counted(string name, ref int c) { c++; return name; }
+    }
+
+    /// <summary>A user command someone can call from the open mechanism, and the mechanism that makes it.</summary>
+    public sealed record UserCommand(string CallName, ProcDef Def, string Mechanism, string Group);
+
+    /// <summary>
+    /// The user commands the open mechanism can call, for the palette's MY COMMANDS: its own ("This mechanism"),
+    /// the ones of the mechanisms it uses ("From Health") and every other mechanism's in the project ("In this project").
+    /// A command whose name more than one other mechanism makes is called with its mechanism (<c>Tools.flash</c>).
+    /// </summary>
+    public static List<UserCommand> CommandsFor(MechanismDef open, IEnumerable<MechanismDef> project)
+    {
+        var all = project.Where(d => d.Name != open.Name).GroupBy(d => d.Name).Select(g => g.First()).ToList();
+        var result = new List<UserCommand>();
+        var seen = new HashSet<string>(); // names already callable plainly: a later one with the same name needs its mechanism
+        foreach (var p in open.Procs)
+            if (seen.Add(p.Name)) result.Add(new UserCommand(p.Name, p, open.Name, "This mechanism"));
+        var used = new List<MechanismDef>();
+        foreach (var u in open.Uses)
+            if (all.FirstOrDefault(x => x.Name == u.Name) is { } d && !used.Contains(d)) used.Add(d);
+        foreach (var d in used)
+            foreach (var p in d.Procs)
+            {
+                bool plain = !seen.Contains(p.Name) && used.Count(x => x.Procs.Any(q => q.Name == p.Name)) == 1;
+                result.Add(new UserCommand(plain ? p.Name : d.Name + "." + p.Name, p, d.Name, "From " + d.Name));
+                seen.Add(p.Name);
+            }
+        foreach (var d in all.Where(x => !used.Contains(x)).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+            foreach (var p in d.Procs)
+            {
+                bool plain = !seen.Contains(p.Name) && all.Count(x => x.Procs.Any(q => q.Name == p.Name)) == 1;
+                result.Add(new UserCommand(plain ? p.Name : d.Name + "." + p.Name, p, d.Name, "In this project"));
+            }
+        return result;
+    }
+
+    /// <summary>The command a call statement refers to (same rules as the game, by name), or null.</summary>
+    public static ProcDef? FindCommand(string callName, MechanismDef open, IEnumerable<MechanismDef> project)
+    {
+        int dot = callName.IndexOf('.');
+        if (dot > 0)
+        {
+            string mech = callName[..dot], proc = callName[(dot + 1)..];
+            var md = mech == open.Name ? open : project.FirstOrDefault(d => d.Name == mech);
+            return md?.Procs.FirstOrDefault(p => p.Name == proc);
+        }
+        if (World.BuiltInCommands.Contains(callName)) return null;
+        return CommandsFor(open, project).FirstOrDefault(c => c.CallName == callName)?.Def;
+    }
 
     // ---------------- New blocks (palette) ----------------
 
@@ -180,9 +361,11 @@ public static class BlockEdits
     public static readonly (string Id, string Label)[] StatementKinds =
     [
         ("if", "if"), ("ifelse", "if / else"), ("repeat", "repeat"), ("forever", "repeat forever"),
-        ("wait", "wait"), ("stop", "stop"),
+        ("while", "while"), ("foreach", "for each"), ("together", "together"), ("run", "run in background"),
+        ("wait", "wait"), ("waituntil", "wait until"), ("waitfor", "wait for signal"), ("waitkey", "wait for key"), ("stop", "stop"),
         ("emit", "emit"), ("tell", "tell"),
         ("set", "set variable"), ("change", "change variable"),
+        ("listadd", "add to list"), ("listremove", "remove from list"),
         ("print", "print"), ("play", "play"), ("spawn", "spawn"), ("destroy", "destroy"), ("move", "move"), ("goto", "goto"),
     ];
 
@@ -193,6 +376,16 @@ public static class BlockEdits
         "ifelse" => new IfStmt(new BoolExpr(true, 0), [], [], 0),
         "repeat" => new RepeatStmt(new NumberExpr(3, 0), [], 0),
         "forever" => new RepeatStmt(null, [], 0),
+        "while" => new WhileStmt(new BinaryExpr(">", new NameExpr(["hp"], 0), new NumberExpr(0, 0), 0), [], 0),
+        "foreach" => new ForEachStmt("enemy", new CallExpr("all", [new StringExpr("enemy", 0)], 0), [], 0),
+        "together" => new TogetherStmt([], 0),
+        "run" => new RunStmt([], 0),
+        "waituntil" => new WaitUntilStmt(new NameExpr(["self", "on_ground"], 0), 0),
+        "waitfor" => new WaitSignalStmt(["Health", "died"], 0),
+        "waitkey" => new WaitKeyStmt(new StringExpr("space", 0), 0),
+        "return" => new ReturnStmt(null, 0),
+        "listadd" => new CommandStmt("add", [new StringExpr("key", 0)], 0, new() { ["to"] = [new NameExpr(["items"], 0)] }),
+        "listremove" => new CommandStmt("remove", [new StringExpr("key", 0)], 0, new() { ["from"] = [new NameExpr(["items"], 0)] }),
         "wait" => new WaitStmt(new NumberExpr(1, 0), 0),
         "stop" => new StopStmt(0),
         "emit" => new EmitStmt("done", [], 0),

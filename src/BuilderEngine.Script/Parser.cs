@@ -88,6 +88,7 @@ public sealed class Parser
         var ps = new List<ParamDef>();
         var uses = new List<UsesDef>();
         var whens = new List<WhenDef>();
+        var procs = new List<ProcDef>();
         if (Peek().Kind != Tok.Indent)
             return new MechanismDef(name, ps, uses, whens, line);
         _p++;
@@ -99,12 +100,60 @@ public sealed class Parser
             if (IsWord("param")) ps.Add(ParseParam());
             else if (IsWord("uses")) uses.Add(ParseUses());
             else if (IsWord("when")) whens.Add(ParseWhen());
-            else throw new ScriptError($"Inside a mechanism, lines start with 'param', 'uses' or 'when' — found {Peek()}.", Peek().Line);
+            else if (IsWord("to")) procs.Add(ParseProc());
+            else throw new ScriptError($"Inside a mechanism, lines start with 'param', 'uses' or 'when' (or 'to' to make a command) — found {Peek()}.", Peek().Line);
         }
         var dupParam = ps.GroupBy(x => x.Name).FirstOrDefault(g => g.Count() > 1);
         if (dupParam != null) throw new ScriptError($"The param '{dupParam.Key}' is declared twice.", dupParam.Last().Line);
-        return new MechanismDef(name, ps, uses, whens, line);
+        var dupProc = procs.GroupBy(x => x.Name).FirstOrDefault(g => g.Count() > 1);
+        if (dupProc != null) throw new ScriptError($"There are two commands called '{dupProc.Key}' in '{name}'.", dupProc.Last().Line);
+        return new MechanismDef(name, ps, uses, whens, line) { Procs = procs };
     }
+
+    /// <summary>Words a user command can't be called: Builder Script words, built-in commands and functions.</summary>
+    public static readonly HashSet<string> Keywords =
+    [
+        "mechanism", "param", "uses", "when", "if", "else", "repeat", "forever", "wait", "emit", "tell", "stop",
+        "and", "or", "not", "true", "false", "to", "together", "run", "for", "while", "return"
+    ];
+
+    /// <summary>Why a user command can't have this name, or null when it can.</summary>
+    public static string? CheckCommandName(string name)
+    {
+        if (Keywords.Contains(name)) return $"'{name}' is a Builder Script word; pick another name for the command.";
+        if (World.BuiltInCommands.Contains(name)) return $"'{name}' is already a command; pick another name (like 'my_{name}').";
+        if (World.BuiltInFunctions.Contains(name)) return $"'{name}' is already a function; pick another name (like 'my_{name}').";
+        return null;
+    }
+
+    bool _inProc;
+
+    ProcDef ParseProc()
+    {
+        int line = Next().Line; // 'to'
+        var nameTok = Peek();
+        if (nameTok.Kind != Tok.Ident) throw new ScriptError($"After 'to' write the new command's name, like 'to attack target' — found {nameTok}.", nameTok.Line);
+        _p++;
+        if (CheckCommandName(nameTok.Text) is { } bad) throw new ScriptError(bad, nameTok.Line);
+        var ps = new List<string>();
+        while (!AtLineEnd && !IsOp(":"))
+        {
+            if (IsOp(",")) { _p++; continue; }
+            var t = Peek();
+            if (t.Kind != Tok.Ident || Keywords.Contains(t.Text))
+                throw new ScriptError($"The inputs of '{nameTok.Text}' must be names separated by commas, like 'to attack target, power' — found {t}.", t.Line);
+            if (ps.Contains(t.Text)) throw new ScriptError($"'{nameTok.Text}' has two inputs called '{t.Text}'.", t.Line);
+            ps.Add(t.Text);
+            _p++;
+        }
+        bool was = _inProc;
+        _inProc = true;
+        try { return new ProcDef(nameTok.Text, ps, ParseBlockOrInline(), line); }
+        finally { _inProc = was; }
+    }
+
+    /// <summary>True when the token after this one is an assignment: then a word like 'run' is just a variable.</summary>
+    bool AssignNext => Peek(1).Kind == Tok.Op && Peek(1).Text is "=" or "+=" or "-=" or "*=" or "/=";
 
     ParamDef ParseParam()
     {
@@ -216,10 +265,38 @@ public sealed class Parser
     Stmt ParseStmt()
     {
         var t = Peek();
-        if (t.Kind == Tok.Ident)
+        if (t.Kind == Tok.Ident && !AssignNext)
         {
             switch (t.Text)
             {
+                case "together":
+                    _p++;
+                    return new TogetherStmt(ParseBlockOrInline(), t.Line);
+                case "run":
+                    _p++;
+                    if (IsOp(":") || AtLineEnd) return new RunStmt(ParseBlockOrInline(), t.Line);
+                    return new RunStmt([ParseStmt()], t.Line);
+                case "while":
+                {
+                    _p++;
+                    if (AtLineEnd || IsOp(":")) throw new ScriptError("After 'while' write a condition, like 'while hp > 0'.", t.Line);
+                    var cond = ParseExpr();
+                    return new WhileStmt(cond, ParseBlockOrInline(), t.Line);
+                }
+                case "for":
+                {
+                    _p++;
+                    if (IsWord("each")) _p++;
+                    var v = Peek();
+                    if (v.Kind != Tok.Ident || Keywords.Contains(v.Text))
+                        throw new ScriptError($"Write it like 'for each enemy in all(\"enemy\")' — found {v} after 'for each'.", v.Line);
+                    _p++;
+                    if (!IsWord("in")) throw new ScriptError($"Write it like 'for each {v.Text} in list' — the word 'in' is missing.", v.Line);
+                    _p++;
+                    if (AtLineEnd || IsOp(":")) throw new ScriptError($"After 'in' write the list to go through, like range(1, 10) or all(\"coin\").", v.Line);
+                    var list = ParseExpr();
+                    return new ForEachStmt(v.Text, list, ParseBlockOrInline(), t.Line);
+                }
                 case "if": return ParseIf();
                 case "repeat":
                 {
@@ -255,13 +332,26 @@ public sealed class Parser
         var t = Peek();
         if (t.Kind != Tok.Ident) throw new ScriptError($"A line can't start with {t}.", t.Line);
         Stmt s;
-        switch (t.Text)
+        switch (AssignNext ? "" : t.Text)
         {
             case "when": throw new ScriptError("'when' goes directly inside the mechanism, not inside another block.", t.Line);
             case "param":
             case "uses": throw new ScriptError($"'{t.Text}' goes at the top of the mechanism, not inside a 'when'.", t.Line);
-            case "wait": _p++; s = new WaitStmt(ParseExpr(), t.Line); if (IsWord("seconds") || IsWord("second")) _p++; break;
+            case "to": throw new ScriptError("'to' makes a new command: it goes directly inside the mechanism, not inside a 'when'.", t.Line);
+            case "together" or "while" or "for":
+                throw new ScriptError($"'{t.Text}' needs its own lines: put it on a new line with its block indented under it.", t.Line);
+            case "wait": _p++; s = ParseWait(t.Line); break;
             case "stop": _p++; s = new StopStmt(t.Line); break;
+            case "return":
+                _p++;
+                if (!_inProc) throw new ScriptError("'return' only works inside a command made with 'to' (it ends the command). To end a 'when', use 'stop'.", t.Line);
+                s = new ReturnStmt(AtLineEnd ? null : ParseExpr(), t.Line);
+                break;
+            case "run":
+                _p++;
+                if (AtLineEnd) throw new ScriptError("After 'run' write what to start in the background, like 'run patrol'.", t.Line);
+                s = new RunStmt([ParseSimpleStmt(endLine: false)], t.Line);
+                break;
             case "emit":
             {
                 _p++;
@@ -285,6 +375,35 @@ public sealed class Parser
         return s;
     }
 
+    /// <summary>After 'wait': seconds, <c>until cond</c>, <c>for key "space"</c> or <c>for Health.died</c>.</summary>
+    Stmt ParseWait(int line)
+    {
+        if (AtLineEnd) throw new ScriptError("After 'wait' write how long (wait 1), or 'wait until ...' / 'wait for ...'.", line);
+        if (IsWord("until") && Peek(1).Kind is not (Tok.Newline or Tok.Eof or Tok.Dedent))
+        {
+            _p++;
+            return new WaitUntilStmt(ParseExpr(), line);
+        }
+        if (IsWord("for") && Peek(1).Kind is not (Tok.Newline or Tok.Eof or Tok.Dedent))
+        {
+            _p++;
+            if (IsWord("key") && Peek(1).Kind is not (Tok.Newline or Tok.Eof or Tok.Dedent or Tok.Op))
+            {
+                _p++;
+                return new WaitKeyStmt(ParseExpr(), line);
+            }
+            var first = Peek();
+            if (first.Kind != Tok.Ident)
+                throw new ScriptError($"After 'wait for' write a signal (wait for died, wait for Health.died) or a key (wait for key \"space\") — found {first}.", first.Line);
+            var path = new List<string> { Next().Text };
+            while (IsOp(".") && Peek(1).Kind == Tok.Ident) { _p++; path.Add(Next().Text); }
+            return new WaitSignalStmt(path.ToArray(), line);
+        }
+        var s = new WaitStmt(ParseExpr(), line);
+        if (IsWord("seconds") || IsWord("second")) _p++;
+        return s;
+    }
+
     Stmt? TryAssign()
     {
         int save = _p;
@@ -305,6 +424,12 @@ public sealed class Parser
     Stmt ParseCommand()
     {
         var name = Next();
+        // 'Health.heal_all 3': a user command of one particular mechanism.
+        if (IsOp(".") && Peek(1).Kind == Tok.Ident)
+        {
+            _p++;
+            name = name with { Text = name.Text + "." + Next().Text };
+        }
         var args = new List<Expr>();
         Dictionary<string, List<Expr>>? named = null;
         List<Expr> target = args;
@@ -400,39 +525,72 @@ public sealed class Parser
 
     Expr ParsePrimary()
     {
+        var e = ParseAtom(out bool indexable);
+        // items[0], all("coin")[0], [1, 2][1]: an item of a list (not after a number or a text).
+        while (indexable && IsOp("["))
+        {
+            int l = Next().Line;
+            if (IsOp("]")) throw new ScriptError("Write which item between the brackets, like items[0] (0 is the first).", l);
+            var index = ParseExpr();
+            if (!IsOp("]")) throw new ScriptError($"The '[' is missing its ']' (found {Peek()}).", l);
+            _p++;
+            e = new IndexExpr(e, index, l);
+        }
+        return e;
+    }
+
+    Expr ParseAtom(out bool indexable)
+    {
+        indexable = true;
         var t = Next();
         switch (t.Kind)
         {
-            case Tok.Number: return new NumberExpr(t.Number, t.Line);
-            case Tok.String: return new StringExpr(t.Text, t.Line);
+            case Tok.Number: indexable = false; return new NumberExpr(t.Number, t.Line);
+            case Tok.String: indexable = false; return new StringExpr(t.Text, t.Line);
             case Tok.Op when t.Text == "(":
             {
                 var e = ParseExpr();
                 ExpectOp(")");
                 return e;
             }
+            case Tok.Op when t.Text == "[":
+            {
+                var items = new List<Expr>();
+                while (!IsOp("]"))
+                {
+                    if (Peek().Kind == Tok.Eof) throw new ScriptError("A list '[' is missing its ']'.", t.Line);
+                    if (IsOp(",")) { _p++; continue; }
+                    items.Add(ParseExpr());
+                }
+                _p++;
+                return new ListExpr(items, t.Line);
+            }
             case Tok.Ident:
             {
-                if (t.Text == "true") return new BoolExpr(true, t.Line);
-                if (t.Text == "false") return new BoolExpr(false, t.Line);
-                if (IsOp("("))
-                {
-                    _p++;
-                    var args = new List<Expr>();
-                    while (!IsOp(")"))
-                    {
-                        if (Peek().Kind == Tok.Eof) throw new ScriptError($"'{t.Text}(' is missing its ')'.", t.Line);
-                        if (IsOp(",")) { _p++; continue; }
-                        args.Add(ParseExpr());
-                    }
-                    _p++;
-                    return new CallExpr(t.Text, args, t.Line);
-                }
+                if (t.Text == "true") { indexable = false; return new BoolExpr(true, t.Line); }
+                if (t.Text == "false") { indexable = false; return new BoolExpr(false, t.Line); }
+                if (IsOp("(")) return ParseCall(t.Text, t.Line);
                 var path = new List<string> { t.Text };
                 while (IsOp(".") && Peek(1).Kind == Tok.Ident) { _p++; path.Add(Next().Text); }
+                // Health.heal_amount(2): a user command of one mechanism, used as a value.
+                if (path.Count == 2 && IsOp("(")) return ParseCall(path[0] + "." + path[1], t.Line);
                 return new NameExpr(path.ToArray(), t.Line);
             }
         }
         throw new ScriptError($"Expected a value (a number, a text or a name) but found {t}.", t.Line);
+    }
+
+    CallExpr ParseCall(string name, int line)
+    {
+        _p++; // '('
+        var args = new List<Expr>();
+        while (!IsOp(")"))
+        {
+            if (Peek().Kind == Tok.Eof) throw new ScriptError($"'{name}(' is missing its ')'.", line);
+            if (IsOp(",")) { _p++; continue; }
+            args.Add(ParseExpr());
+        }
+        _p++;
+        return new CallExpr(name, args, line);
     }
 }

@@ -94,6 +94,7 @@ public sealed partial class World
     {
         var defs = Parser.Parse(source);
         foreach (var d in defs) Library[d.Name] = d;
+        _procIndex = null; // user commands are looked up again
         return defs;
     }
 
@@ -159,6 +160,7 @@ public sealed partial class World
     public void PressKey(string key)
     {
         key = key.ToLowerInvariant();
+        _keyPressed[key] = ++_keySeq; // for 'wait for key'
         foreach (var o in _objects.ToArray())
             foreach (var m in o.AllMechanisms())
                 foreach (var w in m.Def.Whens)
@@ -212,6 +214,7 @@ public sealed partial class World
         // 5. Destroyed objects leave.
         _objects.RemoveAll(o => o.Destroyed);
         _running.RemoveAll(c => c.Inst.Owner.Destroyed);
+        _signalWaiters.RemoveAll(w => w.Fired || w.Waiting.Destroyed);
     }
 
     void FireTouch(GameObject self, GameObject other)
@@ -228,6 +231,7 @@ public sealed partial class World
 
     internal void Emit(MechanismInstance from, string signal, List<object?> args)
     {
+        NotifySignalWaiters(from, signal);
         foreach (var m in from.Owner.AllMechanisms().ToArray())
             foreach (var w in m.Def.Whens)
             {
@@ -296,10 +300,11 @@ public sealed partial class World
         }
     }
 
-    sealed class Coroutine(MechanismInstance inst, WhenDef when, IEnumerator<WaitFor> it)
+    /// <summary>A running 'when' (When set) or a background task started with 'run' (When null).</summary>
+    sealed class Coroutine(MechanismInstance inst, WhenDef? when, IEnumerator<WaitFor> it)
     {
         public readonly MechanismInstance Inst = inst;
-        public readonly WhenDef When = when;
+        public readonly WhenDef? When = when;
         public readonly IEnumerator<WaitFor> It = it;
         public double WakeAt;
         public Func<bool>? Until;
@@ -314,6 +319,12 @@ public sealed partial class World
         public readonly MechanismInstance Inst = inst;
         public Dictionary<string, object?> Locals = new();
         public GameObject? Other;
+        /// <summary>Running a user command ('to'): new names become locals; 'return' ends it.</summary>
+        public bool InProc;
+        /// <summary>How many user commands deep this is (to stop runaway recursion).</summary>
+        public int Depth;
+        public bool Returned;
+        public object? ReturnValue;
     }
 
     // ---------------- Statements ----------------
@@ -326,12 +337,68 @@ public sealed partial class World
     {
         foreach (var s in body)
         {
-            if (ctx.Inst.Owner.Destroyed) yield break;
+            if (ctx.Inst.Owner.Destroyed || ctx.Returned) yield break;
             switch (s)
             {
                 case WaitStmt w:
                     yield return new WaitFor(ToNumber(Eval(w.Seconds, ctx), w.Line));
                     break;
+                case WaitUntilStmt u:
+                    // Already true: go on right away. Otherwise check once per step.
+                    if (!Truthy(Eval(u.Cond, ctx))) yield return new WaitFor(0, () => Truthy(Eval(u.Cond, ctx)));
+                    break;
+                case WaitSignalStmt ws:
+                {
+                    var waiter = WaitSignal(ws, ctx);
+                    yield return new WaitFor(0, () => waiter.Fired);
+                    break;
+                }
+                case WaitKeyStmt wk:
+                {
+                    string key = ToText(Eval(wk.Key, ctx)).ToLowerInvariant();
+                    long since = _keySeq;
+                    yield return new WaitFor(0, () => _keyPressed.TryGetValue(key, out var seq) && seq > since);
+                    break;
+                }
+                case ReturnStmt ret:
+                    ctx.ReturnValue = ret.Value == null ? null : Eval(ret.Value, ctx);
+                    ctx.Returned = true;
+                    yield break;
+                case RunStmt run:
+                    StartBackground(run.Body, ctx);
+                    break;
+                case TogetherStmt tg:
+                    foreach (var y in Together(tg, ctx)) yield return y;
+                    break;
+                case WhileStmt wh:
+                    while (!ctx.Inst.Owner.Destroyed && !ctx.Returned && Truthy(Eval(wh.Cond, ctx)))
+                    {
+                        bool waited = false;
+                        foreach (var y in Exec(wh.Body, ctx)) { waited = true; yield return y; }
+                        if (!waited && !ctx.Returned) yield return new WaitFor(0); // like repeat forever: one round per frame
+                    }
+                    break;
+                case ForEachStmt fe:
+                {
+                    var items = Items(Eval(fe.List, ctx), fe.Line, "for each");
+                    foreach (var item in items)
+                    {
+                        if (ctx.Returned || ctx.Inst.Owner.Destroyed) break;
+                        if (item is GameObject { Destroyed: true }) continue;
+                        ctx.Locals[fe.Var] = item;
+                        foreach (var y in Exec(fe.Body, ctx)) yield return y;
+                    }
+                    break;
+                }
+                case CommandStmt cmd when FindProc(cmd.Name, ctx, cmd.Line, statement: true) is { } proc:
+                {
+                    if (cmd.Named != null)
+                        throw new ScriptError($"'{cmd.Name}' is a command you made: give its values separated by commas ({ProcUsage(proc.Def)}).", cmd.Line);
+                    var args = cmd.Args.Select(x => Eval(x, ctx)).ToList();
+                    var pctx = ProcContext(proc, args, ctx, cmd.Line);
+                    foreach (var y in Exec(proc.Def.Body, pctx)) yield return y;
+                    break;
+                }
                 case StopStmt:
                     throw new StopException();
                 case IfStmt i:
@@ -345,17 +412,17 @@ public sealed partial class World
                 {
                     if (r.Count == null)
                     {
-                        while (!ctx.Inst.Owner.Destroyed)
+                        while (!ctx.Inst.Owner.Destroyed && !ctx.Returned)
                         {
                             bool waited = false;
                             foreach (var y in Exec(r.Body, ctx)) { waited = true; yield return y; }
-                            if (!waited) yield return new WaitFor(0); // a forever loop with no wait runs once per frame
+                            if (!waited && !ctx.Returned) yield return new WaitFor(0); // a forever loop with no wait runs once per frame
                         }
                     }
                     else
                     {
                         int n = (int)Math.Round(ToNumber(Eval(r.Count, ctx), r.Line));
-                        for (int k = 0; k < n; k++)
+                        for (int k = 0; k < n && !ctx.Returned; k++)
                             foreach (var y in Exec(r.Body, ctx)) yield return y;
                     }
                     break;
@@ -397,10 +464,11 @@ public sealed partial class World
         if (a.Target.Length == 1)
         {
             string n = a.Target[0];
+            // Inside a user command a new name is a local (gone when the command ends).
             Dictionary<string, object?> bag =
                 ctx.Locals.ContainsKey(n) ? ctx.Locals :
                 ctx.Inst.Vars.ContainsKey(n) ? ctx.Inst.Vars :
-                Globals.ContainsKey(n) ? Globals : ctx.Inst.Vars;
+                Globals.ContainsKey(n) ? Globals : ctx.InProc ? ctx.Locals : ctx.Inst.Vars;
             bag.TryGetValue(n, out var old);
             bag[n] = Combine(a.Op, old, value, a.Line);
             return;
@@ -476,33 +544,14 @@ public sealed partial class World
                 throw new ScriptError($"Unknown operator '{b.Op}'.", b.Line);
             }
             case CallExpr c: return CallFunction(c, ctx);
+            case ListExpr l: return l.Items.Select(x => Eval(x, ctx)).ToList();
+            case IndexExpr x: return Index(Eval(x.Target, ctx), Eval(x.Index, ctx), x.Line);
         }
         throw new ScriptError("I can't work out this value.", e.Line);
     }
 
     static readonly Random Rng = new();
 
-    object? CallFunction(CallExpr c, Ctx ctx)
-    {
-        if (c.Name == "key")
-        {
-            if (c.Args.Count != 1) throw new ScriptError("'key' needs one key, like key(\"left\").", c.Line);
-            return KeysDown.Contains(ToText(Eval(c.Args[0], ctx)));
-        }
-        var a = c.Args.Select(x => ToNumber(Eval(x, ctx), c.Line)).ToArray();
-        void Need(int n) { if (a.Length != n) throw new ScriptError($"'{c.Name}' needs {n} value(s), got {a.Length}.", c.Line); }
-        switch (c.Name)
-        {
-            case "random": Need(2); return Math.Floor(a[0] + Rng.NextDouble() * (a[1] - a[0] + 1));
-            case "abs": Need(1); return Math.Abs(a[0]);
-            case "round": Need(1); return Math.Round(a[0]);
-            case "floor": Need(1); return Math.Floor(a[0]);
-            case "min": Need(2); return Math.Min(a[0], a[1]);
-            case "max": Need(2); return Math.Max(a[0], a[1]);
-            case "sqrt": Need(1); return Math.Sqrt(a[0]);
-        }
-        throw new ScriptError($"There's no function called '{c.Name}'.{Suggest(c.Name, ["random", "abs", "round", "floor", "min", "max", "sqrt"])}", c.Line);
-    }
 
     object? Resolve(string[] path, Ctx ctx, int line)
     {
@@ -638,10 +687,11 @@ public sealed partial class World
             }
         }
         if (RunPhysicsCommand(c.Name, ctx.Inst.Owner, args, c.Line)) return;
-        throw new ScriptError($"There's no command called '{c.Name}'.{Suggest(c.Name, BuiltInCommands.Concat(Commands.Keys))}", c.Line);
+        if (RunListCommand(c, args, ctx)) return;
+        throw new ScriptError($"There's no command called '{c.Name}'.{Suggest(c.Name, BuiltInCommands.Concat(Commands.Keys).Concat(VisibleProcNames(ctx)))}", c.Line);
     }
 
-    public static readonly string[] BuiltInCommands = ["print", "destroy", "spawn", "play", "move", "goto", "body", "solid", "oneway", "jump", "push"];
+    public static readonly string[] BuiltInCommands = ["print", "destroy", "spawn", "play", "move", "goto", "body", "solid", "oneway", "jump", "push", "add", "remove"];
 
     // ---------------- Values ----------------
 
@@ -651,6 +701,7 @@ public sealed partial class World
         bool b => b,
         double d => d != 0,
         string s => s.Length > 0,
+        List<object?> l => l.Count > 0,
         _ => true
     };
 
@@ -668,11 +719,14 @@ public sealed partial class World
         null => "",
         double d => d.ToString(CultureInfo.InvariantCulture),
         bool b => b ? "true" : "false",
+        List<object?> l => "[" + string.Join(", ", l.Select(x => x is string s ? Printer.Quote(s) : ToText(x))) + "]",
         _ => v.ToString() ?? ""
     };
 
     static bool AreEqual(object? a, object? b)
     {
+        if (a is List<object?> la && b is List<object?> lb)
+            return ReferenceEquals(la, lb) || (la.Count == lb.Count && la.Zip(lb).All(p => AreEqual(p.First, p.Second)));
         if (a is double || b is double)
             try { return ToNumber(a, 0) == ToNumber(b, 0); } catch (ScriptError) { return false; }
         if (a is GameObject ga && b is string sb) return ga.Is(sb);
@@ -687,6 +741,7 @@ public sealed partial class World
         bool b => b ? "true" : "false",
         GameObject g => $"the object '{g.Name}'",
         MechanismInstance m => $"the mechanism '{m.Def.Name}'",
+        List<object?> l => l.Count == 0 ? "an empty list" : $"a list of {l.Count} item(s)",
         _ => v.ToString() ?? "?"
     };
 

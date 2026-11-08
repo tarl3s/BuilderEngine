@@ -380,7 +380,8 @@ public sealed partial class MainWindow : Window
             string line = text[lineStart..caret];
             string indent = new(line.TakeWhile(c => c == ' ').ToArray());
             string trimmed = line.Trim();
-            if (trimmed.StartsWith("mechanism") || trimmed.StartsWith("when") || trimmed.StartsWith("if") || trimmed.StartsWith("else") || trimmed.StartsWith("repeat"))
+            if (trimmed.StartsWith("mechanism") || trimmed.StartsWith("when") || trimmed.StartsWith("if") || trimmed.StartsWith("else") || trimmed.StartsWith("repeat")
+                || trimmed.StartsWith("to ") || trimmed.StartsWith("together") || trimmed.StartsWith("for each") || trimmed.StartsWith("while") || trimmed is "run" or "run:")
                 if (!trimmed.Contains(':') || trimmed.EndsWith(':')) indent += "    ";
             InsertAtCaret("\n" + indent);
             e.Handled = true;
