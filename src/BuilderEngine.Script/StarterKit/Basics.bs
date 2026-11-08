@@ -1,0 +1,61 @@
+# Starter kit: small mechanisms everyone can open, read and copy.
+
+mechanism Coin
+    param value: number = 1
+    param sound: Sound = "coin.wav"
+
+    when touched by "player"
+        score += value
+        play sound
+        destroy self
+
+mechanism Health
+    param max: number = 3
+    param safe_time: seconds = 1
+
+    when start
+        hp = max
+
+    when told "damage" amount
+        if safe: stop
+        hp -= amount
+        emit hurt
+        if hp <= 0
+            emit died
+        else
+            safe = true
+            wait safe_time
+            safe = false
+
+    when told "heal" amount
+        hp = min(hp + amount, max)
+
+mechanism Patrol
+    param speed: number = 60
+    param distance: number = 100
+
+    when start
+        repeat forever
+            repeat distance / 10
+                move speed / 60 * 10, 0
+                wait 1 / 6
+            repeat distance / 10
+                move -speed / 60 * 10, 0
+                wait 1 / 6
+
+mechanism Blink
+    param every: seconds = 0.5
+
+    when start
+        repeat forever
+            visible = not visible
+            wait every
+
+mechanism PlayerMove
+    param speed: number = 180
+
+    when tick
+        if key("left"): self.x -= speed * dt
+        if key("right"): self.x += speed * dt
+        if key("up"): self.y -= speed * dt
+        if key("down"): self.y += speed * dt
