@@ -80,6 +80,17 @@ public static class Variants
             if (i < 0) procs.Add(p); else procs[i] = p;
         }
 
-        return new MechanismDef(def.Name, ps, uses, whens, def.Line) { Procs = procs, Base = def.Base };
+        // A system's 'includes' work like its 'uses': the same mechanism again replaces the parent's line.
+        var includes = new List<UsesDef>(parent.Includes);
+        foreach (var u in def.Includes)
+        {
+            int i = includes.FindIndex(x => string.Equals(x.Name, u.Name, StringComparison.OrdinalIgnoreCase));
+            if (i < 0) includes.Add(u); else includes[i] = u;
+        }
+
+        return new MechanismDef(def.Name, ps, uses, whens, def.Line)
+        {
+            Procs = procs, Base = def.Base, IsSystem = def.IsSystem || parent.IsSystem, Includes = includes
+        };
     }
 }

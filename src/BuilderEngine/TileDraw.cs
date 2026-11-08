@@ -48,7 +48,7 @@ static class TileDraw
                 int start = c;
                 while (c + 1 <= c1 && cells[row + c + 1] == id) c++;
                 // A hair wider than the cells so neighbours never show a seam when scaled.
-                ctx.FillRectangle(SceneCanvas.BrushOf(k.Color, Palette.Accent), new Rect(l.X + start * cs, y, (c - start + 1) * cs + 0.05, cs + 0.05));
+                ctx.FillRectangle(GameDraw.BrushOf(k.Color, Palette.Accent), new Rect(l.X + start * cs, y, (c - start + 1) * cs + 0.05, cs + 0.05));
                 c++;
             }
         }

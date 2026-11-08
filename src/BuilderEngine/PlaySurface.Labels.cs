@@ -19,7 +19,7 @@ sealed partial class PlaySurface
         var key = (color, Math.Round(width, 2));
         if (_labelPens.TryGetValue(key, out var p)) return p;
         if (_labelPens.Count > 200) _labelPens.Clear();
-        return _labelPens[key] = new Pen(SceneCanvas.BrushOf(color, Palette.Accent), width).ToImmutable();
+        return _labelPens[key] = new Pen(GameDraw.BrushOf(color, Palette.Accent), width).ToImmutable();
     }
 
     void DrawLabels(DrawingContext ctx, GameObject o, Rect r)
@@ -44,7 +44,7 @@ sealed partial class PlaySurface
             if (!_labelFts.TryGetValue(l, out var c) || c.Text != text || c.Size != size || c.Color != l.Color || c.Width != maxW)
             {
                 var ft = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, badge ? BadgeFont : HudFont, size,
-                    SceneCanvas.BrushOf(l.Color, Palette.Text));
+                    GameDraw.BrushOf(l.Color, Palette.Text));
                 if (!badge)
                 {
                     ft.MaxTextWidth = maxW;
@@ -62,7 +62,7 @@ sealed partial class PlaySurface
             if (badge)
             {
                 var box = new Rect(x, y, bw, bh);
-                ctx.DrawRectangle(SceneCanvas.BrushOf(l.Back!, Palette.Accent), BadgeRim, box, bh / 2, bh / 2);
+                ctx.DrawRectangle(GameDraw.BrushOf(l.Back!, Palette.Accent), BadgeRim, box, bh / 2, bh / 2);
                 ctx.DrawText(f, new Point(x + (bw - f.Width) / 2, y + (bh - f.Height) / 2));
             }
             else ctx.DrawText(f, new Point(x, y));

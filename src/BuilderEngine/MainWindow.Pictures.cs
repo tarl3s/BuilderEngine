@@ -26,11 +26,8 @@ public sealed partial class MainWindow
     }
 
     /// <summary>A playing world finds the project's pictures and saves its games in the project's saves folder.</summary>
-    void UseProjectFiles(World w)
-    {
-        w.ProjectFolder = _projectDir;
-        w.SaveFolder = Path.Combine(_projectDir, Project.SavesFolder);
-    }
+    /// The setup itself is shared with exported games: GameBoot.UseProject (GameExport.cs).
+    void UseProjectFiles(World w) => GameBoot.UseProject(w, _project, _projectDir);
 
     static bool IsPictureType(string type) => type.ToLowerInvariant() is "image" or "picture";
 

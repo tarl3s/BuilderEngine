@@ -232,6 +232,64 @@ mechanism RedSlime from Slime
 
 A variant of a variant works; a loop (`A from B`, `B from A`) or a missing parent is a friendly error (the object is
 still placed, without that mechanism).
+
+### Systems: mechanisms that work together
+
+A system is a mechanism that brings others with it. It is written like one, with two extras: `system` instead of
+`mechanism`, and `includes` lines (the same settings as `uses`). Blocks show the same thing: a "system" header and an
+"includes" row per line, with "+ includes" to add one.
+
+```
+system Inventory
+    # Pick things up, carry them in a hotbar and craft new things.
+    includes Pickup sound pickup_sound   # comes with it (placed on things); every Pickup's 'sound' defaults to this
+    includes Recipe
+    param slots: number = 9              # the system's card: one place to set the whole thing
+    param pickup_sound: Sound = "coin.wav"
+    uses Hotbar slots slots              # runs on the system's own object, with the shared setting
+
+    when start                           # the setup: the manager objects it needs
+        visible = false
+        make Crafting at 260, 60 with 280, 320
+```
+
+- In a scene a system is **one object** (named after it) carrying the system. Its card in the inspector has the
+  system's params, what it brings, `+ Pickup` buttons that place its parts (a placed Platformer is tagged "player"),
+  **Save to My Library** and **Remove system**.
+- `includes` settings are defaults: an object that sets the param itself in the inspector keeps its own value, and a
+  mechanism the part uses gets them too (`includes Body gravity gravity` reaches the Body inside Platformer).
+- **Adding** (click or drag from SYSTEMS): the system's code comes into the project (the same one already there is
+  reused; a different one with that name asks: keep both — `Inventory2` — or replace), the mechanisms it brings that the
+  project doesn't have are copied from My Library (the starter kit is always there), and its object is placed.
+- **Removing**: its objects go (an object with other mechanisms only loses the system); when no scene uses it any more,
+  its code and the mechanisms it copied in leave the project — unless you changed them. The parts you placed stay.
+- **＋ New system…** (last row of SYSTEMS): a name and the mechanisms to bring (those of the selected objects are
+  ticked) → `system MyKit` with an `includes` line each. Change a line to `uses` to run it on the system's object; add
+  params and pass them on. My Library keeps systems with the mechanisms of yours they bring.
+- Starter systems: **Inventory**, **DayNightCycle** (DayNight + Light defaults + a Day/Night clock), **DarkCave**
+  (Darkness + a lantern on the player + Light defaults), **CardBattle** (Card defaults + TurnManager + slots, an End turn
+  button and a Deck that deals a hand), **PlatformerKit** (Platformer, Body, Health, Coin, Checkpoint, Solid defaults
+  and a score).
+
+### Export game
+
+Project → **Export game…**: pick a folder (Documents\BuilderEngine Games by default), a window icon (one of the
+project's pictures, or the hammer) and whether to make a zip. In the background, with a progress window:
+
+```
+My Game/
+    My Game.exe      the player: only the game window (title = the game's name), first scene, F11 full screen, Esc menu
+    …                its files (.NET included: nothing to install)
+    game/            a copy of the project (project.json, mechanisms, images, sounds; no saves, no plugins)
+    README.txt
+My Game.zip
+```
+
+The player is `src/BuilderEngine.Player`; it shares the editor's game drawing and sound files (linked sources, one copy
+of the code). A downloaded BuilderEngine has it prebuilt in `player/` (tools/Publish-Release.ps1 builds it); from the
+source code, Export runs `dotnet publish` once (cached in %LOCALAPPDATA%\BuilderEngine\player-build). An exported game
+saves in %LOCALAPPDATA%\BuilderEngine Games\<game>\saves. The player also takes `--check` (plays 2 s headless, exit code
+= script errors) and `--snap <png>` (dev checks).
 ### Editor tools: mechanisms that build for you
 
 A mechanism with `when tool …` is a **tool**: it shows up in the scene's **TOOLS** row and edits the scene while you

@@ -1237,6 +1237,8 @@ Test("opening never touches Ollama when the cloud AI is chosen", () =>
     Eq(null, OllamaSetup.PrepareOnOpenAsync(s).GetAwaiter().GetResult());
 });
 
+SystemsTests.Run(Test); // systems (sets of mechanisms that work together) and "Export game…" (SystemsTests.cs)
+
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;

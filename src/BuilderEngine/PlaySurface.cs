@@ -59,7 +59,7 @@ sealed partial class PlaySurface : Control, ICustomHitTest
         ClipToBounds = true;
         foreach (var (g, so) in spawned)
         {
-            var b = SceneCanvas.BrushOf(so.Color, Palette.Accent);
+            var b = GameDraw.BrushOf(so.Color, Palette.Accent);
             _brushes[g] = b;
             foreach (var m in so.Mechanisms) _byMechanism.TryAdd(m.Name, b);
         }
@@ -165,7 +165,7 @@ sealed partial class PlaySurface : Control, ICustomHitTest
             using (ctx.PushTransform(world))
             using (ctx.PushRenderOptions(Crisp))
             {
-                ctx.FillRectangle(SceneCanvas.BrushOf(_scene.Background, Palette.Bg1), new Rect(0, 0, _world.SceneWidth, _world.SceneHeight));
+                ctx.FillRectangle(GameDraw.BrushOf(_scene.Background, Palette.Bg1), new Rect(0, 0, _world.SceneWidth, _world.SceneHeight));
                 if (_world.HasTiles) TileDraw.Draw(ctx, _world.Tiles.Layers, _world.Tiles.Kinds, visible, _images, front: false); // GameKit: tiles behind
                 DrawObjects(ctx, _order, visible);
                 if (_world.HasTiles)
@@ -267,7 +267,7 @@ sealed partial class PlaySurface : Control, ICustomHitTest
 
     IBrush BrushFor(GameObject o)
     {
-        if (o.Color != null) return SceneCanvas.BrushOf(o.Color, Fallback); // its scene colour, or one a script set ('color')
+        if (o.Color != null) return GameDraw.BrushOf(o.Color, Fallback); // its scene colour, or one a script set ('color')
         if (_brushes.TryGetValue(o, out var b)) return b;
         b = o.Mechanisms.Count > 0 && _byMechanism.TryGetValue(o.Mechanisms[0].Def.Name, out var mb) ? mb : Fallback;
         _brushes[o] = b;
@@ -286,7 +286,7 @@ sealed partial class PlaySurface : Control, ICustomHitTest
     {
         if (_hudTexts.TryGetValue(h, out var c) && c.Text == h.Text && c.Size == size && c.Color == h.Color) return c.Ft;
         var ft = new FormattedText(h.Text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, HudFont, Math.Max(1, size),
-            SceneCanvas.BrushOf(h.Color, Palette.Text));
+            GameDraw.BrushOf(h.Color, Palette.Text));
         _hudTexts[h] = (h.Text, size, h.Color, ft);
         return ft;
     }
@@ -541,13 +541,13 @@ sealed partial class PlaySurface : Control, ICustomHitTest
             InvalidateVisual();
             return;
         }
-        _world.KeyDown(MainWindow.KeyName(e.Key)); // the world ignores auto-repeat
+        _world.KeyDown(GameDraw.KeyName(e.Key)); // the world ignores auto-repeat
     }
 
     protected override void OnKeyUp(KeyEventArgs e)
     {
         base.OnKeyUp(e);
-        _world.KeyUp(MainWindow.KeyName(e.Key));
+        _world.KeyUp(GameDraw.KeyName(e.Key));
         e.Handled = true;
     }
 

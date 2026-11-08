@@ -1,0 +1,15 @@
+system DarkCave
+    # A dark place where only lights shine: the scene goes dark, the player carries a lantern, and the Lights you
+    # place (torches, lamps, glowing crystals) light up the rest.
+    includes Light radius light_radius, color light_color, flicker flicker
+    param dark: number = 0.85
+    param light_radius: number = 140
+    param light_color: Color = "#FFD9A0"
+    param flicker: number = 0.15
+    param lantern: yesno = true
+    uses Darkness amount dark
+
+    when start
+        visible = false
+        player = find("player")
+        if lantern and player: light player light_radius with light_color, flicker
