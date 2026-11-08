@@ -99,6 +99,7 @@ public sealed partial class MainWindow
         items.Add(new LibItem("", LibSection.Project, Header: "THIS PROJECT"));
         foreach (var n in own) items.Add(new LibItem(n, LibSection.Project, Badge: _starterSources.ContainsKey(n) ? "edited" : null));
         if (own.Count == 0) items.Add(new LibItem("", LibSection.Project, Badge: "Nothing yet — “+ New” makes one."));
+        AddPrefabSection(items); // PREFABS (MainWindow.Prefabs.cs)
 
         items.Add(new LibItem("", LibSection.Mine, Header: "MY LIBRARY"));
         foreach (var n in mine)

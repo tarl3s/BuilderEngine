@@ -658,6 +658,7 @@ public sealed partial class World
         if (Globals.TryGetValue(n, out v)) return v;
         if (EngineValues.TryGetValue(n, out var ev)) return ev(this); // mouse_x, mouse_y… (World.Mouse.cs)
         if (Library.ContainsKey(n)) return n; // a mechanism name, e.g. 'spawn Coin'
+        if (Prefabs.ContainsKey(n)) return n; // a prefab name, e.g. 'spawn Slime' (World.Prefabs.cs)
         return null; // an unset variable reads as nothing (0 / false / empty text)
     }
 
@@ -718,12 +719,15 @@ public sealed partial class World
             }
             case "spawn":
             {
-                if (args.Count == 0) throw new ScriptError("'spawn' needs a mechanism, like 'spawn Coin here'.", c.Line);
+                if (args.Count == 0) throw new ScriptError("'spawn' needs a prefab or a mechanism, like 'spawn Coin here'.", c.Line);
                 string name = ToText(args[0]);
-                Find(name, c.Line);
                 double x = ctx.Inst.Owner.X, y = ctx.Inst.Owner.Y;
                 if (args.Count >= 2 && args[1] is GameObject at) { x = at.X; y = at.Y; }
                 else if (args.Count >= 3) { x = ToNumber(args[1], c.Line); y = ToNumber(args[2], c.Line); }
+                if (SpawnPrefab(name, x, y, c.Line) != null) return; // a prefab comes first (World.Prefabs.cs)
+                if (Prefabs.Count > 0 && TryDef(name, c.Line) == null)
+                    throw new ScriptError($"There's no prefab or mechanism called '{name}'.{Suggest(name, Prefabs.Keys.Concat(Library.Keys))}", c.Line);
+                Find(name, c.Line);
                 Spawn(name, x, y, [name]);
                 return;
             }

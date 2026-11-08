@@ -202,6 +202,7 @@ public sealed partial class MainWindow
         _sceneHost.Content = _canvas;
 
         HookLibraryDrag();
+        HookPrefabs(); // prefab rows, drops, sync (MainWindow.Prefabs.cs)
 
         var root = new DockPanel();
         var bars = new StackPanel();

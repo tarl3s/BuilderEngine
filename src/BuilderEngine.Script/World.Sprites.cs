@@ -27,6 +27,7 @@ public sealed partial class GameObject
 /// animate "walk"             (walk1.png, walk2.png… at 8 frames a second)   animate "walk" at 12
 /// animate "run.png" with 6   (a strip of 6 frames; without 'with', square frames are counted)
 /// animate "attack" once      (plays once and waits until it's done)          animate none
+/// An object's own animations (Animations… in the inspector) come first: animate "walk" plays its frames at its speed.
 /// face left    face right    face player (turn towards an object)    face Boss left
 /// layer 2                    (drawn above layer 0 and 1)
 /// </code>
@@ -91,8 +92,16 @@ public sealed partial class World
         var (o, i) = TargetAndRest(c, once >= 0 ? 2 : 1);
         if (i >= c.Args.Count || i == once || WordAt(c, i) is "none" or "off" or "stop") { StopAnimation(o); return; }
         string name = ToText(c.Args[i]).Trim();
-        double fps = NamedNumber(c, "at") ?? 8;
-        if (fps <= 0) throw c.Error("'at' is frames per second, above 0: animate \"walk\" at 8.");
+        double? at = NamedNumber(c, "at");
+        if (at < 0) throw c.Error("'at' is frames per second: animate \"walk\" at 8 (0 = the animation's own speed).");
+        // The object's own animation with that name (made in the Animations window) comes first (World.Prefabs.cs).
+        if (o.FindAnimation(name) is { Frames.Count: > 0 } named)
+        {
+            string nk = world.PlayNamed(o, named, at, once >= 0 || !named.Loop, restart: once >= 0);
+            if (once >= 0) c.WaitUntil(() => o.AnimDone || o.AnimName != nk || o.Destroyed);
+            return;
+        }
+        double fps = at is > 0 ? at.Value : 8;
         bool playOnce = once >= 0;
         int? wanted = NamedNumber(c, "with") is double n ? Math.Max(1, (int)Math.Round(n)) : null;
         string key = $"{name}|{wanted}|{playOnce}";

@@ -10,7 +10,7 @@ namespace BuilderEngine.Script;
 /// <c>mechanisms/&lt;Name&gt;.bs</c> for every mechanism that belongs to the project.
 /// Loading is tolerant: missing fields get defaults, unknown fields are ignored, numbers may be written as text.
 /// </summary>
-public sealed class Project
+public sealed partial class Project
 {
     public const string FileName = "project.json";
     public const string MechanismsFolder = "mechanisms";
@@ -77,14 +77,20 @@ public sealed class Project
         return sb.Length == 0 ? "Mechanism" : sb.ToString();
     }
 
-    static readonly JsonSerializerOptions WriteOptions = new()
+    internal static readonly JsonSerializerOptions WriteOptions = new()
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        TypeInfoResolver = PrefabJson.Resolver, // empty animation lists aren't written (Prefabs.cs)
     };
 
-    public string ToJson() => JsonSerializer.Serialize(new { name = Name, scenes = Scenes }, WriteOptions);
+    public string ToJson()
+    {
+        var root = JsonSerializer.SerializeToNode(new { name = Name, scenes = Scenes }, WriteOptions)!.AsObject();
+        WritePrefabs(root); // Prefabs.cs
+        return root.ToJsonString(WriteOptions);
+    }
 
     public static Project FromJson(string json)
     {
@@ -97,6 +103,7 @@ public sealed class Project
         if (p.Scenes.Count == 0 && Get(root, "scene") is JsonObject one) p.Scenes.Add(Scene.FromNode(one));
         if (p.Scenes.Count == 0 && Get(root, "objects") is JsonArray) p.Scenes.Add(Scene.FromNode(root, "Level 1"));
         if (p.Scenes.Count == 0) p.Scenes.Add(new Scene());
+        p.ReadPrefabs(root); // Prefabs.cs
         p.FixSceneIdsAndNames();
         return p;
     }
@@ -441,7 +448,7 @@ public sealed class Scene
     }
 }
 
-public sealed class SceneObject
+public sealed partial class SceneObject
 {
     public int Id { get; set; }
     public string Name { get; set; } = "Object";
@@ -502,6 +509,7 @@ public sealed class SceneObject
                     foreach (var (k, v) in ps) sm.Params[k] = Project.Value(v);
                 s.Mechanisms.Add(sm);
             }
+        s.ReadPrefabFields(o); // prefab link and animations (Prefabs.cs)
         return s;
     }
 }

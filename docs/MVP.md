@@ -35,7 +35,7 @@ export to `.exe` · sound editor · 3D · Mac/Linux builds. (Tilemaps and lighti
 6. **Blocks view** — script ↔ blocks, 1 to 1. *(done; click-to-add, drag-and-drop later)*
 7. **Tutorial** — "Your first mechanism: a coin" with a self-ticking checklist.
 
-Also done: a **debugger** (pause, step, breakpoints, live variables, an event timeline), **param types** you pick (Object, Path, List, Color, Key, Choice) and **variants** (`mechanism RedSlime from Slime`) — see the sections at the end.
+Also done: a **debugger** (pause, step, breakpoints, live variables, an event timeline), **param types** you pick (Object, Path, List, Color, Key, Choice), **variants** (`mechanism RedSlime from Slime`), **prefabs**, **named animations** (an Animations window) and a **pixel-art sprite editor** — see the sections at the end.
 
 Also done beyond the plan: several scenes per project (`goto_scene "Name"`, the Door mechanism), a Project menu (new / open / recent / save), and project sounds (`sounds/` folder, generated starter WAVs, import, a Sound dropdown with preview, real playback on Windows). And the engine features for cutscenes and real games: tweens, camera, dialogue and choices, HUD, screen effects, locked controls, slow motion, pictures and animation, saves (see below). And the mechanisms that
 extend the editor itself: **editor tools** (a mechanism with `when tool …` edits the scene while you build) and
@@ -232,6 +232,45 @@ mechanism RedSlime from Slime
 
 A variant of a variant works; a loop (`A from B`, `B from A`) or a missing parent is a friendly error (the object is
 still placed, without that mechanism).
+
+### Prefabs, animations and the sprite editor
+
+**Prefabs.** Select an object → **★ Save as prefab…** (inspector): its mechanisms with their params, picture, size,
+colour, tags and animations become a prefab in the library's **PREFABS** section. Drag a prefab onto the scene to
+place a copy; double-click it (or a copy's **Edit prefab**) to edit the prefab itself in the inspector; right-click
+for place / rename / delete (deleting keeps the copies as ordinary objects). Copies remember their prefab:
+
+- a copy changed on its own keeps that change (an override; the inspector lists them — **Revert to prefab** drops them);
+- **Changes here change every copy** (ticked) sends that copy's changes to the prefab and its copies;
+- when the prefab changes, every copy gets the changed fields except the ones it changed itself (ticked copies get all);
+- what belongs to one placement is never shared: id, name, position, lock. **Unlink** makes a copy independent.
+
+Scripts spawn a prefab by name — **a prefab is found before a mechanism with the same name**; with no such prefab,
+`spawn` still makes an object with that mechanism:
+
+```
+spawn "Slime" 300, 200     # a copy of the prefab Slime (its mechanisms, params, picture, size, tags, animations)
+spawn Coin here            # no prefab called Coin: an object with the mechanism Coin, as before
+```
+
+**Animations.** An object's **Animations** row opens the Animations window: named animations (idle, walk, jump…),
+each a strip of frames (◀ ▶ reorder, ✎ draw over, ⧉ copy, ✕ remove) with a speed and loop, a live preview, and ★ the
+default one, which plays when the game starts. Frames come from the project's pictures, imported files, a **sprite
+sheet** cut into columns × rows (saved as `name_1.png`, `name_2.png`…; empty cells skipped), or the sprite editor.
+`animate "walk"` plays the object's own animation first (at its speed; `at 12` changes it, `at 0` = its own speed;
+`once` waits for the end; a non-looping one stays on its last frame), else numbered pictures / a strip as before.
+The **Animator** picks idle / walk / jump from how the object moves; its params are `animation` dropdowns (the
+object's animations and the project's numbered pictures).
+
+**Sprite editor.** "✎ Draw…" in any picture dropdown (and ✎ on a frame) opens a pixel-art editor: pencil, eraser
+(or the right button), fill, colour picker (or Alt+click), brush 1–4 px, a palette with lighter / darker, new sizes
+8–128 px, flip, zoom, grid, undo/redo (Ctrl+Z / Ctrl+Y; B, E, F, I pick the tools). It saves a PNG in the project's
+`images/` folder.
+
+In `project.json` (EasyEngine uses the same names): a project's `prefabs` (`name`, `icon`, `category`, `template`),
+an object's `prefab`, `prefabAll`, `animations` (`name`, `frames`, `fps`, `loop`) and `defaultAnimation`. Projects
+without them are written exactly as before. Undo covers the scene, not the prefab list (like EasyEngine).
+
 ### Editor tools: mechanisms that build for you
 
 A mechanism with `when tool …` is a **tool**: it shows up in the scene's **TOOLS** row and edits the scene while you

@@ -49,6 +49,7 @@ public sealed partial class World
             o.Height = so.Height;
             if (!string.IsNullOrWhiteSpace(so.Image)) o.Image = so.Image.Trim();
             o.Color = so.Color;
+            LoadAnimations(o, so); // named animations + default one, prefab link (World.Prefabs.cs)
             if (o.Tags.Contains("ui")) o.Ui = true;
             map[o] = so;
         }

@@ -1,7 +1,7 @@
 namespace BuilderEngine.Script;
 
 /// <summary>What the inspector shows for a param (its picker) and what the value is at runtime.</summary>
-public enum ParamKind { Any, Number, Bool, Text, Sound, Image, Scene, Object, Path, List, Color, Key, Choice }
+public enum ParamKind { Any, Number, Bool, Text, Sound, Image, Scene, Object, Path, List, Color, Key, Choice, Animation }
 
 /// <summary>
 /// Param types (owner rule: values are picked, not typed). The value saved in project.json and the value a script sees:
@@ -37,6 +37,7 @@ public static class ParamTypes
         "color" or "colour" => ParamKind.Color,
         "key" => ParamKind.Key,
         "choice" => ParamKind.Choice,
+        "animation" => ParamKind.Animation, // one of the object's animations (a dropdown)
         _ => ParamKind.Any
     };
 
@@ -55,7 +56,7 @@ public static class ParamTypes
     {
         ParamKind.Number => 0.0,
         ParamKind.Bool => false,
-        ParamKind.Text => "",
+        ParamKind.Text or ParamKind.Animation => "",
         ParamKind.Path or ParamKind.List => new List<object?>(),
         _ => null
     };
@@ -81,7 +82,7 @@ public static class ParamTypes
                     string s => s.Trim().ToLowerInvariant() is "true" or "yes" or "1" or "on",
                     _ => false
                 };
-            case ParamKind.Text or ParamKind.Sound or ParamKind.Scene or ParamKind.Image or ParamKind.Color or ParamKind.Choice:
+            case ParamKind.Text or ParamKind.Sound or ParamKind.Scene or ParamKind.Image or ParamKind.Color or ParamKind.Choice or ParamKind.Animation:
                 return World.ToText(value);
             case ParamKind.Key:
                 return World.ToText(value).Trim().ToLowerInvariant();

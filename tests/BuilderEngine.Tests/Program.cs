@@ -1214,6 +1214,7 @@ DeepdelveTests.Run(Test); // the Deepdelve sample game, played headless (Samples
 NightShiftTests.Run(Test); // the Night Shift sample game played headless (Samples/NightShiftTests.cs)
 HollowLanternTests.Run(Test); // the Hollow Lantern sample game, pathfinding, angles, minimap (Samples/HollowLanternTests.cs)
 EmberDuelTests.Run(Test); // the Ember Duel sample card game and records, labels, list saves (Samples/EmberDuelTests.cs)
+PrefabsTests.Run(Test); // prefabs, named animations, sprite sheets and the pixel-art editor (PrefabsTests.cs)
 
 Console.WriteLine("One-click local AI (AiOllamaSetup.cs)");
 Test("Ollama pull progress lines are read", () =>

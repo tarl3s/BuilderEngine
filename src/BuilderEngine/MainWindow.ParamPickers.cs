@@ -30,7 +30,7 @@ public sealed partial class MainWindow
     (Control Field, Action<bool> Show)? TypedParamField(SceneObject o, SceneMechanism m, ParamDef p, object? def, object? current, Button reset)
     {
         var kind = ParamTypes.Kind(p.Type);
-        if (kind is not (ParamKind.Object or ParamKind.Path or ParamKind.List or ParamKind.Color or ParamKind.Key or ParamKind.Choice)) return null;
+        if (kind is not (ParamKind.Object or ParamKind.Path or ParamKind.List or ParamKind.Color or ParamKind.Key or ParamKind.Choice or ParamKind.Animation)) return null;
         string key = $"param{o.Id}.{m.Name}.{p.Name}";
         void Set(object? v, bool rebuild = false, string? undoKey = null)
         {
@@ -54,6 +54,7 @@ public sealed partial class MainWindow
             ParamKind.List => ListEditor(o, ParamTypes.ItemType(p.Type), current as List<object?> ?? [], (v, rebuild) => Set(v, rebuild, rebuild ? null : key)),
             ParamKind.Color => ColorRow(World.ToText(current), c => Set(c, rebuild: true)),
             ParamKind.Key => KeyCapture(World.ToText(current), k => Set(k)),
+            ParamKind.Animation => AnimationPicker(o, World.ToText(current), v => Set(v)), // MainWindow.Animations.cs
             _ => ChoicePicker(p.Options ?? [], World.ToText(current), c => Set(c)),
         };
         return (field, _ => { });

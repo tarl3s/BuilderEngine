@@ -30,6 +30,7 @@ public sealed partial class MainWindow
     {
         w.ProjectFolder = _projectDir;
         w.SaveFolder = Path.Combine(_projectDir, Project.SavesFolder);
+        SyncPrefabsNow(); w.UsePrefabs(_project.Prefabs); // spawn "Slime" (MainWindow.Prefabs.cs)
     }
 
     static bool IsPictureType(string type) => type.ToLowerInvariant() is "image" or "picture";
@@ -79,6 +80,7 @@ public sealed partial class MainWindow
             if (match == null && v.Trim().Length > 0) items.Add($"{v}  (missing)");
             items.AddRange(pictures);
             items.Add(new ImportPictureEntry());
+            items.Add(new DrawPictureEntry()); // the sprite editor (MainWindow.Animations.cs)
             _inspectorSync = true;
             combo.ItemsSource = items;
             combo.SelectedItem = v.Trim().Length == 0 ? none : match != null ? items.FirstOrDefault(i => Equals(i, match)) : items[1];
@@ -94,6 +96,12 @@ public sealed partial class MainWindow
                 {
                     Fill(current);
                     if (await ImportPicturesAsync() is { } imported) { set(imported); RebuildInspector(); }
+                    break;
+                }
+                case DrawPictureEntry:
+                {
+                    Fill(current);
+                    if (await DrawPictureAsync(current) is { } drawn) { set(drawn); RebuildInspector(); }
                     break;
                 }
                 case NoPictureEntry:
@@ -125,7 +133,7 @@ public sealed partial class MainWindow
         row.Children.Add(new TextBlock
         {
             Text = item?.ToString() ?? "", VerticalAlignment = VerticalAlignment.Center, FontSize = 13,
-            Foreground = item is ImportPictureEntry ? Palette.Accent : item is NoPictureEntry ? Palette.TextDim : Palette.Text,
+            Foreground = item is ImportPictureEntry or DrawPictureEntry ? Palette.Accent : item is NoPictureEntry ? Palette.TextDim : Palette.Text,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         return row;

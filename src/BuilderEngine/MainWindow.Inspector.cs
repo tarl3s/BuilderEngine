@@ -41,6 +41,7 @@ public sealed partial class MainWindow
         if (_play != null) DebugPanel(); // MainWindow.Debug.cs
         else if (_canvas is not null && _canvas.SelectedIds.Count > 1) MultiInspector(); // MainWindow.InspectorQol.cs
         else if (Selected is { } o) ObjectInspector(o);
+        else if (PrefabInspector()) { } // the prefab being edited (MainWindow.Prefabs.cs)
         else SceneSettings();
         UpdateCanvasOverlay(); // the selected object's paths (MainWindow.ParamPickers.cs)
     }
@@ -108,6 +109,7 @@ public sealed partial class MainWindow
         head.Children.Add(Label("OBJECT"));
         _inspectorRoot.Children.Add(head);
         if (o.Locked) _inspectorRoot.Children.Add(LockedNote());
+        PrefabLinkRow(o); // ★ Save as prefab, or the copy's link (MainWindow.Prefabs.cs)
 
         _nameBox = TextField(o.Name, null, v => { Checkpoint("name" + o.Id); o.Name = v; _canvas.InvalidateVisual(); });
         ToolTip.SetTip(_nameBox, "F2 or a double-click on the object brings you here");
@@ -133,6 +135,7 @@ public sealed partial class MainWindow
         var (picture, _) = PicturePicker(o.Image, v => { Checkpoint(); o.Image = v; _canvas.InvalidateVisual(); });
         ToolTip.SetTip(picture, "A picture from the project's images folder, drawn in the object's box (scripts change it with look \"name.png\")");
         _inspectorRoot.Children.Add(Field("Picture", picture));
+        _inspectorRoot.Children.Add(AnimationsRow(o)); // MainWindow.Animations.cs
 
         _inspectorRoot.Children.Add(Field("Tags", TagsEditor(o)));
 

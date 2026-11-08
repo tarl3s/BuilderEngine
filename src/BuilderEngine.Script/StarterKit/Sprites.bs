@@ -1,6 +1,7 @@
 # Starter kit: pictures and animation. Pictures live in the project's images folder.
 #   look "hero.png"           draws that picture in the object's box
-#   animate "walk"            plays walk1.png, walk2.png... (or a strip of square frames in walk.png)
+#   animate "walk"            plays the object's own animation "walk" (Animations... in the inspector),
+#                             else walk1.png, walk2.png... (or a strip of square frames in walk.png)
 #   face left / face right    mirrors the picture
 
 mechanism Sprite
@@ -14,10 +15,12 @@ mechanism Sprite
 
 mechanism Animator
     # Picks an animation from how the object moves (works with Platformer, Patrol, Body...).
-    param idle: text = "idle"
-    param walk: text = "walk"
-    param jump: text = "jump"
-    param fps: number = 8
+    # It plays the object's own animations (Animations... in the inspector) or numbered pictures.
+    param idle: animation = "idle"
+    param walk: animation = "walk"
+    param jump: animation = "jump"
+    # 0 = each animation's own speed
+    param fps: number = 0
 
     when tick
         if self.vx < 0: face left
