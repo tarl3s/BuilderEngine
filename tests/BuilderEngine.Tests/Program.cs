@@ -1270,6 +1270,7 @@ AuditDataTests.Run(Test); // the data audit: project files, mechanisms, settings
 AuditRuntimeTests.Run(Test); // the runtime audit: crash-proof scripts, runaway loops, values, saves, long play, allocations (AuditRuntimeTests.cs)
 AuditEditorTests.Run(Test, RoundTrip); // long random plays of the samples, sample code round-trips, save/load/play (AuditEditorTests.cs)
 AuditLangTests.Run(Test); // audit: lexer/parser edge cases, comments kept, corpus round-trips, fuzzers (AuditLangTests.cs)
+SyntaxTests.Run(Test); // the code editor's colours: same pieces as the lexer, keywords, names, texts while typing (SyntaxTests.cs)
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;

@@ -31,8 +31,8 @@ public sealed partial class MainWindow
 
     // ---------------- Code view: line numbers and breakpoints ----------------
 
-    /// <summary>The code box with the line-number gutter on its left (called once by the shell).</summary>
-    Control CodeWithGutter(TextBox code)
+    /// <summary>The code editor with the line-number gutter as its left margin (called once by the shell).</summary>
+    Control CodeWithGutter(CodeEditor code)
     {
         _gutter = new DebuggerGutter(code)
         {
@@ -46,6 +46,7 @@ public sealed partial class MainWindow
             if (_loading || _debugLine == 0) return;
             _debugLine = 0;
             _blocksView?.HighlightLine(0);
+            _gutter?.Refresh();
         };
         Dispatcher.UIThread.Post(() =>
         {
@@ -53,11 +54,7 @@ public sealed partial class MainWindow
             _blocksView.BreakpointAt = line => _current != null && _debugger.HasBreakpoint(_current, line);
             _blocksView.ToggleBreakpoint = ToggleBreakpointAt;
         });
-        var dock = new DockPanel();
-        DockPanel.SetDock(_gutter, Dock.Left);
-        dock.Children.Add(_gutter);
-        dock.Children.Add(code);
-        return dock;
+        return code; // the gutter lives inside the editor (TextArea.LeftMargins)
     }
 
     /// <summary>The lines of a mechanism that hold a statement (where a breakpoint can stop), or null when it doesn't parse.</summary>
@@ -88,7 +85,7 @@ public sealed partial class MainWindow
             return;
         }
         bool on = _debugger.ToggleBreakpoint(_current, line);
-        _gutter?.InvalidateVisual();
+        _gutter?.Refresh();
         _blocksView?.RefreshDebugMarks();
         SetStatus(true, on ? $"The game will pause at line {line} of {_current} while playing (click the number again to remove it)."
             : $"Line {line} of {_current} won't pause the game any more.");
@@ -112,21 +109,8 @@ public sealed partial class MainWindow
 
     void SelectCodeLine(int line)
     {
-        string text = _code.Text ?? "";
-        int start = 0;
-        for (int n = 1; n < line && start >= 0; n++)
-        {
-            start = text.IndexOf('\n', start);
-            if (start >= 0) start++;
-        }
-        if (start < 0) return;
-        int end = text.IndexOf('\n', start);
-        if (end < 0) end = text.Length;
-        if (end > start && text[end - 1] == '\r') end--;
-        _code.CaretIndex = start;
-        _code.SelectionStart = start;
-        _code.SelectionEnd = end;
-        _gutter?.InvalidateVisual();
+        _code.SelectLine(line);
+        _gutter?.Refresh();
     }
 
     // ---------------- Attaching to the game ----------------
@@ -237,7 +221,7 @@ public sealed partial class MainWindow
             var row = new DockPanel();
             var x = LinkButton("✕", "Remove this breakpoint");
             x.Foreground = Palette.TextDim;
-            x.Click += (_, _) => { _debugger.SetBreakpoint(mech, line, false); _gutter?.InvalidateVisual(); _blocksView?.RefreshDebugMarks(); };
+            x.Click += (_, _) => { _debugger.SetBreakpoint(mech, line, false); _gutter?.Refresh(); _blocksView?.RefreshDebugMarks(); };
             DockPanel.SetDock(x, Dock.Right);
             row.Children.Add(x);
             row.Children.Add(DebugLink($"● {mech} · line {line}", Palette.Text, () => OpenMechanismAt(mech, line)));

@@ -299,13 +299,15 @@ sealed class AiPanel : Border
         return tb;
     }
 
+    static T WithMargin<T>(T c, Thickness margin) where T : Control { c.Margin = margin; return c; }
+
     static Control CodeBox(string code) => new Border
     {
         Background = Palette.Bg0, CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 6),
         Child = new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Content = new SelectableTextBlock { Text = code, FontFamily = Palette.Mono, FontSize = 11.5, Foreground = Palette.Text, Margin = new Thickness(0, 0, 0, 12) },
+            Content = WithMargin(CodeColors.Preview(code), new Thickness(0, 0, 0, 12)), // coloured like the code editor
         },
     };
 
@@ -383,6 +385,9 @@ sealed class AiPanel : Border
     static Control DiffBox(List<AiDiffLine> lines)
     {
         var list = new StackPanel();
+        // The new version's lines are coloured like the code editor (unchanged ones a little faded); removed lines stay
+        // red and struck through.
+        var ctx = SyntaxContext.For(string.Join("\n", lines.Where(l => l.Kind != '-').Select(l => l.Text)), CodeColors.KnownMechanisms?.Invoke());
         foreach (var l in lines)
         {
             var (bg, fg, mark) = l.Kind switch
@@ -391,11 +396,15 @@ sealed class AiPanel : Border
                 '-' => (DelBg, DelFg, "- "),
                 _ => ((IBrush)Brushes.Transparent, Palette.TextDim, "  "),
             };
-            list.Children.Add(new Border
+            var text = new TextBlock { FontFamily = Palette.Mono, FontSize = 11.5, Foreground = fg, TextDecorations = l.Kind == '-' ? TextDecorations.Strikethrough : null };
+            if (l.Kind == '-') text.Text = mark + l.Text;
+            else
             {
-                Background = bg, Padding = new Thickness(4, 0),
-                Child = new TextBlock { Text = mark + l.Text, FontFamily = Palette.Mono, FontSize = 11.5, Foreground = fg, TextDecorations = l.Kind == '-' ? TextDecorations.Strikethrough : null },
-            });
+                text.Inlines!.Add(new Avalonia.Controls.Documents.Run(mark));
+                CodeColors.AddRuns(text.Inlines, l.Text, ctx);
+                if (l.Kind != '+') text.Opacity = 0.7;
+            }
+            list.Children.Add(new Border { Background = bg, Padding = new Thickness(4, 0), Child = text });
         }
         return new Border
         {

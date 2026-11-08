@@ -55,6 +55,8 @@ public static class EditorShortcuts
         new("Fields and lists", "Enter", "Confirm a value in a block or a tag"),
 
         new("Mechanism", "Tab  /  Enter", "Indent 4 spaces / new line that keeps the indentation (code)"),
+        new("Mechanism", "Ctrl+F", "Find in the code (Enter / Shift+Enter: next / previous, Esc closes)"),
+        new("Mechanism", "Right-click the code", "Cut, copy, paste, undo, redo, select all"),
         new("Mechanism", "Esc", "Cancel a block drag, or stop editing a block value"),
 
         new("Playing (debugger)", "F5", "Pause / resume"),

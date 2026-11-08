@@ -272,7 +272,8 @@ public sealed partial class MainWindow
         else if (current != null && (_code.Text ?? "") != _sources[current])
         {
             _loading = true;
-            _code.Text = _sources[current];
+            _code.SetTextKeepView(_sources[current]); // only what changed on disk: the caret and the scroll stay
+            _code.RefreshColors(_sources.Keys);
             _loading = false;
             BlocksShow(_sources[current]);
         }
