@@ -1,0 +1,45 @@
+# Starter kit: darkness and lights.
+#   darkness 0.9              how dark it is where no light shines (0 = none, 1 = black); 'darkness 0.3 in 5' fades
+#   light 140 with "#FFD27A", 0.3     a light around this object (radius, colour, flicker 0..1); light off
+#   sunlight 1                tiles open to the sky are lit and the light reaches a little into caves; sunlight off
+#   light_at(x, y)            0..1: how lit a point is (a monster that hides from the light)
+
+mechanism Light
+    # A light around this object. It shows where the scene is dark (see Darkness).
+    param radius: number = 140
+    param color: Color = "#FFD9A0"
+    param flicker: number = 0
+
+    when start
+        light radius with color, flicker
+
+mechanism Darkness
+    # Makes the scene dark: only lights shine. Put it on any object (it isn't drawn).
+    param amount: number = 0.85
+    param color: Color = "#04060C"
+
+    when start
+        visible = false
+        darkness amount with color
+
+mechanism DayNight
+    # Day and night over a tile world: the sky light goes down and comes back; caves stay dark.
+    # Everyone is told "night" and "day" (when told "night": spawn monsters...).
+    param day: seconds = 60
+    param night: seconds = 40
+    param night_light: number = 0.15
+    param change: seconds = 5
+
+    when start
+        visible = false
+        darkness 1
+        sunlight 1
+        repeat forever
+            wait day
+            is_night = true
+            broadcast "night"
+            sunlight night_light in change
+            wait night
+            is_night = false
+            broadcast "day"
+            sunlight 1 in change

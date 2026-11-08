@@ -29,7 +29,8 @@ public sealed record StopStmt(int Line) : Stmt(Line);
 public sealed record CommandStmt(string Name, List<Expr> Args, int Line, Dictionary<string, List<Expr>>? Named = null) : Stmt(Line);
 
 // ---- Mechanism ----
-public enum EventKind { Start, Tick, Touched, Told, Key, Signal, Tool }
+/// <summary>Game = an engine event named by <see cref="EventSpec.Name"/>: clicked, mouse pressed, hovered, dropped, tile broken… (World.Mouse.cs, World.Tiles.cs).</summary>
+public enum EventKind { Start, Tick, Touched, Told, Key, Signal, Tool, Game }
 
 /// <summary>
 /// What a <c>when</c> waits for. Filter = a text the event must match (a tag, a message, a key);

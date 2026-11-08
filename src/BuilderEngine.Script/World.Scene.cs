@@ -12,6 +12,7 @@ public sealed partial class World
     {
         var map = new Dictionary<GameObject, SceneObject>();
         SetSceneSize(scene.Width, scene.Height);
+        LoadTiles(scene); // World.Tiles.cs
         foreach (var so in scene.Objects)
         {
             var names = new List<string>();
@@ -47,6 +48,8 @@ public sealed partial class World
             o.Width = so.Width;
             o.Height = so.Height;
             if (!string.IsNullOrWhiteSpace(so.Image)) o.Image = so.Image.Trim();
+            o.Color = so.Color;
+            if (o.Tags.Contains("ui")) o.Ui = true;
             map[o] = so;
         }
         // Now every object exists: Object params written as names point at the objects.

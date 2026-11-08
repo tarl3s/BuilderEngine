@@ -23,7 +23,7 @@ presses Play and collects them. Then they save `Coin` to their library and use i
 ## Out of scope (later)
 
 sharing/gallery ·
-export to `.exe` · sound editor · tilemaps · lighting · 3D · Mac/Linux builds.
+export to `.exe` · sound editor · 3D · Mac/Linux builds. (Tilemaps and lighting are done: see *Game kit* at the end.)
 
 ## Milestones
 
@@ -315,3 +315,132 @@ and hidden from the console and from `%TEMP%\builderengine_ai.log` (the last req
 Code: `src/BuilderEngine.Script/Ai*.cs` (headless: clients, settings, prompt, reply reader, checks, the assistant) and
 `src/BuilderEngine/AiPanel.cs`, `AiSettingsWindow.cs`, `MainWindow.Ai.cs`; tests in `tests/BuilderEngine.Tests/AiTests.cs`
 (a fake AI, no network).
+
+## Game kit: tiles, lights, mouse, screens, items, cards
+
+What four kinds of games need — a side-view sandbox (mine, build, craft, night monsters), a top-down mining survival
+with darkness, a security-camera horror game, a card game — each as a few Builder Script words and starter-kit
+mechanisms (`StarterKit/Tiles.bs`, `Lighting.bs`, `Mouse.bs`, `Ui.bs`, `Items.bs`, `Cards.bs`; open them to see how
+they work). Code: `src/BuilderEngine.Script/World.Tiles.cs`, `World.Lights.cs`, `World.Mouse.cs`, `World.Screens.cs`,
+`World.Inventory.cs`, `World.Cards.cs`, `World.Audio.cs`, `World.Broadphase.cs`, `TileMap.cs`, `GameEvents.Parse.cs`;
+drawing in `PlaySurface.GameKit.cs` and `TileDraw.cs`; the tile painter in `MainWindow.TilePaint.cs`; tests in
+`tests/BuilderEngine.Tests/GameKitTests.cs`.
+
+### Tiles
+
+A scene can have tile layers: a grid of cells, each holding a kind of tile (a colour or a picture; solid, background
+or one-way; how hard it is to dig; what it drops; a glow). Bodies stand on solid tiles and bump into them (only the
+cells near a body are checked, so a 400 × 200 map costs nothing extra), and only the cells on screen are drawn.
+In the editor the **TILES** row (under TOOLS) makes a map for the scene, lists its kinds, and paints with **Brush**,
+**Erase** (or the right button) and **Fill**; each stroke is one Ctrl+Z. The map is saved in `project.json` as a short
+run-length text.
+
+| In a script | Meaning |
+|---|---|
+| `make_map 300, 120 with 16` | a map of 300 × 120 cells of 16 px (the scene grows to hold it); `as "Back" behind` = a second layer drawn behind, not solid |
+| `tile_kind "ore" with "#C0C0C0" hardness 2 drop "ore"` | a kind of tile; also `solid`, `background`, `oneway`, `unbreakable`, `picture "ore.png"`, `light 4` (cells) |
+| `set_tile x, y to "dirt"` · `set_tile x, y to "none"` | change the cell at a scene point (any point inside it); `in "Back"` = another layer |
+| `place_tile "stone" at x, y` | only into an empty cell, not where a body stands; then `placed` is true or false |
+| `break_tile x, y` · `dig_tile x, y with 2` | break it now / dig it a frame at a time (call it every tick while the button is held: it breaks after its hardness in seconds ÷ power, with cracks on it); then `broken` and `drop` |
+| `fill_tiles "stone" from x1, y1 to x2, y2` | fill a box of cells |
+| `noise_tiles "none" from "stone" with 0.09, 0.6` | turn stone into nothing where smooth noise is above 0.6 (caves); `below 800` = only under y 800 |
+| `random_seed 5` · `noise(x, y)` | the same seed gives the same world (and the same `random` numbers); noise is 0..1 and changes smoothly |
+| `tile_at(x, y)` · `tile_solid(x, y)` · `is_tile("dirt")` · `ground_y(x)` · `tile_x(x)` · `tile_y(y)` · `tile_size()` · `map_width()` · `map_height()` | reading the map |
+| `when tile broken "stone" at x, y` · `when tile placed at x, y` | on every object that has it; `kind` and `drop` are set |
+
+Starter kit: **WorldGen** (side view: grassy hills, dirt, stone, caves, coal/iron/gold, bedrock, dark walls behind;
+puts the player on the ground), **CaveGen** (top-down: rock with open caves, ores, glowing crystals, a wall around, a
+floor layer, a clearing at the player), **TileMiner** (hold the left button to dig within reach — drops go into the
+inventory; the right button places the selected hotbar item), **TopDown** (walk in four directions without gravity,
+stopped by solid tiles).
+
+### Darkness and lights
+
+| In a script | Meaning |
+|---|---|
+| `darkness 0.9` · `darkness 0.3 in 5` | how dark it is where no light shines (0 none, 1 black) |
+| `light 140 with "#FFD27A", 0.3` · `light off` · `light Torch 80` | a soft round light around an object (radius, colour, flicker 0..1) |
+| `sunlight 1` · `sunlight 0.2 in 10` · `sunlight off` | tiles open to the sky are lit and the light reaches a few cells into caves (less through solid ground); glowing tiles light their cells too |
+| `light_at(x, y)` | 0..1, how lit a point is |
+
+The game draws a small light map over the view (smooth, tinted near coloured lights), under the screen objects and the
+HUD. Starter kit: **Light**, **Darkness**, **DayNight** (sunlight goes down and up; everyone is told "night" and "day").
+
+### The mouse
+
+| In a script | Meaning |
+|---|---|
+| `mouse_x`, `mouse_y` · `mouse_screen_x`, `mouse_screen_y` | the pointer in scene pixels (camera position and zoom included) / in screen pixels |
+| `mouse_down()` · `mouse_down("right")` · `mouse_over()` · `mouse_over(Boss)` · `mouse_over_ui()` · `under_mouse()` | |
+| `when clicked` | this object was clicked (only the top one under the pointer: screen objects first, then the higher layer, then the later one) |
+| `when hovered` · `when unhovered` | the pointer came over it / left it (a hand cursor shows over clickable things) |
+| `when mouse pressed at x, y` · `when mouse released "right" at x, y` | anywhere |
+| `draggable` · `draggable to "slot"` · `draggable off` | the mouse can pick it up; with a tag it snaps into things with that tag and glides back when dropped anywhere else |
+| `when picked up` · `when dropped` · `when dropped on "slot"` (`other` = the slot) · `when received "card"` (on the slot) | |
+| `cursor "hand"` · `"cross"` · `"none"` · `"move"` · `cursor default` | the pointer's look |
+
+**Screen objects**: an object with the tag `ui` (or `ui` in a script) is drawn on the screen like the HUD — the camera
+doesn't move it — and is clicked in screen pixels; it never touches scene objects. Locked controls ignore the mouse.
+Starter kit: **Draggable**, **Clickable**, **HoverGlow**.
+
+### Screens and buttons
+
+| In a script | Meaning |
+|---|---|
+| `color "#E05D5D"` · `caption "Play" with "#111111", 20` · `caption "HP {hp}"` · `caption none` | the box's colour, a text in its middle (`{name}` updates by itself) |
+| `hide` · `hide Door` · `hide all("ghost")` · `show` | not drawn and not clicked (it still moves and touches); scripts read and change `self.hidden`, `self.color`, `self.caption`, `self.layer`, `self.opacity`, and read `self.hovered` |
+| `join screen "Menu"` · `show screen "Menu"` · `hide screen "Menu"` · `toggle screen "Menu"` · `hide screen` · `screen_shown("Menu")` | a screen is a group of objects shown together (they start hidden until the screen is shown) |
+| `broadcast "play"` | every object's `when told "play"` runs |
+| `make Button at 300, 200 with 200, 48 as "Play"` | a new object; then `made` is it (`made.Button.text = "Play"` before it starts) |
+| `tag self "in_hand"` · `untag self "in_hand"` | |
+
+Starter kit: **Button** (text, colour, hover colour; a click tells its target — or everyone — its message and value),
+**Panel** (a box with a title, maybe part of a screen), **Menu** (one button per option).
+
+### Inventory, hotbar and crafting
+
+One inventory for the whole game: it goes on to the next scene and into `save game`.
+
+| In a script | Meaning |
+|---|---|
+| `give "wood", 3` · `take "wood", 2` (then `taken`) · `clear inventory` | |
+| `has("wood", 2)` · `count_item("wood")` · `items()` | |
+| `item "wood" with "#8B5A2B"` · `item "sword" with "sword.png"` | how an item looks in the hotbar (a tile's drop looks like the tile) |
+| `show hotbar` · `show hotbar 5 at 200, 400` · `hide hotbar` · `select_slot 3` · `selected_item()` · `selected_slot()` | the first slots of the inventory; keys 1-9 and the mouse wheel pick one |
+| `recipe "torch" from "wood", 1, "coal", 1 as 4` · `craft "torch"` (then `crafted`) · `can_craft("torch")` · `recipes()` · `recipe_text("torch")` | |
+
+Starter kit: **Pickup**, **Hotbar**, **Recipe** (one recipe, every part picked in the inspector), **Crafting** (C opens
+a menu with a button per recipe, dim when something is missing; click to craft).
+
+### Security cameras, static, sounds
+
+| In a script | Meaning |
+|---|---|
+| `camera view "Cam 3"` · `camera view off` · `camera_view()` | the camera jumps to that object and zooms so its box fills the view |
+| `on_screen()` · `on_screen(Ghost)` | is it inside what the camera shows (for things that move only when nobody watches) |
+| `screen noise 0.3` · `screen noise 0.9 for 0.2` · `screen noise off` · `screen tint "#103018", 0.3` | static and a colour over the view (under the screen objects) |
+| `play "rain.wav" loop` · `play "music.mp3" loop with 0.4` · `stop sound "rain.wav"` · `stop sounds` · `volume 0.5` · `volume "rain.wav" 0.2` · `playing("rain.wav")` | looping sounds and volume |
+| `when key "1"` | the number keys (also on the numpad) |
+
+Starter kit: **CameraPoint** (a box a camera looks at), **CameraMonitor** (Tab opens the cameras, 1-6 switch, with
+static; the screen "Cameras" shows while watching; everyone is told "cameras on" / "cameras off").
+
+### Cards and turns
+
+| In a script | Meaning |
+|---|---|
+| `shuffle deck` · `pop(deck)` · `pop(deck, 0)` | mix a list; take the last (or first) item out |
+| `arrange all("in_hand") in row at 400, 380 gap 10 over 0.3` | lay objects out centred on x, y: `row`, `fan`, `column`, `grid … columns 4`, `stack`; `over` glides there and waits |
+
+Starter kit: **Card** (front picture or title + value, back colour or picture; tell it "flip"; with a zone it can be
+dragged onto slots and then leaves the hand), **Deck** (shuffled; tell it "draw" 3 or click it; cards go to a row
+tagged `in_hand`), **TurnManager** ("player" / "enemy"; tell it "end turn"; everyone is told "player turn" / "enemy
+turn" with the round).
+
+### Performance
+
+The game loop handles ~2000 objects and a 400 × 200 tile map well inside a 60 fps frame (the test measures about
+3 ms per frame): each mechanism's `when`s are sorted by event once; a waiting `when tick` is marked on its mechanism
+instead of searching every running `when`; touches come from a grid (only objects with `when touched` look for
+neighbours — every object while the debugger watches — and they still fire in the old order); bodies ask a grid for
+the solids near them and the tile map for the cells near them; drawing skips objects and cells off the screen.

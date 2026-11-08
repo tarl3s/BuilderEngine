@@ -56,6 +56,7 @@ public sealed partial class MainWindow
                 await SnapEngineFeatures(dir);
                 await SnapDebugFeatures(dir); // MainWindow.DebugSnap.cs
                 await SnapTools(dir); // MainWindow.ToolsSnap.cs
+                await SnapGameKit(dir); // MainWindow.GameKitSnap.cs
                 await SnapAiFeatures(dir);
                 await SnapQol(dir); // MainWindow.QolSnap.cs
             }

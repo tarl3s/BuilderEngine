@@ -124,6 +124,7 @@ public static class Printer
         EventKind.Key => Quote(e.Filter ?? ""),
         EventKind.Signal => e.Source == null ? e.Name ?? "" : e.Source + "." + e.Name,
         EventKind.Tool => EditorTools.EventTail(e),
+        EventKind.Game => GameEvents.Tail(e),
         _ => ""
     };
 

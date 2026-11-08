@@ -51,7 +51,7 @@ public sealed partial class World
     internal bool IsBusy(MechanismInstance inst) => _running.Any(c => c.Inst == inst && !c.Done);
 
     /// <summary>Drops everything this mechanism still has running.</summary>
-    internal void CancelRunning(MechanismInstance inst) => _running.RemoveAll(c => c.Inst == inst);
+    internal void CancelRunning(MechanismInstance inst) => _running.RemoveAll(c => { if (c.Inst != inst) return false; c.Done = true; return true; });
 
     /// <summary>Prints a line like the <c>print</c> command (plugins use it).</summary>
     internal void PrintLine(string text)

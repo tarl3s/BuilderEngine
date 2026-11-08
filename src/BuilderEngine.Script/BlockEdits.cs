@@ -401,10 +401,10 @@ public static class BlockEdits
         _ => throw new ArgumentException($"Unknown block '{id}'.")
     };
 
-    public static readonly EventKind[] EventKinds = [EventKind.Start, EventKind.Tick, EventKind.Touched, EventKind.Told, EventKind.Key, EventKind.Signal, EventKind.Tool];
+    public static readonly EventKind[] EventKinds = [EventKind.Start, EventKind.Tick, EventKind.Touched, EventKind.Told, EventKind.Key, EventKind.Signal, EventKind.Tool, EventKind.Game];
 
     /// <summary>The event's name in a menu: start, tick, touched by, told, key, signal.</summary>
-    public static string EventLabel(EventKind k) => k == EventKind.Signal ? "signal" : Printer.EventWord(k);
+    public static string EventLabel(EventKind k) => k switch { EventKind.Signal => "signal", EventKind.Game => "input", _ => Printer.EventWord(k) };
 
     public static EventSpec DefaultEvent(EventKind k) => k switch
     {
@@ -413,6 +413,7 @@ public static class BlockEdits
         EventKind.Key => new EventSpec(k, Filter: "space"),
         EventKind.Signal => new EventSpec(k, Name: "died"),
         EventKind.Tool => new EventSpec(k, Name: "click", Bind: "x, y"),
+        EventKind.Game => new EventSpec(k, Name: "clicked"),
         _ => new EventSpec(k)
     };
 

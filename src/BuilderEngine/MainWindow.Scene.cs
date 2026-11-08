@@ -466,6 +466,7 @@ public sealed partial class MainWindow
         world.Globals["score"] = 0.0;
         world.UseScenes(_project.Scenes.Select(s => s.Name));
         world.SoundPlayed += PlayGameSound;
+        world.SoundControl += OnGameSound; // loops, stop sound, volume (MainWindow.GameAudio.cs)
         world.SceneRequested += name => Dispatcher.UIThread.Post(() => PlaySwitchScene(name));
         StartPlaySurface(world, _scene.Clone()); // the game plays a copy: the edited scene stays exactly as it was
         RebuildInspector();

@@ -139,6 +139,9 @@ public sealed partial class World
         LimitCameraToScene();
     }
 
+    /// <summary>A new scene size while playing (the camera's limits follow); make_map grows the scene this way.</summary>
+    public void ResizeScene(double width, double height) => SetSceneSize(width, height);
+
     /// <summary>Called when a scene is loaded: its size becomes the camera's limits.</summary>
     internal void SetSceneSize(double width, double height)
     {

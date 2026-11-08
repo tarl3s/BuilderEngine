@@ -1,0 +1,117 @@
+# Starter kit: cards and turns.
+#   shuffle deck              mixes a list            pop(deck) takes the last item out (pop(deck, 0) the first)
+#   arrange all("in_hand") in row at 400, 380 gap 10 over 0.3     also: in fan, in column, in grid … columns 4, in stack
+#   tag self "in_hand"        untag self "in_hand"    (cards move between hand, table and discard by their tags)
+#   look "card.png"           caption "{value}"       hide / show
+
+mechanism Card
+    # A playing card on the screen: its front (a picture, or its title and value) or its back. Tell it "flip" to
+    # turn it over. With a zone (a tag) the mouse can drag it onto things with that tag.
+    param title: text = "Card"
+    param value: number = 1
+    param front: Image = ""
+    param back: Image = ""
+    param color: Color = "#ECE3D0"
+    param back_color: Color = "#5B3FA0"
+    param face_up: yesno = true
+    param zone: text = ""
+    param on_screen: yesno = true
+
+    when start
+        if on_screen: ui
+        if zone != "": draggable to zone
+        show_face
+
+    when told "flip"
+        flip
+
+    when dropped
+        if other
+            untag self "in_hand"
+            tag self "played"
+            broadcast "arrange hand"
+
+    to flip
+        w = self.width
+        together
+            resize self to 0, self.height in 0.08
+            move by w / 2, 0 in 0.08
+        face_up = not face_up
+        show_face
+        together
+            resize self to w, self.height in 0.08
+            move by -w / 2, 0 in 0.08
+
+    to show_face
+        if face_up
+            if front != ""
+                look front
+            else
+                look none
+            color color
+            caption "{title}\n{value}" with "#141414", 16
+        else
+            if back != ""
+                look back
+            else
+                look none
+            color back_color
+            caption none
+
+mechanism Deck
+    # A shuffled deck: tell it "draw" (and how many) to deal cards into the hand — a row at hand_x, hand_y.
+    # Each card gets the tag "in_hand". A card dropped on a slot leaves the hand (tag "played") and the hand closes up.
+    param titles: List of text = ["Fire", "Ice", "Leaf", "Stone", "Storm", "Fire", "Ice", "Leaf"]
+    param values: List of number = [3, 2, 1, 4, 5, 2, 3, 2]
+    param card_width: number = 80
+    param card_height: number = 112
+    param hand_x: number = 400
+    param hand_y: number = 380
+    param zone: text = "slot"
+
+    when start
+        ui
+        color "#3A2A6A"
+        pile = range(0, length(titles) - 1)
+        shuffle pile
+        caption "{length(pile)}" with "#ECECEC", 18
+
+    when told "draw" n
+        if not n: n = 1
+        repeat n
+            if length(pile) == 0
+                emit empty
+                stop
+            i = pop(pile)
+            make Card at self.x, self.y with card_width, card_height
+            made.Card.title = titles[i]
+            if i < length(values): made.Card.value = values[i]
+            made.Card.zone = zone
+            tag made "in_hand"
+        arrange all("in_hand") in row at hand_x, hand_y gap 12 over 0.25
+
+    when told "arrange hand"
+        arrange all("in_hand") in row at hand_x, hand_y gap 12 over 0.25
+
+    when clicked
+        tell self "draw" 1
+
+mechanism TurnManager
+    # Whose turn it is ("player" or "enemy"). Tell it "end turn" (an End Turn button) to pass the turn.
+    # Everyone is told "player turn" or "enemy turn"; 'turn' and 'round' can be read: find("Turns").TurnManager.turn
+    param first: Choice "player", "enemy" = "player"
+
+    when start
+        visible = false
+        turn = first
+        round = 1
+        broadcast turn + " turn", round
+
+    when told "end turn"
+        if turn == "player"
+            turn = "enemy"
+        else
+            turn = "player"
+            round += 1
+        emit changed
+        broadcast turn + " turn", round

@@ -1,0 +1,125 @@
+# Starter kit: tile worlds. A tile map is a grid of cells; each cell holds a kind of tile (or nothing).
+#   make_map 300, 120 with 16          a grid of 300 x 120 cells of 16 pixels
+#   tile_kind "dirt" with "#8B5A2B" hardness 0.4        solid · background · oneway · unbreakable · drop "x" · picture "x.png" · light 4
+#   set_tile x, y to "dirt"            place_tile "stone" at x, y      break_tile x, y      dig_tile x, y with 2
+#   fill_tiles "stone" from x1, y1 to x2, y2            noise_tiles "none" from "stone" with 0.08, 0.6   (caves)
+#   tile_at(x, y)  tile_solid(x, y)  is_tile("dirt")  ground_y(x)  noise(x, y)  random_seed 5
+#   when tile broken "stone" at x, y   (kind and drop are set)      when tile placed at x, y
+# Positions are scene pixels: any point inside a cell. Bodies stand on solid tiles and bump into them.
+
+mechanism WorldGen
+    # Makes a side-view world when the game starts: grassy hills, dirt, stone, caves, ores and bedrock.
+    # Put it on any object (it isn't drawn). The player is put on the ground where it stands.
+    param columns: number = 300
+    param rows: number = 120
+    param cell: number = 16
+    param seed: number = 0
+    param surface: number = 40
+    param hills: number = 10
+    param dirt: number = 5
+    param caves: number = 0.62
+    param ores: yesno = true
+
+    when start
+        visible = false
+        if seed != 0: random_seed seed
+        tile_kind "grass" with "#5FA84A" hardness 0.3 drop "dirt"
+        tile_kind "dirt" with "#8B5A2B" hardness 0.35
+        tile_kind "stone" with "#6E6E73" hardness 0.9
+        tile_kind "coal" with "#2E2E33" hardness 1
+        tile_kind "iron" with "#C9A27E" hardness 1.4
+        tile_kind "gold" with "#E8C547" hardness 1.8
+        tile_kind "bedrock" with "#1E1E22" unbreakable
+        tile_kind "dirt wall" with "#3E2A1C" background
+        make_map columns, rows with cell
+        make_map columns, rows with cell as "Back" behind
+        for each c in range(0, columns - 1)
+            top = round(surface + (noise(c * 0.035, 0.5) - 0.5) * 2 * hills)
+            x = c * cell + 1
+            set_tile x, top * cell + 1 to "grass"
+            fill_tiles "dirt" from x, (top + 1) * cell + 1 to x, (top + dirt) * cell + 1
+            fill_tiles "stone" from x, (top + dirt + 1) * cell + 1 to x, (rows - 2) * cell + 1
+            set_tile x, (rows - 1) * cell + 1 to "bedrock"
+            fill_tiles "dirt wall" from x, (top + 2) * cell + 1 to x, (rows - 1) * cell + 1 in "Back"
+        noise_tiles "none" from "stone" with 0.09, caves
+        if ores
+            noise_tiles "coal" from "stone" with 0.3, 0.74
+            noise_tiles "iron" from "stone" with 0.33, 0.78 below cell * (surface + 20)
+            noise_tiles "gold" from "stone" with 0.35, 0.82 below cell * (surface + 45)
+        p = find("player")
+        if p: p.y = ground_y(p.x + p.width / 2) - p.height - 1
+        emit made
+
+mechanism CaveGen
+    # Makes a top-down cave when the game starts: rock with open caves, ore veins, a wall around it, a floor
+    # under it, and a clearing around the player. Put it on any object (it isn't drawn).
+    param columns: number = 100
+    param rows: number = 100
+    param cell: number = 32
+    param seed: number = 0
+    param rock: number = 0.52
+    param clearing: number = 3
+
+    when start
+        visible = false
+        if seed != 0: random_seed seed
+        tile_kind "floor" with "#3A332D" background
+        tile_kind "rock" with "#6E625A" hardness 0.6
+        tile_kind "copper" with "#C87533" hardness 0.9
+        tile_kind "crystal" with "#7FD4E8" hardness 1.5 light 3
+        tile_kind "wall" with "#15120F" unbreakable
+        make_map columns, rows with cell
+        make_map columns, rows with cell as "Floor" behind
+        fill_tiles "floor" from 0, 0 to columns * cell - 1, rows * cell - 1 in "Floor"
+        fill_tiles "rock" from 0, 0 to columns * cell - 1, rows * cell - 1
+        noise_tiles "none" from "rock" with 0.09, rock
+        noise_tiles "copper" from "rock" with 0.28, 0.72
+        noise_tiles "crystal" from "rock" with 0.3, 0.84
+        fill_tiles "wall" from 0, 0 to columns * cell - 1, cell - 1
+        fill_tiles "wall" from 0, (rows - 1) * cell to columns * cell - 1, rows * cell - 1
+        fill_tiles "wall" from 0, 0 to cell - 1, rows * cell - 1
+        fill_tiles "wall" from (columns - 1) * cell, 0 to columns * cell - 1, rows * cell - 1
+        p = find("player")
+        if p: fill_tiles "none" from p.x - clearing * cell, p.y - clearing * cell to p.x + p.width + clearing * cell, p.y + p.height + clearing * cell
+        emit made
+
+mechanism TileMiner
+    # Dig with the left mouse button (hold it) and place the selected hotbar item with the right one.
+    # What a tile drops goes into the inventory. Put it on the player.
+    param reach: number = 100
+    param power: number = 1
+
+    when tick
+        if not mouse_down() or mouse_over_ui(): stop
+        if distance(self.x + self.width / 2, self.y + self.height / 2, mouse_x, mouse_y) > reach: stop
+        dig_tile mouse_x, mouse_y with power
+        if drop != "": give drop, 1
+
+    when mouse pressed "right"
+        item = selected_item()
+        if item == "" or not is_tile(item) or mouse_over_ui(): stop
+        if distance(self.x + self.width / 2, self.y + self.height / 2, mouse_x, mouse_y) > reach: stop
+        place_tile item at mouse_x, mouse_y
+        if placed: take item, 1
+
+mechanism TopDown
+    # Walks in four directions (arrows or WASD) without gravity; solid things and solid tiles stop it.
+    param speed: number = 160
+
+    when start
+        body 0, 0
+
+    when tick
+        dx = 0
+        dy = 0
+        if key("left") or key("a"): dx -= 1
+        if key("right") or key("d"): dx += 1
+        if key("up") or key("w"): dy -= 1
+        if key("down") or key("s"): dy += 1
+        if dx != 0 and dy != 0
+            dx *= 0.7071
+            dy *= 0.7071
+        self.vx = dx * speed
+        self.vy = dy * speed
+        if dx < 0: face left
+        if dx > 0: face right

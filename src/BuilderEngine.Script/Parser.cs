@@ -269,6 +269,7 @@ public sealed partial class Parser
                 return new EventSpec(EventKind.Key, Filter: key.ToLowerInvariant());
             }
             default:
+                if (TryParseGameEvent(w) is { } game) return game; // GameEvents.Parse.cs
                 if (IsOp("."))
                 {
                     _p++;
@@ -388,6 +389,7 @@ public sealed partial class Parser
             case "together" or "while" or "for":
                 throw new ScriptError($"'{t.Text}' needs its own lines: put it on a new line with its block indented under it.", t.Line);
             case "wait": _p++; s = ParseWait(t.Line); break;
+            case "stop" when Peek(1).Kind == Tok.Ident && Peek(1).Text is "sound" or "sounds": s = ParseCommand(); break; // stop sound "rain.wav" (World.Audio.cs)
             case "stop": _p++; s = new StopStmt(t.Line); break;
             case "return":
                 _p++;

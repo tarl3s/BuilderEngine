@@ -190,6 +190,8 @@ sealed class SceneCanvas : Control, ICustomHitTest
 
         var sr = ToScreen(0, 0, Scene.Width, Scene.Height);
         ctx.FillRectangle(BrushOf(Scene.Background, Palette.Bg1), sr);
+        using (ctx.PushTransform(Matrix.CreateScale(Zoom, Zoom) * Matrix.CreateTranslation(_pan.X, _pan.Y))) // tile maps (MainWindow.TilePaint.cs)
+            MainWindow.DrawSceneTiles(ctx, Scene, new Rect(ToWorld(default), ToWorld(new Point(size.Width, size.Height))), Images);
         if (ShowGrid) DrawGrid(ctx, sr);
         ctx.DrawRectangle(null, BoundsPen, sr.Inflate(0.5));
 

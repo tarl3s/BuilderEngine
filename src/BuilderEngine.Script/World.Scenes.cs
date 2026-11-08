@@ -63,6 +63,16 @@ public sealed partial class World
         w.Printed = Printed;
         w.SoundPlayed = SoundPlayed;
         w.SceneRequested = SceneRequested;
+        // The game kit: one inventory, item looks, recipes, hotbar, looping sounds and dice for the whole game.
+        w.Inventory = Inventory;
+        w.ItemLooks = ItemLooks;
+        w.Recipes = Recipes;
+        w.Hotbar = Hotbar;
+        w.Loops = Loops;
+        w.MasterVolume = MasterVolume;
+        w.SoundControl = SoundControl;
+        w.Rng = Rng;
+        w._seed = _seed;
         return w;
     }
 }
