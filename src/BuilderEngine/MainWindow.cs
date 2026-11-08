@@ -24,7 +24,7 @@ public sealed partial class MainWindow : Window
     internal string? _current;
     internal readonly ListBox _library = new();
 
-    readonly TextBox _code = new();
+    readonly CodeEditor _code = new(); // AvaloniaEdit with Builder Script colours (CodeEditor.cs, CodeColors.cs)
     readonly TextBlock _status = new();
     readonly Ellipse _statusDot = new() { Width = 8, Height = 8 };
     readonly TextBlock _console = new();
@@ -96,7 +96,8 @@ public sealed partial class MainWindow : Window
         if (!_sources.ContainsKey(name)) return;
         _current = name;
         _loading = true;
-        _code.Text = _sources[name];
+        _code.Text = _sources[name]; // a fresh text: the caret at the top, the text undo starts over
+        _code.RefreshColors(_sources.Keys);
         _loading = false;
         SelectLibraryItem(name);
         Check();
@@ -109,7 +110,7 @@ public sealed partial class MainWindow : Window
     {
         if (_current == null) return;
         _loading = true;
-        _code.Text = source;
+        _code.SetTextKeepView(source); // only the changed part: the caret and the scroll stay where they were
         _loading = false;
         CommitSource(source, fromBlocks: true);
     }
@@ -281,20 +282,10 @@ public sealed partial class MainWindow : Window
 
     Control MechanismPanel()
     {
-        _code.AcceptsReturn = true;
-        _code.AcceptsTab = true;
-        _code.FontFamily = Palette.Mono;
-        _code.FontSize = 14;
-        _code.Background = Palette.Bg0;
-        _code.Foreground = Palette.Text;
-        _code.BorderThickness = new Thickness(0);
-        _code.Padding = new Thickness(20, 16);
-        _code.CaretBrush = Palette.Accent;
-        _code.SelectionBrush = Palette.AccentSoft;
-        _code.TextWrapping = TextWrapping.NoWrap;
+        // Font, colours, caret and selection are set by CodeEditor; the colours know the project's mechanism names.
+        CodeColors.KnownMechanisms = () => _sources.Keys;
         _code.TextChanged += (_, _) => { if (!_loading) OnCodeChanged(); };
         _code.AddHandler(KeyDownEvent, OnCodeKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
-        ScrollViewer.SetHorizontalScrollBarVisibility(_code, Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
 
         _blocksBox.Child = CreateBlocksView();
         _blocksBox.Background = Palette.Bg0;
@@ -397,6 +388,7 @@ public sealed partial class MainWindow : Window
             ShowTab(false);
         }
         if (!fromBlocks && parsed != null) BlocksShow(text);
+        _code.RefreshColors(_sources.Keys); // a new 'to' command or mechanism name recolours the lines that use it
         SceneOnMechanismsChanged();
     }
 
@@ -405,34 +397,20 @@ public sealed partial class MainWindow : Window
     {
         if (e.Key == Key.Tab)
         {
-            InsertAtCaret("    ");
+            _code.InsertAtCaret("    ");
             e.Handled = true;
         }
         else if (e.Key == Key.Enter)
         {
-            string text = _code.Text ?? "";
-            int caret = _code.CaretIndex;
-            int lineStart = text.LastIndexOf('\n', Math.Max(0, caret - 1)) + 1;
-            if (caret == 0) lineStart = 0;
-            string line = text[lineStart..caret];
+            string line = _code.LineBeforeCaret();
             string indent = new(line.TakeWhile(c => c == ' ').ToArray());
             string trimmed = line.Trim();
             if (trimmed.StartsWith("mechanism") || trimmed.StartsWith("system ") || trimmed.StartsWith("when") || trimmed.StartsWith("if") || trimmed.StartsWith("else") || trimmed.StartsWith("repeat")
                 || trimmed.StartsWith("to ") || trimmed.StartsWith("together") || trimmed.StartsWith("for each") || trimmed.StartsWith("while") || trimmed is "run" or "run:")
                 if (!trimmed.Contains(':') || trimmed.EndsWith(':')) indent += "    ";
-            InsertAtCaret("\n" + indent);
+            _code.InsertAtCaret("\n" + indent);
             e.Handled = true;
         }
-    }
-
-    void InsertAtCaret(string s)
-    {
-        string text = _code.Text ?? "";
-        int caret = _code.CaretIndex;
-        int selStart = Math.Min(_code.SelectionStart, _code.SelectionEnd), selEnd = Math.Max(_code.SelectionStart, _code.SelectionEnd);
-        if (selEnd > selStart) { text = text.Remove(selStart, selEnd - selStart); caret = selStart; }
-        _code.Text = text.Insert(caret, s);
-        _code.CaretIndex = caret + s.Length;
     }
 
     List<MechanismDef>? Check()

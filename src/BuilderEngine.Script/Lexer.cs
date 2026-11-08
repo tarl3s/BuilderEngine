@@ -32,7 +32,7 @@ public sealed class ScriptError(string message, int line) : Exception(message)
 public readonly record struct Comment(int Line, string Text, bool Trailing);
 
 /// <summary>Turns source text into tokens; indentation becomes Indent/Dedent tokens (like Python).</summary>
-public static class Lexer
+public static partial class Lexer
 {
     static readonly string[] Ops = ["+=", "-=", "*=", "/=", "==", "!=", "<>", "<=", ">=", "+", "-", "*", "/", "%", "=", "<", ">", "(", ")", "[", "]", "{", "}", ",", ".", ":"];
 

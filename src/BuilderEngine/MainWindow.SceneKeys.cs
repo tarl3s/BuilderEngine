@@ -238,7 +238,7 @@ public sealed partial class MainWindow
         bool ctrl = (mods & KeyModifiers.Control) != 0, shift = (mods & KeyModifiers.Shift) != 0;
         if (ListSearch.Active) return; // an open dropdown or menu keeps the keyboard (and its search)
         var focus = FocusManager?.GetFocusedElement();
-        bool typing = focus is TextBox;
+        bool typing = focus is TextBox or AvaloniaEdit.Editing.TextArea; // a text field, or the code editor
         bool numberField = typing && (focus as Visual)?.FindAncestorOfType<NumericUpDown>() != null;
 
         if (e.Key == Key.F1) { ShowShortcuts(); e.Handled = true; return; }

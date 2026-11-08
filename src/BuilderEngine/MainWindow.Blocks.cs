@@ -146,6 +146,7 @@ public sealed partial class MainWindow
             Check("undo after the pointer edits", _sources[_current] == original);
             await SnapCodeAndBlocks(original, Check);
             await SnapLanguageBlocks(dir, Check);
+            await SnapCodeEditor(dir, Check); // MainWindow.CodeEditorSnap.cs
         }
         catch (Exception e) { Check("no exception: " + e.Message, false); }
         finally { File.WriteAllLines(Path.Combine(dir, "blocks_checks.txt"), lines); }

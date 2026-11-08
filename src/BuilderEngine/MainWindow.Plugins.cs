@@ -193,7 +193,9 @@ public sealed partial class MainWindow
         foreach (var c in p.Commands)
         {
             var line = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 12 };
-            line.Inlines!.Add(new Avalonia.Controls.Documents.Run(c.Usage) { FontFamily = Palette.Mono, Foreground = Palette.Text });
+            var usage = new Avalonia.Controls.Documents.Span { FontFamily = Palette.Mono, Foreground = CodeColors.Text };
+            CodeColors.AddRuns(usage.Inlines, c.Usage); // coloured like the code editor
+            line.Inlines!.Add(usage);
             line.Inlines.Add(new Avalonia.Controls.Documents.Run((c.IsFunction ? "   function" : "   command") + (c.Help.Length > 0 ? " — " + c.Help : "")) { Foreground = Palette.TextDim });
             card.Children.Add(line);
         }

@@ -75,6 +75,8 @@ Press **F1** (or the **?** button in the top bar) to see this list inside Builde
 | Keys | What |
 |---|---|
 | `Tab  /  Enter` | Indent 4 spaces / new line that keeps the indentation (code) |
+| `Ctrl+F` | Find in the code (Enter / Shift+Enter: next / previous, Esc closes) |
+| `Right-click the code` | Cut, copy, paste, undo, redo, select all |
 | `Esc` | Cancel a block drag, or stop editing a block value |
 
 ## Playing (debugger)

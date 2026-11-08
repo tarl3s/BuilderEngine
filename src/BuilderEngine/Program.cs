@@ -26,6 +26,8 @@ public sealed class App : Application
     public override void Initialize()
     {
         Styles.Add(new FluentTheme());
+        // The code editor's look (AvaloniaEdit, CodeEditor.cs).
+        Styles.Add(new Avalonia.Markup.Xaml.Styling.StyleInclude(new Uri("avares://BuilderEngine/")) { Source = new Uri("avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml") });
         RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
     }
 

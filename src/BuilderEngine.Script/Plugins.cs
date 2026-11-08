@@ -183,7 +183,7 @@ public sealed class PluginManager : IDisposable
     static HashSet<string>? s_engineCommands, s_engineFunctions;
 
     /// <summary>The commands and functions the engine itself has (a plugin can't replace them).</summary>
-    static (HashSet<string> Commands, HashSet<string> Functions) EngineNames()
+    internal static (HashSet<string> Commands, HashSet<string> Functions) EngineNames()
     {
         if (s_engineCommands == null || s_engineFunctions == null)
         {
