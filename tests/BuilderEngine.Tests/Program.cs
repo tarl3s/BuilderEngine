@@ -914,6 +914,7 @@ Test("physics demo: player lands, walks, collects a coin; crate lands", () =>
     Eq(1.0, w.Globals["score"], "coin 1 collected");
 });
 ProjectTests.Run(Test); // scenes, sounds, My Library, settings (ProjectTests.cs)
+EngineTests.Run(Test); // tweens, camera, dialogue, HUD, pictures, saves, the demo cutscene (EngineTests.cs)
 
 Console.WriteLine("Command base (named values, waiting commands, phrases)");
 Test("named values parse and print back", () =>
@@ -970,7 +971,7 @@ Test("a waiting command: the caller waits for it to finish", () =>
 });
 Test("commands of used mechanisms, of any mechanism by name, and Mechanism.name", () =>
 {
-    var w = NewWorld("mechanism Tools\n    param flashes: number = 0\n    to flash times\n        flashes += times\n    to twice x\n        return x * 2\nmechanism Hero\n    uses Tools\n    when start\n        flash 2\n        n = twice(5)\nmechanism Other\n    when start\n        flash 1\n        Tools.flash 4\n        m = Tools.twice(3)\n");
+    var w = NewWorld("mechanism Tools\n    param flashes: number = 0\n    to zap times\n        flashes += times\n    to twice x\n        return x * 2\nmechanism Hero\n    uses Tools\n    when start\n        zap 2\n        n = twice(5)\nmechanism Other\n    when start\n        zap 1\n        Tools.zap 4\n        m = Tools.twice(3)\n");
     var h = w.Spawn("h", 0, 0, ["Hero"]);
     var x = w.Spawn("x", 0, 0, ["Other"]);
     w.Step(1.0 / 60);

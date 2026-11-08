@@ -245,6 +245,7 @@ public sealed partial class World
         {
             if (n != count) throw new ScriptError($"'{c.Name}' needs {count} value(s), like {usage} — got {n}.", c.Line);
         }
+        if (Functions.TryGetValue(c.Name, out var fn)) return fn(c.Args.Select(x => Eval(x, ctx)).ToList());
         switch (c.Name)
         {
             case "key": Need(1, "key(\"left\")"); return KeysDown.Contains(ToText(A(0)));

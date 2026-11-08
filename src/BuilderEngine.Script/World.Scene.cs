@@ -10,6 +10,7 @@ public sealed partial class World
     public Dictionary<GameObject, SceneObject> LoadScene(Scene scene)
     {
         var map = new Dictionary<GameObject, SceneObject>();
+        SetSceneSize(scene.Width, scene.Height);
         foreach (var so in scene.Objects)
         {
             var names = new List<string>();
@@ -41,6 +42,7 @@ public sealed partial class World
             }
             o.Width = so.Width;
             o.Height = so.Height;
+            if (!string.IsNullOrWhiteSpace(so.Image)) o.Image = so.Image.Trim();
             map[o] = so;
         }
         return map;
@@ -73,7 +75,7 @@ public sealed partial class World
                     string s => s.Trim().ToLowerInvariant() is "true" or "yes" or "1" or "on",
                     _ => false
                 };
-            case "text" or "string" or "sound" or "scene":
+            case "text" or "string" or "sound" or "scene" or "image" or "picture":
                 return ToText(value);
             default: // 'any' or a custom type: numbers written as text become numbers
                 return value is string t && Project.TryNumber(t, out var n) ? n : value;

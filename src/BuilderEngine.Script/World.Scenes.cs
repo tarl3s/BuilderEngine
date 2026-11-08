@@ -53,6 +53,11 @@ public sealed partial class World
         foreach (var (k, v) in Globals) w.Globals[k] = v;
         foreach (var (k, v) in Commands) w.Commands[k] = v;
         foreach (var k in KeysDown) w.KeysDown.Add(k);
+        foreach (var k in _held) w._held.Add(k);
+        foreach (var k in _swallowed) w._swallowed.Add(k);
+        w.ProjectFolder = ProjectFolder;
+        w.SaveFolder = SaveFolder;
+        w._store = _store;
         w.SceneNames = SceneNames;
         w.Printed = Printed;
         w.SoundPlayed = SoundPlayed;

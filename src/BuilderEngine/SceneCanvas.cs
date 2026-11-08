@@ -23,6 +23,11 @@ sealed class SceneCanvas : Control, ICustomHitTest
     /// <summary>Selected object id (0 = nothing).</summary>
     public int SelectedId;
     public bool ShowGrid = true;
+    /// <summary>The project's pictures (objects with a picture are drawn with it).</summary>
+    public ImageCache? Images;
+    /// <summary>The picture an object shows (its own, or one a mechanism param picks); default: its Picture.</summary>
+    public Func<SceneObject, string?>? PictureOf;
+    static readonly RenderOptions Crisp = new() { BitmapInterpolationMode = Avalonia.Media.Imaging.BitmapInterpolationMode.None };
     public double Zoom { get; private set; } = 1;
     Vector _pan;
 
@@ -130,7 +135,9 @@ sealed class SceneCanvas : Control, ICustomHitTest
         {
             var r = ToScreen(o.X, o.Y, o.Width, o.Height);
             double rad = Math.Min(6, Math.Min(r.Width, r.Height) / 4);
-            ctx.DrawRectangle(BrushOf(o.Color, Palette.Accent), ObjectEdge, r, rad, rad);
+            if (Images?.Get(PictureOf?.Invoke(o) ?? o.Image) is { } bmp)
+                using (ctx.PushRenderOptions(Crisp)) PlaySurface.DrawPicture(ctx, bmp, r, 1, 0, false);
+            else ctx.DrawRectangle(BrushOf(o.Color, Palette.Accent), ObjectEdge, r, rad, rad);
             if (o.Id == SelectedId) sel = o;
             if (o.Id == _dropHoverId) ctx.DrawRectangle(null, DropPen, r.Inflate(3), rad + 2, rad + 2);
         }

@@ -1,0 +1,30 @@
+# Starter kit: pictures and animation. Pictures live in the project's images folder.
+#   look "hero.png"           draws that picture in the object's box
+#   animate "walk"            plays walk1.png, walk2.png... (or a strip of square frames in walk.png)
+#   face left / face right    mirrors the picture
+
+mechanism Sprite
+    # Shows a picture instead of the coloured box.
+    param picture: Image = ""
+    param flip: yesno = false
+
+    when start
+        if picture != "": look picture
+        if flip: face left
+
+mechanism Animator
+    # Picks an animation from how the object moves (works with Platformer, Patrol, Body...).
+    param idle: text = "idle"
+    param walk: text = "walk"
+    param jump: text = "jump"
+    param fps: number = 8
+
+    when tick
+        if self.vx < 0: face left
+        if self.vx > 0: face right
+        if not self.on_ground and self.vy != 0 and jump != ""
+            animate jump at fps
+        else if self.vx != 0 and walk != ""
+            animate walk at fps
+        else if idle != ""
+            animate idle at fps

@@ -611,6 +611,7 @@ public sealed partial class World
             {
                 Raw = c.Args.Skip(skip).ToList(),
                 Named = c.Named?.ToDictionary(kv => kv.Key, kv => kv.Value.Select(x => Eval(x, ctx)).ToList()) ?? new(),
+                RawNamed = c.Named ?? new(),
                 Other = ctx.Other,
                 Locals = ctx.Locals,
             };
@@ -786,6 +787,8 @@ public sealed class CommandContext(World world, MechanismInstance mechanism, Lis
     public int Line { get; } = line;
     public List<Expr> Raw { get; init; } = [];
     public Dictionary<string, List<object?>> Named { get; init; } = new();
+    /// <summary>The named values as written (<c>ease out</c> keeps the word <c>out</c>).</summary>
+    public Dictionary<string, List<Expr>> RawNamed { get; init; } = new();
     public GameObject? Other { get; init; }
     public Dictionary<string, object?> Locals { get; init; } = new();
 

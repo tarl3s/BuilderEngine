@@ -4,14 +4,17 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Rendering;
 using BuilderEngine.Script;
 
 namespace BuilderEngine;
 
 /// <summary>
-/// Runs a <see cref="World"/> at a fixed 60 steps per second and draws it scaled to fit: objects as coloured
-/// rectangles, global variables top-right, a red badge with the runtime error count. Takes the keyboard while playing.
+/// Runs a <see cref="World"/> at a fixed 60 frames per second and draws it through its camera, scaled to fit: objects
+/// as their pictures (or coloured boxes), then the HUD (texts and bars), screen fades and flashes, the dialogue panel,
+/// messages, the global variables top-right (when the game shows no texts of its own) and a red badge with the error
+/// count. Takes the keyboard while playing; keys go through the world, which handles locked controls and dialogues.
 /// </summary>
 sealed class PlaySurface : Control, ICustomHitTest
 {
@@ -19,6 +22,7 @@ sealed class PlaySurface : Control, ICustomHitTest
     readonly World _world;
     public World World => _world;
     readonly Scene _scene;
+    readonly ImageCache _images;
     readonly Dictionary<GameObject, IBrush> _brushes = new();
     /// <summary>Colour for objects created while playing (by 'spawn'): the colour of a scene object with that mechanism.</summary>
     readonly Dictionary<string, IBrush> _byMechanism = new(StringComparer.OrdinalIgnoreCase);
@@ -30,14 +34,21 @@ sealed class PlaySurface : Control, ICustomHitTest
     TimeSpan? _last;
     double _acc;
     bool _running;
+    // Reused every frame (no allocations while nothing changes).
+    readonly List<GameObject> _order = [];
+    readonly Dictionary<HudItem, (string Text, double Size, string Color, FormattedText Ft)> _hudTexts = new();
+    readonly List<Rect> _optionRects = [];
+    readonly SolidColorBrush _fadeBrush = new(Colors.Black), _flashBrush = new(Colors.White), _barBrush = new(Colors.Red);
+    readonly Dictionary<string, Color> _colors = new(StringComparer.OrdinalIgnoreCase);
 
     public Action? StopRequested;
     public Action<string>? Crashed;
 
-    public PlaySurface(World world, Scene scene, Dictionary<GameObject, SceneObject> spawned)
+    public PlaySurface(World world, Scene scene, Dictionary<GameObject, SceneObject> spawned, ImageCache? images = null)
     {
         _world = world;
         _scene = scene;
+        _images = images ?? new ImageCache(world.ProjectFolder ?? "");
         Focusable = true;
         ClipToBounds = true;
         foreach (var (g, so) in spawned)
@@ -88,7 +99,7 @@ sealed class PlaySurface : Control, ICustomHitTest
         {
             while (_acc >= Step && steps < 5)
             {
-                _world.Step(Step);
+                _world.Frame(Step);
                 _acc -= Step;
                 steps++;
             }
@@ -107,34 +118,108 @@ sealed class PlaySurface : Control, ICustomHitTest
     // ---------------- Drawing ----------------
 
     static readonly Typeface HudFont = new(FontFamily.Default, FontStyle.Normal, FontWeight.SemiBold);
+    static readonly Typeface TextFont = new(FontFamily.Default);
     static readonly IBrush HudBg = new SolidColorBrush(Color.FromArgb(200, 11, 11, 11)).ToImmutable();
+    static readonly IBrush PanelBg = new SolidColorBrush(Color.FromArgb(240, 11, 11, 11)).ToImmutable();
+    static readonly IBrush BarBack = new SolidColorBrush(Color.FromArgb(200, 20, 20, 20)).ToImmutable();
+    static readonly IBrush Outside = new SolidColorBrush(Color.Parse("#070707")).ToImmutable();
+    static readonly IPen PanelPen = new Pen(Palette.AccentBorder, 1).ToImmutable();
+    static readonly IPen ChoicePen = new Pen(Palette.Accent, 1).ToImmutable();
+    static readonly IPen BarPen = new Pen(new SolidColorBrush(Color.FromArgb(160, 0, 0, 0)), 1).ToImmutable();
     static readonly IBrush Fallback = new SolidColorBrush(Color.Parse("#A3A3A3")).ToImmutable();
+    static readonly RenderOptions Crisp = new() { BitmapInterpolationMode = BitmapInterpolationMode.None };
+
+    /// <summary>Where the game's view is drawn and how many screen pixels one view pixel takes.</summary>
+    (Rect Area, double Scale) Viewport()
+    {
+        var cam = _world.Camera;
+        var size = Bounds.Size;
+        double scale = Math.Min(size.Width / cam.BaseWidth, size.Height / cam.BaseHeight);
+        if (scale <= 0 || !double.IsFinite(scale)) return (default, 0);
+        double w = cam.BaseWidth * scale, h = cam.BaseHeight * scale;
+        return (new Rect((size.Width - w) / 2, (size.Height - h) / 2, w, h), scale);
+    }
 
     public override void Render(DrawingContext ctx)
     {
         var size = Bounds.Size;
         ctx.FillRectangle(Palette.Bg0, new Rect(size));
-        double scale = Math.Min(size.Width / _scene.Width, size.Height / _scene.Height);
-        if (scale <= 0 || !double.IsFinite(scale)) return;
-        double ox = (size.Width - _scene.Width * scale) / 2, oy = (size.Height - _scene.Height * scale) / 2;
-        var area = new Rect(ox, oy, _scene.Width * scale, _scene.Height * scale);
-        ctx.FillRectangle(SceneCanvas.BrushOf(_scene.Background, Palette.Bg1), area);
+        var (area, scale) = Viewport();
+        if (scale <= 0) return;
+        var cam = _world.Camera;
+        double s = scale * cam.Zoom;
 
         using (ctx.PushClip(area))
         {
-            var objs = _world.Objects;
-            for (int i = 0; i < objs.Count; i++)
+            ctx.FillRectangle(Outside, area);
+            var world = Matrix.CreateTranslation(-cam.Left, -cam.Top) * Matrix.CreateScale(s, s) * Matrix.CreateTranslation(area.X, area.Y);
+            using (ctx.PushTransform(world))
+            using (ctx.PushRenderOptions(Crisp))
             {
-                var o = objs[i];
-                if (o.Destroyed || !Shown(o)) continue;
-                var r = new Rect(ox + o.X * scale, oy + o.Y * scale, Math.Max(0, o.Width * scale), Math.Max(0, o.Height * scale));
-                double rad = Math.Min(6, Math.Min(r.Width, r.Height) / 4);
-                ctx.DrawRectangle(BrushFor(o), null, r, rad, rad);
+                ctx.FillRectangle(SceneCanvas.BrushOf(_scene.Background, Palette.Bg1), new Rect(0, 0, _world.SceneWidth, _world.SceneHeight));
+                DrawObjects(ctx);
+                DrawHudItems(ctx, anchored: true, area, scale);
             }
+            DrawHudItems(ctx, anchored: false, area, scale);
+            DrawOverlay(ctx, area, _world.FadeAmount, _world.FadeColor, _fadeBrush);
+            DrawOverlay(ctx, area, _world.FlashAmount, _world.FlashColor, _flashBrush);
+            DrawDialogue(ctx, area, scale);
+            DrawToasts(ctx, area, scale);
+            if (_world.Paused) DrawCentered(ctx, area, "PAUSED", 28 * scale);
         }
 
-        DrawHud(ctx, size);
+        DrawGlobals(ctx, size);
         DrawErrors(ctx);
+    }
+
+    void DrawObjects(DrawingContext ctx)
+    {
+        var objs = _world.Objects;
+        _order.Clear();
+        bool layered = false;
+        for (int i = 0; i < objs.Count; i++)
+        {
+            var o = objs[i];
+            if (o.Destroyed || !Shown(o) || o.Opacity <= 0.001) continue;
+            if (o.Z != 0) layered = true;
+            _order.Add(o);
+        }
+        if (layered) // stable insertion sort by layer (scene order inside a layer)
+            for (int i = 1; i < _order.Count; i++)
+            {
+                var o = _order[i];
+                int j = i - 1;
+                while (j >= 0 && _order[j].Z > o.Z) { _order[j + 1] = _order[j]; j--; }
+                _order[j + 1] = o;
+            }
+
+        foreach (var o in _order)
+        {
+            if (o.Opacity < 0.999)
+                using (ctx.PushOpacity(o.Opacity)) DrawObject(ctx, o);
+            else DrawObject(ctx, o);
+        }
+    }
+
+    void DrawObject(DrawingContext ctx, GameObject o)
+    {
+        var r = new Rect(o.X, o.Y, Math.Max(0, o.Width), Math.Max(0, o.Height));
+        if (_images.Get(o.Image) is { } bmp) { DrawPicture(ctx, bmp, r, o.SheetFrames, o.SheetFrame, o.FlipX); return; }
+        double rad = Math.Min(6, Math.Min(r.Width, r.Height) / 4);
+        ctx.DrawRectangle(BrushFor(o), null, r, rad, rad);
+    }
+
+    /// <summary>A picture (or one frame of a strip) stretched to the box, mirrored when facing left.</summary>
+    internal static void DrawPicture(DrawingContext ctx, Bitmap bmp, Rect r, int frames, int frame, bool flip)
+    {
+        var px = bmp.Size;
+        frames = Math.Max(1, frames);
+        double fw = px.Width / frames;
+        var src = new Rect(Math.Clamp(frame, 0, frames - 1) * fw, 0, fw, px.Height);
+        if (!flip) { ctx.DrawImage(bmp, src, r); return; }
+        double cx = r.X + r.Width / 2;
+        using (ctx.PushTransform(Matrix.CreateTranslation(-cx, 0) * Matrix.CreateScale(-1, 1) * Matrix.CreateTranslation(cx, 0)))
+            ctx.DrawImage(bmp, src, r);
     }
 
     IBrush BrushFor(GameObject o)
@@ -161,9 +246,226 @@ sealed class PlaySurface : Control, ICustomHitTest
         return true;
     }
 
-    void DrawHud(DrawingContext ctx, Size size)
+    Color ColorOf(string text, Color fallback)
+    {
+        if (_colors.TryGetValue(text, out var c)) return c;
+        c = Color.TryParse(text, out var parsed) ? parsed : fallback;
+        _colors[text] = c;
+        return c;
+    }
+
+    FormattedText HudText(HudItem h, double size)
+    {
+        if (_hudTexts.TryGetValue(h, out var c) && c.Text == h.Text && c.Size == size && c.Color == h.Color) return c.Ft;
+        var ft = new FormattedText(h.Text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, HudFont, Math.Max(1, size),
+            SceneCanvas.BrushOf(h.Color, Palette.Text));
+        _hudTexts[h] = (h.Text, size, h.Color, ft);
+        return ft;
+    }
+
+    /// <summary>
+    /// Anchored items are drawn in scene coordinates (inside the world transform): texts centred on their object, bars
+    /// just above it. The others are in view pixels from the top-left of the game area.
+    /// </summary>
+    void DrawHudItems(DrawingContext ctx, bool anchored, Rect area, double scale)
+    {
+        var hud = _world.Hud;
+        for (int i = 0; i < hud.Count; i++)
+        {
+            var h = hud[i];
+            if ((h.Anchor != null) != anchored) continue;
+            if (anchored && h.Anchor!.Destroyed) continue;
+            double k = anchored ? 1 : scale;
+            double x, y;
+            if (anchored)
+            {
+                var a = h.Anchor!;
+                x = a.X + a.Width / 2 + h.X;
+                y = h.IsBar ? a.Y - h.Height - 6 + h.Y : a.Y + a.Height / 2 + h.Y;
+            }
+            else { x = area.X + h.X * scale; y = area.Y + h.Y * scale; }
+
+            if (h.IsBar)
+            {
+                double w = h.Width * k, hh = h.Height * k;
+                var r = anchored ? new Rect(x - w / 2, y, w, hh) : new Rect(x, y, w, hh);
+                ctx.DrawRectangle(BarBack, BarPen, r, hh / 2, hh / 2);
+                _barBrush.Color = ColorOf(h.Color, Colors.IndianRed);
+                if (h.Fraction > 0) ctx.DrawRectangle(_barBrush, null, new Rect(r.X, r.Y, r.Width * h.Fraction, r.Height), hh / 2, hh / 2);
+            }
+            else if (h.Text.Length > 0)
+            {
+                var ft = HudText(h, h.Size * k);
+                var at = anchored ? new Point(x - ft.Width / 2, y - ft.Height / 2) : new Point(x, y);
+                ctx.DrawText(ft, at);
+            }
+        }
+    }
+
+    void DrawOverlay(DrawingContext ctx, Rect area, double amount, string color, SolidColorBrush brush)
+    {
+        if (amount <= 0.001) return;
+        var c = ColorOf(color, Colors.Black);
+        brush.Color = Color.FromArgb((byte)Math.Round(Math.Clamp(amount, 0, 1) * c.A), c.R, c.G, c.B);
+        ctx.FillRectangle(brush, area);
+    }
+
+    // The dialogue panel: the last text and its layout, reused while nothing changes.
+    string? _dlgShown, _nameShown;
+    double _dlgSize, _dlgWidth, _nameSize;
+    FormattedText? _dlgFt, _nameFt;
+    readonly List<FormattedText> _optionFts = [];
+    List<string>? _optionsShown;
+    double _optionsSize;
+    StreamGeometry? _marker;
+    double _markerScale;
+
+    void DrawDialogue(DrawingContext ctx, Rect area, double scale)
+    {
+        _optionRects.Clear();
+        var d = _world.Dialogue;
+        if (d == null || d.Closed) return;
+        double pad = 16 * scale, margin = 14 * scale;
+        double textSize = 17 * scale;
+        // A speaker on screen gets a speech box above them; otherwise (a narrator, off screen) a panel at the bottom.
+        var cam = _world.Camera;
+        double zs = scale * cam.Zoom;
+        Rect? speaker = null;
+        if (d.SpeakerObject is { Destroyed: false } so && Shown(so))
+        {
+            var r = new Rect(area.X + (so.X - cam.Left) * zs, area.Y + (so.Y - cam.Top) * zs, so.Width * zs, so.Height * zs);
+            if (r.Intersects(area)) speaker = r;
+        }
+        double width = speaker != null ? Math.Min(area.Width - margin * 2, 440 * scale) : area.Width - margin * 2;
+        string visible = d.Visible;
+        if (_dlgFt == null || visible != _dlgShown || textSize != _dlgSize || width != _dlgWidth)
+        {
+            _dlgWidth = width;
+            _dlgShown = visible;
+            _dlgSize = textSize;
+            _dlgFt = new FormattedText(visible, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, TextFont, textSize, Palette.Text)
+            { MaxTextWidth = Math.Max(10, width - pad * 2) };
+        }
+        if (_nameFt == null || _nameShown != d.Speaker || _nameSize != scale)
+        {
+            _nameShown = d.Speaker;
+            _nameSize = scale;
+            _nameFt = new FormattedText(d.Speaker, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, HudFont, 15 * scale, Palette.Accent);
+        }
+        if (d.Options != null && (!ReferenceEquals(_optionsShown, d.Options) || _optionsSize != scale))
+        {
+            _optionsShown = d.Options;
+            _optionsSize = scale;
+            _optionFts.Clear();
+            for (int i = 0; i < d.Options.Count; i++)
+                _optionFts.Add(new FormattedText($"{i + 1}.  {d.Options[i]}", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, HudFont, 16 * scale, Palette.Text));
+        }
+
+        bool choices = d.Options != null && d.FullyTyped;
+        double nameH = d.Speaker.Length > 0 ? _nameFt.Height + 4 * scale : 0;
+        double optH = 0;
+        if (choices) foreach (var f in _optionFts) optH += f.Height + 10 * scale;
+        double textH = Math.Max(_dlgFt.Height, (speaker != null ? 1 : 2) * textSize * 1.3);
+        double height = pad * 2 + nameH + textH + optH;
+        var panel = new Rect(area.X + margin, area.Bottom - margin - height, width, height);
+        if (speaker is { } sp)
+        {
+            double px = Math.Clamp(sp.Center.X - width / 2, area.X + margin, area.Right - margin - width);
+            double tail = 10 * scale, py = sp.Top - tail - 4 * scale - height;
+            bool above = py >= area.Y + margin;
+            if (!above) py = Math.Min(sp.Bottom + tail + 4 * scale, area.Bottom - margin - height);
+            panel = new Rect(px, py, width, height);
+            double tx = Math.Clamp(sp.Center.X, panel.X + 16 * scale, panel.Right - 16 * scale);
+            var g = new StreamGeometry();
+            using (var gc = g.Open())
+            {
+                double edge = above ? panel.Bottom - 1 : panel.Top + 1, tip = above ? panel.Bottom + tail : panel.Top - tail;
+                gc.BeginFigure(new Point(tx - tail, edge), true);
+                gc.LineTo(new Point(tx, tip));
+                gc.LineTo(new Point(tx + tail * 0.4, edge));
+                gc.EndFigure(true);
+            }
+            ctx.DrawGeometry(PanelBg, null, g);
+        }
+        ctx.DrawRectangle(PanelBg, PanelPen, panel, 10 * scale, 10 * scale);
+        ctx.FillRectangle(Palette.Accent, new Rect(panel.X, panel.Y + 10 * scale, 3 * scale, Math.Max(0, panel.Height - 20 * scale)));
+        double y = panel.Y + pad;
+        if (d.Speaker.Length > 0) { ctx.DrawText(_nameFt, new Point(panel.X + pad, y)); y += nameH; }
+        ctx.DrawText(_dlgFt, new Point(panel.X + pad, y));
+        y += textH + 4 * scale;
+        if (choices)
+            for (int i = 0; i < _optionFts.Count; i++)
+            {
+                var ft = _optionFts[i];
+                var r = new Rect(panel.X + pad, y, Math.Min(panel.Width - pad * 2, ft.Width + 28 * scale), ft.Height + 6 * scale);
+                if (i == d.Selected) ctx.DrawRectangle(Palette.AccentSoft, ChoicePen, r, 6 * scale, 6 * scale);
+                ctx.DrawText(ft, new Point(r.X + 12 * scale, r.Y + 3 * scale));
+                _optionRects.Add(r);
+                y += ft.Height + 10 * scale;
+            }
+        else if (d.FullyTyped && d.Options == null && (int)(_world.RealTime * 2) % 2 == 0)
+        {
+            // The "go on" marker, blinking.
+            if (_marker == null || _markerScale != scale)
+            {
+                double m = 7 * scale;
+                _markerScale = scale;
+                _marker = new StreamGeometry();
+                using var gc = _marker.Open();
+                gc.BeginFigure(new Point(-m, -m / 2), true);
+                gc.LineTo(new Point(0, -m / 2));
+                gc.LineTo(new Point(-m / 2, m / 3));
+                gc.EndFigure(true);
+            }
+            using (ctx.PushTransform(Matrix.CreateTranslation(panel.Right - pad, panel.Bottom - pad)))
+                ctx.DrawGeometry(Palette.Accent, null, _marker);
+        }
+    }
+
+    readonly Dictionary<Toast, FormattedText> _toastFts = new();
+
+    void DrawToasts(DrawingContext ctx, Rect area, double scale)
+    {
+        var toasts = _world.Toasts;
+        if (toasts.Count == 0) { if (_toastFts.Count > 0) _toastFts.Clear(); return; }
+        double y = area.Y + 14 * scale;
+        foreach (var t in toasts)
+        {
+            if (!_toastFts.TryGetValue(t, out var ft))
+                _toastFts[t] = ft = new FormattedText(t.Text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, HudFont, 15 * scale, Palette.Text);
+            double alpha = Math.Clamp(t.Left / 0.4, 0, 1);
+            var r = new Rect(area.X + (area.Width - ft.Width) / 2 - 14 * scale, y, ft.Width + 28 * scale, ft.Height + 12 * scale);
+            using (ctx.PushOpacity(alpha))
+            {
+                ctx.DrawRectangle(PanelBg, PanelPen, r, r.Height / 2, r.Height / 2);
+                ctx.DrawText(ft, new Point(r.X + 14 * scale, r.Y + 6 * scale));
+            }
+            y += r.Height + 6 * scale;
+        }
+    }
+
+    FormattedText? _centerFt;
+    string? _centerText;
+    double _centerSize;
+
+    void DrawCentered(DrawingContext ctx, Rect area, string text, double size)
+    {
+        if (_centerFt == null || _centerText != text || _centerSize != size)
+        {
+            _centerSize = size;
+            _centerText = text;
+            _centerFt = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, HudFont, size, Palette.Text);
+        }
+        var r = new Rect(area.Center.X - _centerFt.Width / 2 - 20, area.Center.Y - _centerFt.Height / 2 - 10, _centerFt.Width + 40, _centerFt.Height + 20);
+        ctx.DrawRectangle(PanelBg, PanelPen, r, 10, 10);
+        ctx.DrawText(_centerFt, new Point(r.X + 20, r.Y + 10));
+    }
+
+    /// <summary>The global variables top-right — only while the game shows no texts of its own (a Label, 'show text').</summary>
+    void DrawGlobals(DrawingContext ctx, Size size)
     {
         if (_world.Globals.Count == 0) return;
+        foreach (var h in _world.Hud) if (!h.IsBar) return;
         _hud.Clear();
         foreach (var (k, v) in _world.Globals)
         {
@@ -195,33 +497,37 @@ sealed class PlaySurface : Control, ICustomHitTest
         ctx.DrawText(_errorFt, at);
     }
 
-    // ---------------- Keyboard ----------------
+    // ---------------- Keyboard and mouse ----------------
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
         e.Handled = true;
         if (e.Key == Key.Escape) { StopRequested?.Invoke(); return; }
-        string k = MainWindow.KeyName(e.Key);
-        if (_world.KeysDown.Add(k)) _world.PressKey(k); // auto-repeat doesn't press again
+        _world.KeyDown(MainWindow.KeyName(e.Key)); // the world ignores auto-repeat
     }
 
     protected override void OnKeyUp(KeyEventArgs e)
     {
         base.OnKeyUp(e);
-        _world.KeysDown.Remove(MainWindow.KeyName(e.Key));
+        _world.KeyUp(MainWindow.KeyName(e.Key));
         e.Handled = true;
     }
 
     protected override void OnLostFocus(Avalonia.Interactivity.RoutedEventArgs e)
     {
         base.OnLostFocus(e);
-        _world.KeysDown.Clear();
+        _world.ReleaseKeys();
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
         Focus();
+        if (_world.Dialogue is not { Closed: false }) return;
+        var p = e.GetPosition(this);
+        int hit = _optionRects.FindIndex(r => r.Contains(p));
+        _world.Click(hit >= 0 ? hit : null);
+        e.Handled = true;
     }
 }

@@ -77,20 +77,28 @@ public sealed partial class MainWindow
                 try { File.Move(Path.Combine(_projectDir, Project.FileName), broken); } catch { }
                 Log($"⚠ Couldn't read the project ({e.Message}). It was kept as {Path.GetFileName(broken)}; a new demo scene was made.");
                 _project = Project.CreateDemo(ProjectNameFromFolder());
+                AdoptProjectMechanisms();
                 TrySave();
             }
         }
         else
         {
             _project = Project.CreateDemo(ProjectNameFromFolder());
+            AdoptProjectMechanisms(); // before saving: saving keeps only the mechanisms it finds in _sources
             TrySave();
         }
-        foreach (var (_, src) in _project.Mechanisms)
-            foreach (var chunk in SplitMechanisms(src))
-                _sources[chunk.Name] = chunk.Source;
+        AdoptProjectMechanisms();
         // Projects made before sounds existed (or by hand) get the starter sounds once.
         try { if (!Directory.Exists(Sounds.Folder(_projectDir))) Sounds.WriteDefaults(_projectDir); }
         catch (Exception e) { Log($"⚠ Couldn't write the starter sounds: {e.Message}"); }
+    }
+
+    /// <summary>The project's own mechanisms join the editor's sources (the demo brings its cutscene, Intro).</summary>
+    void AdoptProjectMechanisms()
+    {
+        foreach (var (_, src) in _project.Mechanisms)
+            foreach (var chunk in SplitMechanisms(src))
+                _sources[chunk.Name] = chunk.Source;
     }
 
     string ProjectNameFromFolder() => Path.GetFileName(_projectDir.TrimEnd('\\', '/')) is { Length: > 0 } n ? n : "My Game";
@@ -168,6 +176,8 @@ public sealed partial class MainWindow
     Control CreateSceneView()
     {
         _canvas = new SceneCanvas { Scene = _scene };
+        _canvas.Images = Pictures;
+        _canvas.PictureOf = ScenePictureOf;
         _canvas.SelectionChanged = RebuildInspector;
         _canvas.BeforeEdit = () => Checkpoint();
         _canvas.Edited = SyncTransformFields;
@@ -498,6 +508,7 @@ public sealed partial class MainWindow
     {
         if (_play != null) SceneStop();
         var world = NewWorld();
+        UseProjectFiles(world);
         world.Globals["score"] = 0.0;
         world.UseScenes(_project.Scenes.Select(s => s.Name));
         world.SoundPlayed += PlayGameSound;
@@ -513,7 +524,7 @@ public sealed partial class MainWindow
         var spawned = world.LoadScene(scene);
         Log($"▶ Playing {scene.Name} ({spawned.Count} objects).");
         _play?.Halt();
-        _play = new PlaySurface(world, scene, spawned)
+        _play = new PlaySurface(world, scene, spawned, Pictures)
         {
             StopRequested = SceneStop,
             Crashed = msg => { Log($"⚠ The game stopped: {msg}"); SceneStop(); }
