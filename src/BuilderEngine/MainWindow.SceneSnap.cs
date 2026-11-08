@@ -23,6 +23,7 @@ public sealed partial class MainWindow
             try
             {
                 await Task.Delay(800);
+                if (_eeproj != null) { await SnapEasyLink(dir); Close(); return; } // an EasyEngine project (MainWindow.LinkSnap.cs)
                 if (ArgValue("--snap-only") == "qol") { await SnapQol(dir); Close(); return; } // just the editor conveniences (MainWindow.QolSnap.cs)
                 if (ArgValue("--snap-only") == "deepdelve") { await SnapDeepdelve(dir); Close(); return; } // the Deepdelve sample (MainWindow.DeepdelveSnap.cs)
                 if (await SnapNightShift(dir)) { Close(); return; } // the Night Shift sample project (MainWindow.NightShiftSnap.cs)

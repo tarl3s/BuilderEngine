@@ -57,7 +57,7 @@ public sealed partial class MainWindow
 
     void UpdateTitle()
     {
-        Title = $"BuilderEngine — {_project.Name}";
+        Title = $"BuilderEngine — {_project.Name}{LinkTitle}"; // "(EasyEngine)", "🔗 Live link" (MainWindow.Link.cs)
         _projectButton.Content = $"{_project.Name}  ▾";
     }
 
@@ -86,12 +86,14 @@ public sealed partial class MainWindow
         }
         f.Items.Add(Item("New project…", () => _ = NewProjectAsync()));
         f.Items.Add(Item("Open…", () => _ = OpenProjectAsync(), new KeyGesture(Key.O, KeyModifiers.Control)));
+        LinkMenuItems(f); // Open EasyEngine project…, Live link, Open in EasyEngine (MainWindow.Link.cs)
         var recent = new MenuItem { Header = "Recent" };
         foreach (var dir in _settings.RecentProjects().Where(d => !AppSettings.SameFolder(d, _projectDir)))
         {
             string d = dir;
             var m = Item($"{Path.GetFileName(d.TrimEnd('\\', '/'))}   —   {d}", () => _ = SwitchProjectAsync(d));
-            m.IsEnabled = Project.Exists(d);
+            m.IsEnabled = EasyLink.IsProjectFolder(d);
+            if (EasyLink.IsEasyFolder(d)) m.Header += "   (EasyEngine)";
             recent.Items.Add(m);
         }
         if (recent.Items.Count == 0) recent.Items.Add(new MenuItem { Header = "(nothing yet)", IsEnabled = false });
@@ -170,7 +172,7 @@ public sealed partial class MainWindow
         });
         string? path = picked.FirstOrDefault()?.TryGetLocalPath();
         if (path == null) return;
-        if (!Project.Exists(path))
+        if (!EasyLink.IsProjectFolder(path))
         {
             var r = await Dialogs.Ask(this, "No project in this folder",
                 $"“{Path.GetFileName(path.TrimEnd('\\', '/'))}” has no BuilderEngine project in it (project.json). Make a new project there?",
@@ -203,7 +205,7 @@ public sealed partial class MainWindow
         foreach (var name in _sources.Keys.ToList())
             if (!_starterSources.ContainsKey(name)) _sources.Remove(name);
         foreach (var (name, src) in _starterSources) _sources[name] = src;
-        _projectDir = Path.GetFullPath(dir);
+        SetProjectPath(dir); // a folder or an .eeproj (MainWindow.Link.cs)
         LoadProject();
 
         _sceneIndex = 0;

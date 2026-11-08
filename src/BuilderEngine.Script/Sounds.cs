@@ -8,7 +8,8 @@ public static class Sounds
 {
     public static readonly string[] Extensions = [".wav", ".mp3", ".ogg"];
 
-    public static string Folder(string projectDir) => Path.Combine(projectDir, Project.SoundsFolder);
+    /// <summary>sounds/, or Assets/sounds/ in an EasyEngine project folder that has no sounds/ (see <see cref="EasyLink"/>).</summary>
+    public static string Folder(string projectDir) => EasyLink.AssetFolder(projectDir, Project.SoundsFolder, EasyLink.SoundsFolder);
 
     public static bool IsSound(string path) => Extensions.Contains(Path.GetExtension(path).ToLowerInvariant());
 
@@ -25,6 +26,7 @@ public static class Sounds
     public static string? Resolve(string projectDir, string name)
     {
         if (string.IsNullOrWhiteSpace(projectDir) || string.IsNullOrWhiteSpace(name)) return null;
+        if (EasyLink.ResolveRelative(projectDir, name, IsSound) is { } relative) return relative; // "Assets\sounds\coin.wav" (EasyEngine)
         string file = Path.GetFileName(name.Trim().Replace('\\', '/').Split('/')[^1]);
         if (file.Length == 0 || file.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return null;
         string dir = Folder(projectDir);

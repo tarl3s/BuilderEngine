@@ -15,7 +15,7 @@ namespace BuilderEngine;
 /// The start screen (like EasyEngine's launcher): new project, open a folder, recent projects and the sample games.
 /// Picking one opens the editor on it and closes this window.
 /// </summary>
-public sealed class LauncherWindow : Window
+public sealed partial class LauncherWindow : Window
 {
     readonly AppSettings _settings = new(AppSettings.DefaultFolder);
     readonly StackPanel _recent = new() { Spacing = 6 };
@@ -161,6 +161,7 @@ public sealed class LauncherWindow : Window
         col.Children.Add(new Border { Height = 8 });
         col.Children.Add(newBtn);
         col.Children.Add(openBtn);
+        col.Children.Add(OpenEasyEngineButton()); // LauncherWindow.Link.cs
         col.Children.Add(new Border { Height = 6 });
         var samplesTitle = MainWindow.Label("SAMPLE GAMES");
         samplesTitle.Margin = new Thickness(0, 4, 0, 0);
@@ -236,13 +237,13 @@ public sealed class LauncherWindow : Window
 
     Control RecentRow(string dir)
     {
-        bool exists = Project.Exists(dir);
+        bool exists = EasyLink.IsProjectFolder(dir); // a project.json or an .eeproj
         string name = Path.GetFileName(dir.TrimEnd('\\', '/'));
         string when = "";
-        try { if (exists) when = File.GetLastWriteTime(Path.Combine(dir, Project.FileName)).ToString("dd/MM/yyyy HH:mm"); } catch { }
+        try { if (exists) when = File.GetLastWriteTime(EasyLink.ProjectFile(dir)!).ToString("dd/MM/yyyy HH:mm"); } catch { }
 
         var text = new StackPanel { Spacing = 2 };
-        text.Children.Add(new TextBlock { Text = name, FontWeight = FontWeight.SemiBold, Foreground = exists ? Palette.Text : Palette.TextDim });
+        text.Children.Add(RecentTitle(name, exists, EasyLink.IsEasyFolder(dir))); // with an "EasyEngine" badge (LauncherWindow.Link.cs)
         text.Children.Add(new TextBlock
         {
             Text = exists ? dir : $"{dir}  — folder not found", FontSize = 12, Foreground = Palette.TextDim,
@@ -316,7 +317,7 @@ public sealed class LauncherWindow : Window
         });
         string? path = picked.FirstOrDefault()?.TryGetLocalPath();
         if (path == null) return;
-        if (!Project.Exists(path))
+        if (!EasyLink.IsProjectFolder(path))
         {
             var r = await Dialogs.Ask(this, "No project in this folder",
                 $"“{Path.GetFileName(path.TrimEnd('\\', '/'))}” has no BuilderEngine project in it (project.json). Make a new project there?",

@@ -1237,6 +1237,7 @@ Test("opening never touches Ollama when the cloud AI is chosen", () =>
     Eq(null, OllamaSetup.PrepareOnOpenAsync(s).GetAwaiter().GetResult());
 });
 
+LinkTests.Run(Test); // the EasyEngine ⇄ BuilderEngine link: .eeproj round-trips, layers, ids, live link (LinkTests.cs)
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;

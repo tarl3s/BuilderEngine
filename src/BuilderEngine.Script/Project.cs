@@ -25,6 +25,8 @@ public sealed class Project
     public List<Scene> Scenes { get; set; } = [];
     /// <summary>The project's own mechanisms: name -> Builder Script source (not saved inside project.json).</summary>
     public Dictionary<string, string> Mechanisms { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>EasyEngine's project data BuilderEngine doesn't map (prefabs, theme, variables…), kept as is. See <see cref="EasyLink"/>.</summary>
+    public JsonNode? Easy { get; set; }
 
     // ---------------- Save / load ----------------
 
@@ -84,7 +86,7 @@ public sealed class Project
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    public string ToJson() => JsonSerializer.Serialize(new { name = Name, scenes = Scenes }, WriteOptions);
+    public string ToJson() => EasyLink.WithEasy(JsonSerializer.Serialize(new { name = Name, scenes = Scenes }, WriteOptions), Easy, WriteOptions);
 
     public static Project FromJson(string json)
     {
@@ -98,6 +100,7 @@ public sealed class Project
         if (p.Scenes.Count == 0 && Get(root, "objects") is JsonArray) p.Scenes.Add(Scene.FromNode(root, "Level 1"));
         if (p.Scenes.Count == 0) p.Scenes.Add(new Scene());
         p.FixSceneIdsAndNames();
+        p.Easy = Get(root, "easy")?.DeepClone();
         return p;
     }
 
@@ -393,6 +396,9 @@ public sealed class Scene
     /// <summary>Tile grids (the ground, walls behind…), drawn in this order. Null = no tiles.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public List<TileLayer>? TileLayers { get; set; }
+    /// <summary>EasyEngine's scene data BuilderEngine doesn't map (layers and their settings, scene variables…). See <see cref="EasyLink"/>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public JsonNode? Easy { get; set; }
 
     /// <summary>Adds an object, giving it a fresh id. Returns it.</summary>
     public SceneObject Add(SceneObject o)
@@ -432,6 +438,7 @@ public sealed class Scene
             s.TileLayers = layers.OfType<JsonObject>().Select(TileLayer.FromNode).ToList();
             s.TileKinds ??= [];
         }
+        s.Easy = Project.Get(o, "easy")?.DeepClone();
         // Ids must be unique and positive: fix duplicates or missing ones.
         var seen = new HashSet<int>();
         int next = s.Objects.Count == 0 ? 1 : Math.Max(1, s.Objects.Max(x => x.Id) + 1);
@@ -454,6 +461,9 @@ public sealed class SceneObject
     public string Image { get; set; } = "";
     public List<string> Tags { get; set; } = [];
     public List<SceneMechanism> Mechanisms { get; set; } = [];
+    /// <summary>The EasyEngine object minus the common fields (behaviors, physics, variables, its layer index…). See <see cref="EasyLink"/>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public JsonNode? Easy { get; set; }
     /// <summary>Editor only: a locked object can't be clicked, moved, resized or deleted in the scene (the game ignores it).</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool Locked { get; set; }
@@ -479,6 +489,7 @@ public sealed class SceneObject
             Image = Project.Str(o, "image", ""),
             Locked = Project.Value(Project.Get(o, "locked")) is true,
             KeepAspect = Project.Value(Project.Get(o, "keepAspect")) is true,
+            Easy = Project.Get(o, "easy")?.DeepClone(),
         };
         switch (Project.Get(o, "tags"))
         {
