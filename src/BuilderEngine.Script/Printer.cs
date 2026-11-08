@@ -36,12 +36,13 @@ public static class Printer
 
     static void Print(StringBuilder sb, MechanismDef m)
     {
-        sb.Append("mechanism ").Append(m.Name);
+        sb.Append(m.IsSystem ? "system " : "mechanism ").Append(m.Name);
         if (m.Base != null) sb.Append(" from ").Append(m.Base);
         sb.Append('\n');
+        foreach (var u in m.Includes) sb.Append(Indent).Append(PrintIncludes(u)).Append('\n');
         foreach (var p in m.Params) sb.Append(Indent).Append(Print(p)).Append('\n');
         foreach (var u in m.Uses) sb.Append(Indent).Append(Print(u)).Append('\n');
-        bool gap = m.Params.Count + m.Uses.Count > 0;
+        bool gap = m.Params.Count + m.Uses.Count + m.Includes.Count > 0;
         foreach (var w in m.Whens)
         {
             if (gap) sb.Append('\n');
@@ -81,6 +82,13 @@ public static class Printer
     {
         string tail = UsesTail(u);
         return tail.Length == 0 ? "uses " + u.Name : "uses " + u.Name + " " + tail;
+    }
+
+    /// <summary>A system's <c>includes Pickup sound pickup_sound</c> line (the same settings as <c>uses</c>).</summary>
+    public static string PrintIncludes(UsesDef u)
+    {
+        string tail = UsesTail(u);
+        return tail.Length == 0 ? "includes " + u.Name : "includes " + u.Name + " " + tail;
     }
 
     /// <summary>What follows <c>uses Name</c>: <c>"slime.png"</c>, <c>max 2, speed 3</c>.</summary>

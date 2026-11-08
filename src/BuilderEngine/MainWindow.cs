@@ -251,7 +251,7 @@ public sealed partial class MainWindow : Window
         RefreshLibrary();
         _library.SelectionChanged += (_, _) =>
         {
-            if (_library.SelectedItem is LibItem { IsHeader: false, Section: not LibSection.Mine } it && it.Name.Length > 0 && it.Name != _current) OpenMechanism(it.Name);
+            if (_library.SelectedItem is LibItem { IsHeader: false, Section: LibSection.Project or LibSection.Starter } it && it.Name.Length > 0 && it.Name != _current) OpenMechanism(it.Name);
         };
         var sounds = SoundsPanel();
 
@@ -404,7 +404,7 @@ public sealed partial class MainWindow : Window
             string line = text[lineStart..caret];
             string indent = new(line.TakeWhile(c => c == ' ').ToArray());
             string trimmed = line.Trim();
-            if (trimmed.StartsWith("mechanism") || trimmed.StartsWith("when") || trimmed.StartsWith("if") || trimmed.StartsWith("else") || trimmed.StartsWith("repeat")
+            if (trimmed.StartsWith("mechanism") || trimmed.StartsWith("system ") || trimmed.StartsWith("when") || trimmed.StartsWith("if") || trimmed.StartsWith("else") || trimmed.StartsWith("repeat")
                 || trimmed.StartsWith("to ") || trimmed.StartsWith("together") || trimmed.StartsWith("for each") || trimmed.StartsWith("while") || trimmed is "run" or "run:")
                 if (!trimmed.Contains(':') || trimmed.EndsWith(':')) indent += "    ";
             InsertAtCaret("\n" + indent);
@@ -454,28 +454,10 @@ public sealed partial class MainWindow : Window
 
     // ---------------- Small UI helpers (shared) ----------------
 
-    internal static string KeyName(Key k) => k switch
-    {
-        Key.Left => "left", Key.Right => "right", Key.Up => "up", Key.Down => "down", Key.Space => "space", Key.Enter => "enter",
-        _ => k.ToString().ToLowerInvariant()
-    };
+    internal static string KeyName(Key k) => GameDraw.KeyName(k);
 
-    /// <summary>Splits a file with several mechanisms into one source per mechanism.</summary>
-    internal static IEnumerable<(string Name, string Source)> SplitMechanisms(string src)
-    {
-        var lines = src.Replace("\r\n", "\n").Split('\n');
-        var starts = new List<int>();
-        for (int i = 0; i < lines.Length; i++)
-            if (lines[i].StartsWith("mechanism ")) starts.Add(i);
-        for (int k = 0; k < starts.Count; k++)
-        {
-            int end = k + 1 < starts.Count ? starts[k + 1] : lines.Length;
-            string body = string.Join("\n", lines[starts[k]..end]).TrimEnd() + "\n";
-            // "mechanism RedSlime from Slime  # comment" -> RedSlime
-            string head = lines[starts[k]]["mechanism ".Length..].Split('#')[0].Trim();
-            yield return (head.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? head, body);
-        }
-    }
+    /// <summary>Splits a file with several mechanisms (or systems) into one source per mechanism.</summary>
+    internal static IEnumerable<(string Name, string Source)> SplitMechanisms(string src) => Systems.Split(src);
 
     internal static TextBlock Label(string text) => new() { Text = text, FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = Palette.TextDim, VerticalAlignment = VerticalAlignment.Center, LetterSpacing = 1 };
 

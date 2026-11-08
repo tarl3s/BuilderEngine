@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The player of exported games: only the game window (no editor). "Export game…" publishes it (or copies the prebuilt
+       player/ folder of a release) next to a copy of the project. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BuilderEngine</RootNamespace>
+    <AssemblyName>BuilderEngine.Player</AssemblyName>
+    <Version>0.1.0</Version>
+    <ApplicationIcon>..\BuilderEngine\Assets\BuilderEngine.ico</ApplicationIcon>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!-- The editor sets the debugger fields of the shared PlaySurface; the player never does. -->
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\BuilderEngine.Script\BuilderEngine.Script.csproj" />
+  </ItemGroup>
+  <!-- The game's drawing and sound are the editor's own files, compiled in here too (one copy of the code: the game
+       plays the same in the editor and in an exported game). They only depend on each other and BuilderEngine.Script. -->
+  <ItemGroup>
+    <Compile Include="..\BuilderEngine\PlaySurface*.cs" Link="Shared\%(Filename)%(Extension)" />
+    <Compile Include="..\BuilderEngine\TileDraw.cs;..\BuilderEngine\ImageCache.cs;..\BuilderEngine\Palette.cs;..\BuilderEngine\Audio.cs;..\BuilderEngine\GameDraw.cs" Link="Shared\%(Filename)%(Extension)" />
+    <AvaloniaResource Include="..\BuilderEngine\Assets\BuilderEngine.ico" Link="Assets\BuilderEngine.ico" />
+  </ItemGroup>
+</Project>

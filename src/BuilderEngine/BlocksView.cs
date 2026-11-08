@@ -745,7 +745,7 @@ sealed partial class BlocksView : Border
         var m = _defs[mi];
         var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 22) };
 
-        var title = Parts(Word("mechanism", Palette.AccentText), NameField(m.Name, false, n =>
+        var title = Parts(Word(m.IsSystem ? "system" : "mechanism", Palette.AccentText), NameField(m.Name, false, n =>
         {
             if (_defs.Where((d, k) => k != mi).Any(d => d.Name == n)) throw Bad($"There's already a mechanism called '{n}'.");
             if (n == _defs[mi].Base) throw Bad($"'{n}' can't come from itself.");
@@ -766,6 +766,7 @@ sealed partial class BlocksView : Border
             Highlight();
         };
         panel.Children.Add(header);
+        if (m.IsSystem) panel.Children.Add(IncludesPanel(mi)); // a system's 'includes' rows (BlocksView.Systems.cs)
         var paramsPanel = new StackPanel();
         var usesPanel = new StackPanel();
         var whensPanel = new StackPanel();

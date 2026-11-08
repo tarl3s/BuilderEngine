@@ -305,7 +305,7 @@ public sealed partial class MainWindow
             var item = (e.Source as Visual)?.FindAncestorOfType<ListBoxItem>(includeSelf: true);
             if ((item?.DataContext ?? item?.Content) is not LibItem { IsHeader: false } lib || lib.Name.Length == 0) return;
             _dragItem = lib;
-            _dragName = lib.Section == LibSection.Mine ? LibDragTag + lib.Name : lib.Name;
+            _dragName = lib.Section == LibSection.Mine ? LibDragTag + lib.Name : lib.Section == LibSection.Systems ? SysDragTag + lib.Name : lib.Name;
             _dragStart = e.GetPosition(_library);
             e.Pointer.Capture(_library);
             e.Handled = true;
@@ -349,6 +349,7 @@ public sealed partial class MainWindow
     void OnMechanismDropped(string name, Point at, SceneObject? target)
     {
         if (name.StartsWith(LibDragTag)) { _ = DropFromLibraryAsync(name[LibDragTag.Length..], at, target); return; }
+        if (name.StartsWith(SysDragTag)) { OnSystemDropped(name[SysDragTag.Length..], at); return; } // MainWindow.Systems.cs
         if (!_sources.ContainsKey(name) || _play != null) return;
         if (target != null)
         {

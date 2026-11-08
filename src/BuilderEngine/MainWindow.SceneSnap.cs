@@ -25,6 +25,7 @@ public sealed partial class MainWindow
                 await Task.Delay(800);
                 if (ArgValue("--snap-only") == "qol") { await SnapQol(dir); Close(); return; } // just the editor conveniences (MainWindow.QolSnap.cs)
                 if (ArgValue("--snap-only") == "prefabs") { await SnapPrefabs(dir); Close(); return; } // prefabs, animations, sprite editor (MainWindow.PrefabsSnap.cs)
+                if (ArgValue("--snap-only") == "systems") { await SnapSystems(dir); Close(); return; } // systems and export (MainWindow.SystemsSnap.cs)
                 if (ArgValue("--snap-only") == "deepdelve") { await SnapDeepdelve(dir); Close(); return; } // the Deepdelve sample (MainWindow.DeepdelveSnap.cs)
                 if (await SnapNightShift(dir)) { Close(); return; } // the Night Shift sample project (MainWindow.NightShiftSnap.cs)
                 if (ArgValue("--snap-only") == "hollow") { await SnapHollowLantern(dir); Close(); return; } // the Hollow Lantern sample (MainWindow.HollowSnap.cs)

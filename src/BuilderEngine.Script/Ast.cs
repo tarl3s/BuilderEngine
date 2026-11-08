@@ -70,6 +70,10 @@ public sealed record MechanismDef(string Name, List<ParamDef> Params, List<UsesD
     public List<ProcDef> Procs { get; init; } = [];
     /// <summary><c>mechanism RedSlime from Slime</c>: the mechanism this one is a variant of (null = not a variant).</summary>
     public string? Base { get; init; }
+    /// <summary><c>system Inventory</c>: a system — a mechanism that brings other mechanisms with it (see Systems.cs).</summary>
+    public bool IsSystem { get; init; }
+    /// <summary>A system's <c>includes Pickup sound pickup_sound</c> lines: the mechanisms it comes with and the defaults it gives them.</summary>
+    public List<UsesDef> Includes { get; init; } = [];
 }
 
 // ---- Builder Script 2: user commands, waiting, parallel, loops, lists ----

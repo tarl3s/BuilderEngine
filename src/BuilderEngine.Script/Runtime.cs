@@ -145,11 +145,13 @@ public sealed partial class World
         foreach (var p in def.Params)
         {
             var value = overrides != null && overrides.TryGetValue(p.Name, out var v) ? v
+                : SystemDefault(def.Name, p.Name, out var sv) ? sv // a system's 'includes' setting (World.Systems.cs)
                 : p.Default != null ? Eval(p.Default, ctx) : DefaultFor(p.Type);
             // An Object param written as a name ("Boss") is that object, when it is already there.
             if (value is string name && ParamTypes.Kind(p.Type) == ParamKind.Object) value = ObjectNamed(name) ?? (object?)name;
             inst.Vars[p.Name] = value;
         }
+        if (def.Includes.Count > 0) RegisterSystem(def, ctx); // World.Systems.cs
         foreach (var u in def.Uses)
         {
             var childDef = Find(u.Name, u.Line);

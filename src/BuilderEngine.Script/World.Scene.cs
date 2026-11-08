@@ -13,6 +13,7 @@ public sealed partial class World
         var map = new Dictionary<GameObject, SceneObject>();
         SetSceneSize(scene.Width, scene.Height);
         LoadTiles(scene); // World.Tiles.cs
+        PrepareSystems(scene); // the systems' 'includes' settings, before any object is made (World.Systems.cs)
         foreach (var so in scene.Objects)
         {
             var names = new List<string>();

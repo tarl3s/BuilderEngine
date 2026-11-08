@@ -1,0 +1,19 @@
+system PlatformerKit
+    # A platformer in one go: a player that runs and jumps, health, coins with a score and checkpoints.
+    # Place a Platformer (your player), Solid ground, Coins and Checkpoints from this card.
+    includes Platformer speed speed, jump_height jump
+    includes Body gravity gravity
+    includes Health max lives
+    includes Coin value coin_value
+    includes Checkpoint
+    includes Solid
+    param speed: number = 220
+    param jump: number = 110
+    param gravity: number = 1500
+    param lives: number = 3
+    param coin_value: number = 1
+    param show_score: yesno = true
+
+    when start
+        visible = false
+        if show_score: show text "Score: {score}" at 16, 16

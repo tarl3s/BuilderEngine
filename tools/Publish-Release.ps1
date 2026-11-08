@@ -1,6 +1,7 @@
 # Publishes the current version (from BuilderEngine.csproj) as a GitHub release that people download and the engine's
 # updater installs: a self-contained build (no .NET needed) zipped as BuilderEngine-win-x64.zip, with builderengine-files.txt
 # listing every file (the updater removes exactly those when the next version comes).
+# The release also has player/ (the exported-games player, see GameExport.cs).
 # The tag vX.Y.Z must already be pushed.   powershell -ExecutionPolicy Bypass -File tools\Publish-Release.ps1 -NotesFile notes.md
 param([Parameter(Mandatory)][string]$NotesFile, [string]$Version = '', [switch]$NoUpload)
 $ErrorActionPreference = 'Stop'
@@ -14,6 +15,12 @@ if (Test-Path $work) { Remove-Item $work -Recurse -Force }
 
 dotnet publish (Join-Path $root 'src/BuilderEngine/BuilderEngine.csproj') -c Release -r win-x64 --self-contained true -o $out -p:DebugType=None -p:Version=$Version -nologo -v:q
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
+
+# The player of exported games (Project > Export game... copies player\ next to the game; people who download
+# BuilderEngine have no .NET SDK to build it). Self-contained too, so exported games need nothing installed.
+dotnet publish (Join-Path $root 'src/BuilderEngine.Player/BuilderEngine.Player.csproj') -c Release -r win-x64 --self-contained true -o (Join-Path $out 'player') -p:DebugType=None -p:Version=$Version -nologo -v:q
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish of the player failed" }
+if (-not (Test-Path (Join-Path $out 'player\BuilderEngine.Player.exe'))) { throw "the player wasn't built" }
 
 $manifest = 'builderengine-files.txt'
 $files = Get-ChildItem $out -Recurse -File | ForEach-Object { $_.FullName.Substring($out.Length + 1) }

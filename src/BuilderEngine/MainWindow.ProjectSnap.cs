@@ -96,7 +96,7 @@ public sealed partial class MainWindow
             _snapClashChoice = "Cancel";
             Check("library clash: cancel changes nothing", await UseFromLibraryAsync("Coin", open: false) == null && !_sources.ContainsKey("Coin3"));
             _snapClashChoice = "Keep both";
-            Check("library sections", _libItems.OfType<LibItem>().Count(i => i.IsHeader) >= 3 // This project, My Library, Starter kit (+ Prefabs when the project has some)
+            Check("library sections", new[] { "THIS PROJECT", "MY LIBRARY", "STARTER KIT" }.All(h => _libItems.OfType<LibItem>().Any(i => i.Header == h))
                 && _libItems.OfType<LibItem>().Any(i => i.Section == LibSection.Project && i.Name == "Coin2")
                 && _libItems.OfType<LibItem>().Any(i => i.Section == LibSection.Mine && i.Name == "Spinner")
                 && _libItems.OfType<LibItem>().Any(i => i.Section == LibSection.Starter && i.Name == "Door"));

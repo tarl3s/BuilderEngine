@@ -86,7 +86,7 @@ sealed partial class PlaySurface
         if (!_captions.TryGetValue(o, out var c) || c.Text != text || c.Size != o.CaptionSize || c.Color != o.CaptionColor)
         {
             var ft = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, HudFont, Math.Max(1, o.CaptionSize),
-                SceneCanvas.BrushOf(o.CaptionColor, Palette.Text)) { TextAlignment = TextAlignment.Center, MaxTextWidth = Math.Max(8, r.Width - 4) };
+                GameDraw.BrushOf(o.CaptionColor, Palette.Text)) { TextAlignment = TextAlignment.Center, MaxTextWidth = Math.Max(8, r.Width - 4) };
             if (_captions.Count > 4000) _captions.Clear();
             _captions[o] = c = (text, o.CaptionSize, o.CaptionColor, ft);
         }
@@ -120,7 +120,7 @@ sealed partial class PlaySurface
             var look = _world.ItemLooks.GetValueOrDefault(stack.Name);
             if (look != null && look.Image.Length > 0 && _images.Get(look.Image) is { } bmp)
                 using (ctx.PushRenderOptions(Crisp)) ctx.DrawImage(bmp, new Rect(bmp.Size), icon);
-            else ctx.DrawRectangle(SceneCanvas.BrushOf(look?.Color ?? "#A3A3A3", Fallback), null, icon, 3 * scale, 3 * scale);
+            else ctx.DrawRectangle(GameDraw.BrushOf(look?.Color ?? "#A3A3A3", Fallback), null, icon, 3 * scale, 3 * scale);
             if (stack.Count > 1)
             {
                 string key = stack.Count + "|" + scale.ToString("0.###", CultureInfo.InvariantCulture);

@@ -1216,6 +1216,21 @@ HollowLanternTests.Run(Test); // the Hollow Lantern sample game, pathfinding, an
 EmberDuelTests.Run(Test); // the Ember Duel sample card game and records, labels, list saves (Samples/EmberDuelTests.cs)
 PrefabsTests.Run(Test); // prefabs, named animations, sprite sheets and the pixel-art editor (PrefabsTests.cs)
 
+Console.WriteLine("Prefabs in exported games (GameBoot.UseProject is shared by the editor and the player)");
+Test("an exported game's world finds the project's prefabs", () =>
+{
+    var p = Project.CreateEmpty("Boot");
+    p.Prefabs.Add(new Prefab { Name = "Rock", Template = new SceneObject { Name = "Rock", Width = 20, Height = 10 } });
+    p.Mechanisms["Dropper"] = "mechanism Dropper\n    when start\n        spawn \"Rock\" 40, 50\n";
+    var w = GameBoot.NewWorld(p, Path.GetTempPath());
+    w.Spawn("d", 0, 0, ["Dropper"]);
+    w.Step(1.0 / 60); w.Step(1.0 / 60);
+    Eq(0, w.Errors.Count, string.Join(" | ", w.Errors));
+    var rock = w.FindObject("Rock");
+    Eq(true, rock != null, "the prefab was spawned");
+    Eq(20.0, rock!.Width);
+});
+
 Console.WriteLine("One-click local AI (AiOllamaSetup.cs)");
 Test("Ollama pull progress lines are read", () =>
 {
@@ -1237,6 +1252,8 @@ Test("opening never touches Ollama when the cloud AI is chosen", () =>
     var s = new AiSettings { Provider = AiSettings.Auto };
     Eq(null, OllamaSetup.PrepareOnOpenAsync(s).GetAwaiter().GetResult());
 });
+
+SystemsTests.Run(Test); // systems (sets of mechanisms that work together) and "Export game…" (SystemsTests.cs)
 
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");

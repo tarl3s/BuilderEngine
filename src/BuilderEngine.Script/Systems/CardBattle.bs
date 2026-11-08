@@ -1,0 +1,28 @@
+system CardBattle
+    # A card battle: a shuffled deck that deals a hand, slots to play cards on, and turns with an End turn button.
+    # Click the deck to draw. Everyone is told "player turn" and "enemy turn" (when told "enemy turn": the rival plays).
+    includes Card zone zone
+    param hand_size: number = 5
+    param slots: number = 3
+    param zone: text = "slot"
+    param first: Choice "player", "enemy" = "player"
+    uses TurnManager first first
+
+    when start
+        visible = false
+        x = 400 - slots * 60
+        repeat slots
+            make Panel at x, 150 with 100, 130
+            made.Panel.color = "#2A2340"
+            tag made zone
+            x += 120
+        make Button at 668, 404 with 116, 36
+        made.Button.text = "End turn"
+        made.Button.message = "end turn"
+        made.Button.target = self
+        made.Button.text_size = 15
+        make Deck at 24, 320 with 80, 112
+        made.Deck.zone = zone
+        deck = made
+        wait 0.2
+        tell deck "draw" hand_size

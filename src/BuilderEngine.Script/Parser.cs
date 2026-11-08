@@ -70,8 +70,8 @@ public sealed partial class Parser
         SkipNewlines();
         while (Peek().Kind != Tok.Eof)
         {
-            if (!IsWord("mechanism"))
-                throw new ScriptError($"A file starts with 'mechanism Name', but found {Peek()}.", Peek().Line);
+            if (!IsWord("mechanism") && !IsWord("system"))
+                throw new ScriptError($"A file starts with 'mechanism Name' (or 'system Name'), but found {Peek()}.", Peek().Line);
             list.Add(ParseMechanism());
             SkipNewlines();
         }
@@ -82,8 +82,9 @@ public sealed partial class Parser
 
     MechanismDef ParseMechanism()
     {
-        int line = Next().Line; // 'mechanism'
-        string name = Expect(Tok.Ident, "the mechanism's name").Text;
+        bool isSystem = IsWord("system"); // 'system Inventory': a mechanism that brings others with it (Systems.cs)
+        int line = Next().Line; // 'mechanism' / 'system'
+        string name = Expect(Tok.Ident, isSystem ? "the system's name" : "the mechanism's name").Text;
         // 'mechanism RedSlime from Slime': a variant (see Variants.cs).
         string? baseName = null;
         if (IsWord("from"))
@@ -101,8 +102,9 @@ public sealed partial class Parser
         var uses = new List<UsesDef>();
         var whens = new List<WhenDef>();
         var procs = new List<ProcDef>();
+        var includes = new List<UsesDef>();
         if (Peek().Kind != Tok.Indent)
-            return new MechanismDef(name, ps, uses, whens, line) { Base = baseName };
+            return new MechanismDef(name, ps, uses, whens, line) { Base = baseName, IsSystem = isSystem };
         _p++;
         while (true)
         {
@@ -111,6 +113,11 @@ public sealed partial class Parser
             if (Peek().Kind == Tok.Eof) break;
             if (IsWord("param")) ps.Add(ParseParam());
             else if (IsWord("uses")) uses.Add(ParseUses());
+            else if (IsWord("includes"))
+            {
+                if (!isSystem) throw new ScriptError($"'includes' is for systems: start the file with 'system {name}' instead of 'mechanism {name}' (or use 'uses').", Peek().Line);
+                includes.Add(ParseUses());
+            }
             else if (IsWord("when")) whens.Add(ParseWhen());
             else if (IsWord("to")) procs.Add(ParseProc());
             else throw new ScriptError($"Inside a mechanism, lines start with 'param', 'uses' or 'when' (or 'to' to make a command) — found {Peek()}.", Peek().Line);
@@ -119,14 +126,16 @@ public sealed partial class Parser
         if (dupParam != null) throw new ScriptError($"The param '{dupParam.Key}' is declared twice.", dupParam.Last().Line);
         var dupProc = procs.GroupBy(x => x.Name).FirstOrDefault(g => g.Count() > 1);
         if (dupProc != null) throw new ScriptError($"There are two commands called '{dupProc.Key}' in '{name}'.", dupProc.Last().Line);
-        return new MechanismDef(name, ps, uses, whens, line) { Procs = procs, Base = baseName };
+        var dupInc = includes.GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1);
+        if (dupInc != null) throw new ScriptError($"'{name}' includes '{dupInc.Key}' twice: put its settings on one line.", dupInc.Last().Line);
+        return new MechanismDef(name, ps, uses, whens, line) { Procs = procs, Base = baseName, IsSystem = isSystem, Includes = includes };
     }
 
     /// <summary>Words a user command can't be called: Builder Script words, built-in commands and functions.</summary>
     public static readonly HashSet<string> Keywords =
     [
         "mechanism", "param", "uses", "when", "if", "else", "repeat", "forever", "wait", "emit", "tell", "stop",
-        "and", "or", "not", "true", "false", "to", "together", "run", "for", "while", "return"
+        "and", "or", "not", "true", "false", "to", "together", "run", "for", "while", "return", "system", "includes"
     ];
 
     /// <summary>Why a user command can't have this name, or null when it can.</summary>

@@ -7,7 +7,7 @@ using BuilderEngine.Script;
 
 namespace BuilderEngine;
 
-enum LibSection { Project, Mine, Starter }
+enum LibSection { Project, Mine, Starter, Systems }
 
 /// <summary>A row of the mechanism library: a section header, or a mechanism in one of the three sections.</summary>
 sealed record LibItem(string Name, LibSection Section, string? Header = null, string? Badge = null)
@@ -45,6 +45,7 @@ public sealed partial class MainWindow
     {
         if (item.IsHeader)
             return new TextBlock { Text = item.Header, FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = Palette.TextDim, LetterSpacing = 1 };
+        if (item.Section == LibSection.Systems) return SystemLibraryRow(item); // MainWindow.Systems.cs
         if (item.Name.Length == 0) // an empty section's hint
             return new TextBlock { Text = item.Badge, FontSize = 11, Foreground = Palette.TextDim, TextWrapping = TextWrapping.Wrap, FontStyle = FontStyle.Italic };
         var row = new DockPanel { Background = Brushes.Transparent };
@@ -93,7 +94,7 @@ public sealed partial class MainWindow
         _library.SelectedItem = null;
         var items = new List<object>();
         var own = _sources.Keys.Where(IsProjectMechanism).Order(StringComparer.OrdinalIgnoreCase).ToList();
-        var mine = _myLibrary.Names();
+        var mine = _myLibrary.Names().Where(n => !IsLibrarySystem(n)).ToList(); // systems are listed in SYSTEMS (MainWindow.Systems.cs)
         var kit = _sources.Keys.Where(n => !IsProjectMechanism(n)).Order(StringComparer.OrdinalIgnoreCase).ToList();
 
         items.Add(new LibItem("", LibSection.Project, Header: "THIS PROJECT"));
@@ -109,6 +110,8 @@ public sealed partial class MainWindow
             items.Add(new LibItem(n, LibSection.Mine, Badge: same ? "in project" : null));
         }
         if (mine.Count == 0) items.Add(new LibItem("", LibSection.Mine, Badge: "Empty — right-click a mechanism → Save to My Library."));
+
+        LibrarySystemsSection(items); // SYSTEMS (MainWindow.Systems.cs)
 
         items.Add(new LibItem("", LibSection.Starter, Header: "STARTER KIT"));
         foreach (var n in kit) items.Add(new LibItem(n, LibSection.Starter));
@@ -138,6 +141,7 @@ public sealed partial class MainWindow
     void OnLibraryItemClicked(LibItem item)
     {
         if (item.IsHeader || item.Name.Length == 0) return;
+        if (item.Section == LibSection.Systems) { OnSystemRowClicked(item); return; } // MainWindow.Systems.cs
         if (item.Section == LibSection.Mine) _ = UseFromLibraryAsync(item.Name, open: true);
         else OpenMechanism(item.Name);
     }

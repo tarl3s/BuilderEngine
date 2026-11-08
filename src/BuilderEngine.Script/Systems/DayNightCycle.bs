@@ -1,0 +1,23 @@
+system DayNightCycle
+    # Day and night over a tile world: the sky light goes down and comes back, caves stay dark and Lights glow.
+    # Everyone is told "night" and "day" (when told "night": spawn monsters...). Place Lights for torches and lamps.
+    includes Light radius light_radius, color light_color
+    param day: seconds = 60
+    param night: seconds = 40
+    param night_light: number = 0.15
+    param light_radius: number = 140
+    param light_color: Color = "#FFD9A0"
+    param clock: yesno = true
+    uses DayNight day day, night night, night_light night_light
+
+    when start
+        visible = false
+        global daytime
+        daytime = "Day"
+        if clock: show text "{daytime}" at 720, 16
+
+    when told "night"
+        daytime = "Night"
+
+    when told "day"
+        daytime = "Day"

@@ -276,6 +276,7 @@ public sealed partial class MainWindow
         else
             foreach (var p in def.Params)
                 body.Children.Add(ParamRow(o, m, p));
+        if (def?.IsSystem == true) body.Children.Add(SystemCardExtras(o, m, def)); // one card sets up the whole system (MainWindow.Systems.cs)
 
         return new Border
         {

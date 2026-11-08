@@ -161,15 +161,7 @@ sealed class SceneCanvas : Control, ICustomHitTest
 
     // ---------------- Drawing ----------------
 
-    static readonly Dictionary<string, IBrush> BrushCache = new(StringComparer.OrdinalIgnoreCase);
-    public static IBrush BrushOf(string? hex, IBrush fallback)
-    {
-        if (string.IsNullOrWhiteSpace(hex)) return fallback;
-        if (BrushCache.TryGetValue(hex, out var b)) return b;
-        b = Color.TryParse(hex, out var c) ? new SolidColorBrush(c).ToImmutable() : fallback;
-        BrushCache[hex] = b;
-        return b;
-    }
+    public static IBrush BrushOf(string? hex, IBrush fallback) => GameDraw.BrushOf(hex, fallback); // shared with the player (GameDraw.cs)
 
     static readonly IPen GridMajor = new ImmutablePen(new SolidColorBrush(Color.FromArgb(22, 255, 255, 255)).ToImmutable(), 1);
     static readonly IPen GridMinor = new ImmutablePen(new SolidColorBrush(Color.FromArgb(10, 255, 255, 255)).ToImmutable(), 1);

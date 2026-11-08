@@ -100,6 +100,7 @@ public sealed partial class MainWindow
         f.Items.Add(Item("Save", SceneSave, new KeyGesture(Key.S, KeyModifiers.Control)));
         f.Items.Add(Item("Import sound…", () => _ = ImportSoundsAsync()));
         f.Items.Add(Item("Plugins…", ShowPluginsWindow)); // MainWindow.Plugins.cs
+        f.Items.Add(Item("Export game…", () => _ = ExportGameAsync())); // MainWindow.Export.cs
         f.Items.Add(Item("Show the project folder", () => OpenFolder(_projectDir)));
         f.Items.Add(Item("Show My Library folder", () => { Directory.CreateDirectory(_myLibrary.Folder); OpenFolder(_myLibrary.Folder); }));
         if (!_projectFromArg)

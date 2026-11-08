@@ -84,7 +84,7 @@ public sealed class MechanismLibrary(string folder)
     public static string RenameSource(string source, string oldName, string newName)
     {
         string esc = Regex.Escape(oldName);
-        source = Regex.Replace(source, $@"(?m)^(\s*mechanism\s+){esc}\b", m => m.Groups[1].Value + newName);
+        source = Regex.Replace(source, $@"(?m)^(\s*(?:mechanism|system)\s+){esc}\b", m => m.Groups[1].Value + newName);
         return Regex.Replace(source, $@"(?m)^(\s*when\s+){esc}\.", m => m.Groups[1].Value + newName + ".");
     }
 

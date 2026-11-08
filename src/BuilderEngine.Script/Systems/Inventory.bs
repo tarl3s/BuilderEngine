@@ -1,0 +1,13 @@
+system Inventory
+    # Pick things up, carry them in a hotbar and craft new things. Place Pickups (wood, coal...) and Recipes from
+    # this card; in the game keys 1-9 pick a slot and C opens the crafting menu.
+    includes Pickup sound pickup_sound
+    includes Recipe
+    param slots: number = 9
+    param pickup_sound: Sound = "coin.wav"
+    param crafting: yesno = true
+    uses Hotbar slots slots
+
+    when start
+        visible = false
+        if crafting: make Crafting at 260, 60 with 280, 320
