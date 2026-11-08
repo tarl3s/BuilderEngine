@@ -489,6 +489,7 @@ public sealed partial class World
             if (c.Args.Count != 1) throw new ScriptError("'key' needs one key, like key(\"left\").", c.Line);
             return KeysDown.Contains(ToText(Eval(c.Args[0], ctx)));
         }
+        if (Functions.TryGetValue(c.Name, out var fn)) return fn(c.Args.Select(x => Eval(x, ctx)).ToList());
         var a = c.Args.Select(x => ToNumber(Eval(x, ctx), c.Line)).ToArray();
         void Need(int n) { if (a.Length != n) throw new ScriptError($"'{c.Name}' needs {n} value(s), got {a.Length}.", c.Line); }
         switch (c.Name)
@@ -562,6 +563,7 @@ public sealed partial class World
             {
                 Raw = c.Args.Skip(skip).ToList(),
                 Named = c.Named?.ToDictionary(kv => kv.Key, kv => kv.Value.Select(x => Eval(x, ctx)).ToList()) ?? new(),
+                RawNamed = c.Named ?? new(),
                 Other = ctx.Other,
                 Locals = ctx.Locals,
             };
@@ -731,6 +733,8 @@ public sealed class CommandContext(World world, MechanismInstance mechanism, Lis
     public int Line { get; } = line;
     public List<Expr> Raw { get; init; } = [];
     public Dictionary<string, List<object?>> Named { get; init; } = new();
+    /// <summary>The named values as written (<c>ease out</c> keeps the word <c>out</c>).</summary>
+    public Dictionary<string, List<Expr>> RawNamed { get; init; } = new();
     public GameObject? Other { get; init; }
     public Dictionary<string, object?> Locals { get; init; } = new();
 

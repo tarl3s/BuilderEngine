@@ -16,6 +16,10 @@ public sealed class Project
     public const string MechanismsFolder = "mechanisms";
     /// <summary>The project's sounds (wav/mp3/ogg); <c>play "coin.wav"</c> looks here. See <see cref="Sounds"/>.</summary>
     public const string SoundsFolder = "sounds";
+    /// <summary>The project's pictures (png/jpg/bmp); <c>look "hero.png"</c> looks here. See <see cref="Images"/>.</summary>
+    public const string ImagesFolder = "images";
+    /// <summary>Where <c>save game</c> writes while playing in the editor.</summary>
+    public const string SavesFolder = "saves";
 
     public string Name { get; set; } = "My Game";
     public List<Scene> Scenes { get; set; } = [];
@@ -255,7 +259,70 @@ public sealed class Project
         // Make both levels small platformers (solid ground, a jumping player, a crate, a one-way ledge).
         PhysicsDemo.Apply(s);
         PhysicsDemo.Apply(s2);
-        return new Project { Name = name, Scenes = [s, s2] };
+        AddStory(s, s2);
+        var p = new Project { Name = name, Scenes = [s, s2] };
+        p.Mechanisms["Intro"] = IntroSource;
+        return p;
+    }
+
+    /// <summary>The demo's cutscene (a project mechanism, so people can open it and change it).</summary>
+    public const string IntroSource = """
+        mechanism Intro
+            # A cutscene: plays once, the first time the player walks into this zone.
+            when start
+                visible = false
+
+            when touched by "player"
+                if played: stop
+                played = true
+                lock controls
+                camera follow Boss
+                move Boss to 1000, 340 in 2 seconds
+                camera zoom 1.4 in 0.5
+                say Boss "You came..."
+                say Boss "Then show me what you've learned!"
+                camera shake 6 for 0.5
+                camera zoom 1 in 0.5
+                fade out in 0.6
+                fade in in 0.6
+                camera follow player
+                unlock controls
+
+        """;
+
+    /// <summary>
+    /// The demo's engine features: a score label and a talking Npc in Level 1; Level 2 is wider (the camera scrolls)
+    /// and a cutscene there brings in the Boss.
+    /// </summary>
+    static void AddStory(Scene s, Scene s2)
+    {
+        static SceneObject Label() => new()
+        {
+            Name = "Score Label", X = 24, Y = 16, Width = 120, Height = 24, Color = "#2A1D17",
+            Mechanisms = [new SceneMechanism { Name = "Label" }]
+        };
+        s.Add(Label());
+        s.Add(new SceneObject
+        {
+            Name = "Old Man", X = 612, Y = 352, Width = 28, Height = 48, Color = "#C9A86A", Tags = ["npc"],
+            Mechanisms = [new SceneMechanism { Name = "Npc", Params = { ["line1"] = "Hello, traveller!", ["line2"] = "Collect the coins, then take the door on the right." } }]
+        });
+
+        s2.Width = 1400;
+        foreach (var o in s2.Objects)
+            switch (o.Name)
+            {
+                case "Ground": o.Width = 1400; break;
+                case "Wall Right": o.X = 1384; break;
+                case "Door": o.X = 1352; break;
+            }
+        s2.Add(Label());
+        s2.Add(new SceneObject { Name = "Boss", X = 1300, Y = 340, Width = 48, Height = 60, Color = "#B04A5A", Tags = ["boss"] });
+        s2.Add(new SceneObject
+        {
+            Name = "Intro", X = 220, Y = 280, Width = 24, Height = 120, Color = "#D97757",
+            Mechanisms = [new SceneMechanism { Name = "Intro" }]
+        });
     }
 
     static SceneObject Door(double x, string toScene) => new()
@@ -365,6 +432,8 @@ public sealed class SceneObject
     public double Width { get; set; } = 32;
     public double Height { get; set; } = 32;
     public string Color { get; set; } = "#D97757";
+    /// <summary>A picture from the project's images folder drawn in the box ("" = just the colour).</summary>
+    public string Image { get; set; } = "";
     public List<string> Tags { get; set; } = [];
     public List<SceneMechanism> Mechanisms { get; set; } = [];
 
@@ -383,6 +452,7 @@ public sealed class SceneObject
             Width = Math.Max(1, Project.Num(o, "width", 32)),
             Height = Math.Max(1, Project.Num(o, "height", 32)),
             Color = Project.Str(o, "color", "#D97757"),
+            Image = Project.Str(o, "image", ""),
         };
         switch (Project.Get(o, "tags"))
         {

@@ -1,0 +1,39 @@
+# Starter kit: cutscenes, talking characters and the camera.
+#   say Boss "You came..."        a line on the dialogue panel (waits for space, enter or a click)
+#   ask "Help me?" "Yes", "No"    a question; then 'answer' is the choice
+#   lock controls / unlock controls, camera follow / move / zoom / shake, fade out / fade in, move Boss to x, y in 2
+
+mechanism Cutscene
+    # Put it on an invisible zone: the first time the player walks in, it plays.
+    # Write your scene in your own mechanism: "uses Cutscene", then "when Cutscene.play" with lock controls, say...
+    param once: yesno = true
+
+    when start
+        visible = false
+
+    when touched by "player"
+        if played and once: stop
+        played = true
+        emit play
+
+mechanism Npc
+    # A character who talks when the player walks up to them.
+    param line1: text = "Hello!"
+    param line2: text = ""
+    param line3: text = ""
+
+    when touched by "player"
+        lock controls
+        face other
+        say self line1
+        if line2 != "": say self line2
+        if line3 != "": say self line3
+        unlock controls
+
+mechanism FollowCamera
+    # The camera follows this object (by default it follows the object tagged "player").
+    param zoom: number = 1
+
+    when start
+        camera follow self
+        camera zoom zoom

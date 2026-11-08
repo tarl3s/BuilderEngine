@@ -34,6 +34,7 @@ public sealed partial class MainWindow
     {
         if (_inspectorRoot.GetVisualRoot() == null) { _inspectorDirty = true; return; }
         _inspectorDirty = false;
+        if (_canvas is not null) _canvas.Images = Pictures; // follows a project switch
         _numX = _numY = _numW = _numH = null;
         _inspectorRoot.Children.Clear();
         if (_play != null)
@@ -121,6 +122,10 @@ public sealed partial class MainWindow
             _canvas.InvalidateVisual();
             RebuildInspector();
         })));
+
+        var (picture, _) = PicturePicker(o.Image, v => { Checkpoint(); o.Image = v; _canvas.InvalidateVisual(); });
+        ToolTip.SetTip(picture, "A picture from the project's images folder, drawn in the object's box (scripts change it with look \"name.png\")");
+        _inspectorRoot.Children.Add(Field("Picture", picture));
 
         _inspectorRoot.Children.Add(Field("Tags", TagsEditor(o)));
 
@@ -366,6 +371,26 @@ public sealed partial class MainWindow
                 };
                 showOverridden = _ => { };
                 field = combo;
+                break;
+            }
+            case "image" or "picture":
+            {
+                var (box, setValue) = PicturePicker(World.ToText(current), v =>
+                {
+                    Checkpoint();
+                    m.Params[p.Name] = v;
+                    reset.IsVisible = true;
+                    _canvas.InvalidateVisual();
+                });
+                reset.Click += (_, _) =>
+                {
+                    Checkpoint();
+                    m.Params.Remove(p.Name);
+                    setValue(World.ToText(def));
+                    _canvas.InvalidateVisual();
+                };
+                showOverridden = _ => { };
+                field = box;
                 break;
             }
             case "sound":

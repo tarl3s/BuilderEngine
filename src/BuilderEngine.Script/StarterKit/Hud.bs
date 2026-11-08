@@ -1,0 +1,41 @@
+# Starter kit: texts and bars on top of the game, and checkpoints.
+#   show text "Score: {score}" at 16, 16      {name} shows a variable (or any value: {hp * 10})
+#   show bar hp of max at 16, 50              show bar Health.hp of Health.max at self  (above an object)
+#   notify "Saved!"                           a message that goes away by itself
+#   save game / load game                     keeps the global variables (the score) on disk
+
+mechanism Label
+    # A text that stays on the screen where you put this object (the object itself isn't drawn).
+    param text: text = "Score: {score}"
+    param size: number = 20
+    param color: text = "#ECECEC"
+    param on_screen: yesno = true
+
+    when start
+        visible = false
+        if on_screen
+            show text text at self.x, self.y with color, size
+        else
+            show text text at self with color, size
+
+mechanism HealthBar
+    # A health bar for an object with Health: above it, or at a corner of the screen.
+    param on_screen: yesno = false
+    param color: text = "#E05D5D"
+
+    when start
+        if on_screen
+            show bar Health.hp of Health.max at 16, 50 with color
+        else
+            show bar Health.hp of Health.max at self with color
+
+mechanism Checkpoint
+    # Saves the game the first time the player touches it.
+    param message: text = "Checkpoint!"
+
+    when touched by "player"
+        if reached: stop
+        reached = true
+        save game
+        notify message
+        flash "#FFFFFF"

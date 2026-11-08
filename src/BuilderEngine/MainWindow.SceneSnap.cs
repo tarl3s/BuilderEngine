@@ -52,6 +52,7 @@ public sealed partial class MainWindow
                 ShowTab(scene: true);
                 await Task.Delay(300);
                 await SnapProjectFeatures(dir);
+                await SnapEngineFeatures(dir);
             }
             catch (Exception e) { File.WriteAllText(Path.Combine(dir, "error.txt"), e.ToString()); }
             Close();

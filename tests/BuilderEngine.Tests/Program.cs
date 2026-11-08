@@ -902,6 +902,7 @@ Test("physics demo: player lands, walks, collects a coin; crate lands", () =>
     Eq(1.0, w.Globals["score"], "coin 1 collected");
 });
 ProjectTests.Run(Test); // scenes, sounds, My Library, settings (ProjectTests.cs)
+EngineTests.Run(Test); // tweens, camera, dialogue, HUD, pictures, saves, the demo cutscene (EngineTests.cs)
 
 Console.WriteLine("Command base (named values, waiting commands, phrases)");
 Test("named values parse and print back", () =>
