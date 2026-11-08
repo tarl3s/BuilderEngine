@@ -1,0 +1,6 @@
+mechanism OnTop
+    # Draws this object above the others (a higher layer): pop-ups, the result screen.
+    param z: number = 50
+
+    when start
+        self.layer = z

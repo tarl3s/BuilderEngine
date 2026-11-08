@@ -1,0 +1,70 @@
+mechanism CardBook
+    # Every card in Ember Duel, one line each. A card is a record, {name: "Cinder Pup", cost: 1, ...}, that the
+    # other mechanisms read with a dot (card.cost, card.attack). Its picture is images/<name>.png.
+    #   creature name, element, cost, attack, health, effect, amount, flavor text
+    #   spell name, element, cost, effect, amount
+    # Effects: damage, damage_all, heal, draw, shield, boost. A creature's effect happens when it is played.
+
+    when start
+        visible = false
+        cards = []
+        # ---- Ember: quick and fierce ----
+        creature "Cinder Pup", "ember", 1, 1, 2, "", 0, "Small, loyal and always warm."
+        creature "Ash Sprite", "ember", 1, 2, 1, "", 0, "It burns twice as bright and half as long."
+        creature "Kindle Fox", "ember", 2, 2, 2, "damage", 1, ""
+        creature "Brazier Golem", "ember", 4, 3, 5, "", 0, "Fed with coal, it never stops walking."
+        creature "Flare Drake", "ember", 5, 5, 4, "", 0, "Its shadow arrives a moment after the heat."
+        creature "Molten Titan", "ember", 7, 7, 7, "", 0, "The mountain woke up angry."
+        spell "Spark Bolt", "ember", 1, "damage", 2
+        spell "Fire Lance", "ember", 3, "damage", 4
+        spell "Ember Storm", "ember", 4, "damage_all", 2
+        # ---- Tide: patient and hard to break ----
+        creature "Reef Crab", "tide", 1, 1, 3, "", 0, "Sideways is still forward."
+        creature "Mist Heron", "tide", 2, 2, 3, "", 0, "It fishes in the fog where no one else can see."
+        creature "Tide Caller", "tide", 3, 2, 3, "draw", 1, ""
+        creature "Coral Warden", "tide", 4, 2, 6, "shield", 1, ""
+        creature "Deepwater Serpent", "tide", 6, 5, 6, "", 0, "Sailors call the calm water 'its back'."
+        spell "Deep Insight", "tide", 2, "draw", 2
+        spell "Tidal Ward", "tide", 1, "shield", 1
+        # ---- Grove: growing and healing ----
+        creature "Moss Beetle", "grove", 1, 1, 1, "heal", 2, ""
+        creature "Thorn Hedgehog", "grove", 2, 3, 1, "", 0, "Pet it once. Only once."
+        creature "Grove Stag", "grove", 3, 3, 3, "", 0, "The forest bows when it passes."
+        creature "Bramble Knight", "grove", 4, 4, 4, "", 0, "Armor of bark, a sword of thorn."
+        creature "Elder Oakheart", "grove", 6, 4, 8, "heal", 4, ""
+        spell "Healing Spring", "grove", 2, "heal", 5
+        spell "Mending Dew", "grove", 1, "heal", 3
+        spell "Rally Horn", "grove", 2, "boost", 1
+        # ---- Dusk: tricks from the dark ----
+        creature "Dusk Moth", "dusk", 2, 1, 3, "shield", 1, ""
+        creature "Gloom Lurker", "dusk", 3, 4, 2, "", 0, "It waits where the lantern light gives up."
+        creature "Lantern Wisp", "dusk", 3, 2, 2, "damage", 2, ""
+        creature "Rune Sentinel", "dusk", 5, 3, 7, "shield", 1, ""
+        creature "Hollow Colossus", "dusk", 8, 8, 8, "", 0, "Nothing inside but an old, cold will."
+        spell "Shadow Spike", "dusk", 2, "damage", 3
+
+    to creature name, element, cost, attack, health, effect, amount, flavor
+        rules = flavor
+        if effect != "": rules = "On play: " + describe(effect, amount, false)
+        add {name: name, kind: "creature", element: element, cost: cost, attack: attack, health: health, max_health: health, effect: effect, amount: amount, shield: false, text: rules} to cards
+
+    to spell name, element, cost, effect, amount
+        add {name: name, kind: "spell", element: element, cost: cost, attack: 0, health: 0, max_health: 0, effect: effect, amount: amount, shield: false, text: describe(effect, amount, true)} to cards
+
+    to describe effect, amount, chosen
+        # The rules text of an effect: 'chosen' = you pick the target (a spell), else it picks itself (a creature).
+        if effect == "damage"
+            if chosen: return "Deal " + text(amount) + " damage to an enemy creature or hero."
+            return "deal " + text(amount) + " damage to the weakest enemy."
+        if effect == "damage_all": return "Deal " + text(amount) + " damage to every enemy creature."
+        if effect == "heal"
+            if chosen: return "Restore " + text(amount) + " health to your hero or a creature."
+            return "restore " + text(amount) + " health to your hero."
+        if effect == "draw"
+            if chosen: return "Draw " + text(amount) + " cards."
+            return "draw a card."
+        if effect == "shield"
+            if chosen: return "Give a creature or your hero a shield that blocks the next hit."
+            return "it gets a shield that blocks the next hit."
+        if effect == "boost": return "Your creatures get +" + text(amount) + " attack."
+        return ""

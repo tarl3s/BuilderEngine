@@ -275,6 +275,7 @@ public sealed partial class World
                 return A(0) switch
                 {
                     List<object?> l => (double)l.Count,
+                    Record r => (double)r.Count, // World.Records.cs
                     null => 0.0,
                     var v => (double)ToText(v).Length
                 };
@@ -286,6 +287,7 @@ public sealed partial class World
                 return where switch
                 {
                     List<object?> l => l.Any(x => AreEqual(x, what)),
+                    Record r => r.ContainsKey(ToText(what)), // a field name (World.Records.cs)
                     null => false,
                     var v => ToText(v).Contains(ToText(what), StringComparison.OrdinalIgnoreCase)
                 };
@@ -389,6 +391,7 @@ public sealed partial class World
 
     static object? Index(object? target, object? index, int line)
     {
+        if (target is Record rec) return rec.GetValueOrDefault(ToText(index)); // card["cost"] (World.Records.cs)
         int i = (int)Math.Floor(ToNumber(index, line));
         switch (target)
         {

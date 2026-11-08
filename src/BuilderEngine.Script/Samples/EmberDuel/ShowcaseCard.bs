@@ -1,0 +1,9 @@
+mechanism ShowcaseCard from CardView
+    # A card shown for decoration (the title screen): it finds its card in the CardBook by name.
+    param card_name: text = "Flare Drake"
+    param mode = "zoom"
+
+    when start
+        for each c in find("Book").CardBook.cards
+            if c.name == card_name: card = c
+        show_card

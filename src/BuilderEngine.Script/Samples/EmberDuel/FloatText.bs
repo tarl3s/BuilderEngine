@@ -1,0 +1,15 @@
+mechanism FloatText
+    # A number or a word that rises and fades away: damage, healing, "Blocked".
+    param words: text = "-1"
+    param tint: Color = "#FF5A4A"
+    param size: number = 22
+
+    when start
+        ui
+        self.layer = 60
+        color "#00000000"
+        caption words with tint, size
+        together
+            move by 0, -40 in 0.9 ease out
+            fade self to 0 in 0.9
+        destroy self

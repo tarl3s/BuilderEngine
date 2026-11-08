@@ -299,6 +299,8 @@ public static class BlockEdits
             BinaryExpr b => b with { Left = R(b.Left), Right = R(b.Right) },
             ListExpr l => l with { Items = l.Items.Select(R).ToList() },
             IndexExpr x => x with { Target = R(x.Target), Index = R(x.Index) },
+            RecordExpr r => r with { Fields = r.Fields.Select(f => (f.Key, R(f.Value))).ToList() },
+            MemberExpr m => m with { Target = R(m.Target) },
             _ => e
         };
         n += count;

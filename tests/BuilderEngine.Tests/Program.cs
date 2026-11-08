@@ -1213,6 +1213,7 @@ GameKitTests.Run(Test); // tiles, lights, mouse, screens, inventory, crafting, c
 DeepdelveTests.Run(Test); // the Deepdelve sample game, played headless (Samples/DeepdelveTests.cs)
 NightShiftTests.Run(Test); // the Night Shift sample game played headless (Samples/NightShiftTests.cs)
 HollowLanternTests.Run(Test); // the Hollow Lantern sample game, pathfinding, angles, minimap (Samples/HollowLanternTests.cs)
+EmberDuelTests.Run(Test); // the Ember Duel sample card game and records, labels, list saves (Samples/EmberDuelTests.cs)
 
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");

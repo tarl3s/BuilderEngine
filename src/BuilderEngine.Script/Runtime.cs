@@ -542,6 +542,10 @@ public sealed partial class World
                 m.Vars.TryGetValue(member, out var o);
                 m.Vars[member] = Combine(a.Op, o, value, a.Line);
                 break;
+            case Record r: // card.health -= 2 (World.Records.cs)
+                r.TryGetValue(member, out var rv);
+                r[member] = Combine(a.Op, rv, value, a.Line);
+                break;
             default:
                 throw new ScriptError($"Can't change '{member}' of {Describe(holder)}.", a.Line);
         }
@@ -600,6 +604,8 @@ public sealed partial class World
             case CallExpr c: return CallFunction(c, ctx);
             case ListExpr l: return l.Items.Select(x => Eval(x, ctx)).ToList();
             case IndexExpr x: return Index(Eval(x.Target, ctx), Eval(x.Index, ctx), x.Line);
+            case RecordExpr r: return Record.Make(r, x => Eval(x, ctx)); // World.Records.cs
+            case MemberExpr me: return Member(Eval(me.Target, ctx), me.Name, me.Line); // find("Turns").TurnManager.turn
         }
         throw new ScriptError("I can't work out this value.", e.Line);
     }
@@ -611,25 +617,25 @@ public sealed partial class World
     object? Resolve(string[] path, Ctx ctx, int line)
     {
         object? cur = ResolveFirst(path[0], ctx, line);
-        for (int i = 1; i < path.Length; i++)
-        {
-            string m = path[i];
-            cur = cur switch
-            {
-                GameObject g => m switch
-                {
-                    "x" => g.X, "y" => g.Y, "width" => g.Width, "height" => g.Height, "name" => g.Name,
-                    "vx" => g.Vx, "vy" => g.Vy, "on_ground" => g.OnGround,
-                    _ => (object?)g.AllMechanisms().FirstOrDefault(x => string.Equals(x.Def.Name, m, StringComparison.OrdinalIgnoreCase))
-                         ?? (TryGameMember(g, m, out var gm) ? gm : throw new ScriptError($"'{g.Name}' has no '{m}'.", line)) // World.Screens.cs
-                },
-                MechanismInstance inst => inst.Vars.TryGetValue(m, out var v) ? v
-                    : inst.Children.TryGetValue(m, out var ch) ? ch : null,
-                _ => throw new ScriptError($"{Describe(cur)} has no '{m}'.", line)
-            };
-        }
+        for (int i = 1; i < path.Length; i++) cur = Member(cur, path[i], line);
         return cur;
     }
+
+    /// <summary>One step of a dotted name: <c>Boss.x</c>, <c>other.Health</c>, <c>Health.hp</c>, <c>card.cost</c>.</summary>
+    object? Member(object? cur, string m, int line) => cur switch
+    {
+        GameObject g => m switch
+        {
+            "x" => g.X, "y" => g.Y, "width" => g.Width, "height" => g.Height, "name" => g.Name,
+            "vx" => g.Vx, "vy" => g.Vy, "on_ground" => g.OnGround,
+            _ => (object?)g.AllMechanisms().FirstOrDefault(x => string.Equals(x.Def.Name, m, StringComparison.OrdinalIgnoreCase))
+                 ?? (TryGameMember(g, m, out var gm) ? gm : throw new ScriptError($"'{g.Name}' has no '{m}'.", line)) // World.Screens.cs
+        },
+        MechanismInstance inst => inst.Vars.TryGetValue(m, out var v) ? v
+            : inst.Children.TryGetValue(m, out var ch) ? ch : null,
+        Record r => r.GetValueOrDefault(m), // card.cost (World.Records.cs); a missing field reads as nothing
+        _ => throw new ScriptError($"{Describe(cur)} has no '{m}'.", line)
+    };
 
     object? ResolveFirst(string n, Ctx ctx, int line)
     {

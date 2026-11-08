@@ -576,14 +576,24 @@ public sealed partial class Parser
     {
         var e = ParseAtom(out bool indexable);
         // items[0], all("coin")[0], [1, 2][1]: an item of a list (not after a number or a text).
-        while (indexable && IsOp("["))
+        // find("Turns").TurnManager.turn, hand[0].CardView.card: names after a call or an item (MemberExpr).
+        while (indexable)
         {
-            int l = Next().Line;
-            if (IsOp("]")) throw new ScriptError("Write which item between the brackets, like items[0] (0 is the first).", l);
-            var index = ParseExpr();
-            if (!IsOp("]")) throw new ScriptError($"The '[' is missing its ']' (found {Peek()}).", l);
-            _p++;
-            e = new IndexExpr(e, index, l);
+            if (IsOp("["))
+            {
+                int l = Next().Line;
+                if (IsOp("]")) throw new ScriptError("Write which item between the brackets, like items[0] (0 is the first).", l);
+                var index = ParseExpr();
+                if (!IsOp("]")) throw new ScriptError($"The '[' is missing its ']' (found {Peek()}).", l);
+                _p++;
+                e = new IndexExpr(e, index, l);
+            }
+            else if (e is CallExpr or IndexExpr or MemberExpr && IsOp(".") && Peek(1).Kind == Tok.Ident)
+            {
+                _p++;
+                e = new MemberExpr(e, Next().Text, e.Line);
+            }
+            else break;
         }
         return e;
     }
@@ -614,6 +624,7 @@ public sealed partial class Parser
                 _p++;
                 return new ListExpr(items, t.Line);
             }
+            case Tok.Op when t.Text == "{": return ParseRecord(t.Line); // World.Records.cs
             case Tok.Ident:
             {
                 if (t.Text == "true") { indexable = false; return new BoolExpr(true, t.Line); }

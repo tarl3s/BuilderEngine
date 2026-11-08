@@ -312,6 +312,8 @@ public static class AiCheck
             CallExpr c => c.Args,
             ListExpr l => l.Items,
             IndexExpr ix => [ix.Target, ix.Index],
+            RecordExpr r => r.Fields.Select(f => f.Value),
+            MemberExpr m => [m.Target],
             _ => [],
         };
         foreach (var x in inner)

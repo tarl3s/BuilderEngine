@@ -1,0 +1,18 @@
+mechanism GameFlow
+    # Which screen shows: the title first; "rules" opens How to play and "title" goes back to the title.
+    # (The Duel shows the battle on "fight", the DeckBuilder its screen on "build".)
+    when start
+        visible = false
+        show screen "Title"
+
+    when told "rules"
+        hide screen "Title"
+        show screen "Rules"
+
+    when told "title"
+        hide screen "Rules"
+        hide screen "Build"
+        hide screen "Result"
+        hide screen "Battle"
+        show screen "Title"
+        broadcast "stats"

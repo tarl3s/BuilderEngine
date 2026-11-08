@@ -249,6 +249,7 @@ sealed partial class PlaySurface : Control, ICustomHitTest
             ctx.DrawRectangle(BrushFor(o), null, r, rad, rad);
         }
         if (!string.IsNullOrEmpty(o.Caption)) DrawCaption(ctx, o, r);
+        if (o.Labels != null || o.Outline != null) DrawLabels(ctx, o, r); // PlaySurface.Labels.cs
     }
 
     /// <summary>A picture (or one frame of a strip) stretched to the box, mirrored when facing left.</summary>

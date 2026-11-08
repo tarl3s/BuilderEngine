@@ -1,0 +1,46 @@
+mechanism Hero
+    # A duelist's portrait with health (red), mana (blue) and the cards left. The Duel binds it to that player's
+    # record, and the badges follow the record by themselves ("{p.hp}").
+    param title: text = "You"
+    param side: Choice "you", "rival" = "you"
+
+    when start
+        ui
+        join screen "Battle"
+        tag self "hero"
+        if side == "you"
+            tag self "friend"
+        else
+            tag self "foe"
+
+    when told "bind" who
+        p = who
+        label none
+        label "name" title at top by 0, -19 with "#F6E7C8", 11
+        label "hp" "{max(0, p.hp)}" at bottom right by 10, 10 with "#FFFFFF", 16, "#C83A3A"
+        label "mana" "{p.mana}/{p.max_mana}" at bottom left by -10, 10 with "#FFFFFF", 12, "#2F6FD0"
+        if side == "you"
+            label "cards" "Deck {length(p.deck)}   Hand {length(p.hand)}" at bottom by 0, 29 with "#D8C7A6", 8
+        else
+            label "cards" "Deck {length(p.deck)}   Hand {length(p.hand)}" at top by 0, -34 with "#D8C7A6", 8
+        show_outline
+
+    when told "refresh"
+        show_outline
+
+    when told "hit"
+        repeat 3
+            move by 5, 0 in 0.03
+            move by -5, 0 in 0.03
+
+    when told "targeting" zone
+        if has_tag(self, zone): outline "#FFE27A", 3
+
+    when told "targeting off"
+        show_outline
+
+    to show_outline
+        if p and p.shield
+            outline "#9AD7FF", 4
+        else
+            outline off

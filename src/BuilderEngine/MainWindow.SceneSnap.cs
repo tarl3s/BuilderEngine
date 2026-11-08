@@ -27,6 +27,7 @@ public sealed partial class MainWindow
                 if (ArgValue("--snap-only") == "deepdelve") { await SnapDeepdelve(dir); Close(); return; } // the Deepdelve sample (MainWindow.DeepdelveSnap.cs)
                 if (await SnapNightShift(dir)) { Close(); return; } // the Night Shift sample project (MainWindow.NightShiftSnap.cs)
                 if (ArgValue("--snap-only") == "hollow") { await SnapHollowLantern(dir); Close(); return; } // the Hollow Lantern sample (MainWindow.HollowSnap.cs)
+                if (_project.Name == BuilderEngine.Script.EmberDuelSample.Name) { await SnapEmberDuel(dir); Close(); return; } // the sample card game (MainWindow.EmberDuelSnap.cs)
                 Snap(dir, "1_scene");
                 if (_scene.Objects.FirstOrDefault(o => o.Mechanisms.Count > 0 && o.Tags.Contains("player")) is { } player) Select(player.Id);
                 await Task.Delay(300);
