@@ -42,6 +42,124 @@ public static class BlockEdits
         list.Insert(index + 1, w with { Body = CloneList(w.Body) });
     }
 
+    // ---------------- Drag and drop ----------------
+
+    /// <summary>The statement lists directly inside a block: an if's then and else, a repeat's body.</summary>
+    public static IEnumerable<List<Stmt>> Bodies(Stmt s)
+    {
+        switch (s)
+        {
+            case IfStmt i:
+                yield return i.Then;
+                if (i.Else != null) yield return i.Else;
+                break;
+            case RepeatStmt r:
+                yield return r.Body;
+                break;
+        }
+    }
+
+    /// <summary>True when <paramref name="list"/> is one of the bodies of <paramref name="s"/>, at any depth.</summary>
+    public static bool Contains(Stmt s, List<Stmt> list)
+    {
+        foreach (var b in Bodies(s))
+        {
+            if (ReferenceEquals(b, list)) return true;
+            foreach (var c in b) if (Contains(c, list)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Moves <c>from[index]</c> so it ends up before what is now <c>to[toIndex]</c> (toIndex = to.Count: at the end).
+    /// Works inside one list or between two. False (and nothing changes) when the index is wrong or the move changes nothing.
+    /// </summary>
+    public static bool MoveItem<T>(List<T> from, int index, List<T> to, int toIndex)
+    {
+        if (index < 0 || index >= from.Count || toIndex < 0 || toIndex > to.Count) return false;
+        if (ReferenceEquals(from, to))
+        {
+            if (toIndex == index || toIndex == index + 1) return false;
+            var item = from[index];
+            from.RemoveAt(index);
+            from.Insert(toIndex > index ? toIndex - 1 : toIndex, item);
+            return true;
+        }
+        var moved = from[index];
+        from.RemoveAt(index);
+        to.Insert(toIndex, moved);
+        return true;
+    }
+
+    /// <summary>Like <see cref="MoveItem{T}"/>, but refuses to put a block inside itself (into one of its own bodies).</summary>
+    public static bool MoveStatement(List<Stmt> from, int index, List<Stmt> to, int toIndex)
+    {
+        if (index < 0 || index >= from.Count || Contains(from[index], to)) return false;
+        return MoveItem(from, index, to, toIndex);
+    }
+
+    /// <summary>
+    /// Where a drop lands in a column of blocks: the number of blocks whose middle is above <paramref name="y"/>
+    /// (rows are top/bottom pairs, top to bottom). 0 = before the first block, rows.Count = after the last.
+    /// </summary>
+    public static int DropIndex(IReadOnlyList<(double Top, double Bottom)> rows, double y)
+    {
+        int n = 0;
+        foreach (var (top, bottom) in rows)
+            if ((top + bottom) / 2 < y) n++;
+            else break;
+        return n;
+    }
+
+    /// <summary>Palette blocks that belong to the mechanism itself, not inside a when: when, param, uses.</summary>
+    public static bool IsMechanismLevel(string paletteId) => paletteId is "when" or "param" or "uses";
+
+    /// <summary>
+    /// The address of a statement list inside a mechanism, so it can be found again after the code is parsed anew:
+    /// [when index, then for each level: block index, branch (0 = then / body, 1 = else)]. Null when it isn't there.
+    /// </summary>
+    public static int[]? PathOf(MechanismDef m, List<Stmt> body)
+    {
+        for (int w = 0; w < m.Whens.Count; w++)
+        {
+            var path = new List<int> { w };
+            if (Find(m.Whens[w].Body, body, path)) return [.. path];
+        }
+        return null;
+
+        static bool Find(List<Stmt> list, List<Stmt> target, List<int> path)
+        {
+            if (ReferenceEquals(list, target)) return true;
+            for (int i = 0; i < list.Count; i++)
+            {
+                int branch = 0;
+                foreach (var b in Bodies(list[i]))
+                {
+                    path.Add(i); path.Add(branch++);
+                    if (Find(b, target, path)) return true;
+                    path.RemoveRange(path.Count - 2, 2);
+                }
+            }
+            return false;
+        }
+    }
+
+    /// <summary>The statement list at a <see cref="PathOf"/> address, or null when the mechanism no longer has it.</summary>
+    public static List<Stmt>? BodyAt(MechanismDef m, int[] path)
+    {
+        if (path.Length == 0 || path.Length % 2 == 0 || path[0] < 0 || path[0] >= m.Whens.Count) return null;
+        var list = m.Whens[path[0]].Body;
+        for (int k = 1; k < path.Length; k += 2)
+        {
+            int i = path[k], branch = path[k + 1];
+            if (i < 0 || i >= list.Count) return null;
+            var next = Bodies(list[i]).Skip(branch).FirstOrDefault();
+            if (next == null) return null;
+            list = next;
+        }
+        return list;
+    }
+
     // ---------------- Deep copies ----------------
 
     public static Stmt Clone(Stmt s) => s switch

@@ -421,6 +421,122 @@ Test("block edits: names and fields", () =>
     Eq("touched by", BlockEdits.EventLabel(EventKind.Touched));
 });
 
+// ---- Blocks: drag and drop, selection paths, undo ----
+Test("block drag: move into a nested body and out again", () =>
+{
+    var m = Parser.Parse(M("print 1\nif a\n    x = 1\nprint 2"))[0];
+    var body = m.Whens[0].Body;
+    var then = ((IfStmt)body[1]).Then;
+    Eq(true, BlockEdits.MoveStatement(body, 0, then, 1));
+    Eq("{if a {x = 1; cmd print [1]} else null; cmd print [2]}", DumpL(body));
+    Eq(true, BlockEdits.MoveStatement(then, 0, body, 2));
+    Eq("{if a {cmd print [1]} else null; cmd print [2]; x = 1}", DumpL(body));
+    Eq(true, BlockEdits.MoveStatement(body, 2, body, 0), "up inside one list");
+    Eq("{x = 1; if a {cmd print [1]} else null; cmd print [2]}", DumpL(body));
+    Eq(true, BlockEdits.MoveStatement(body, 0, body, 2), "down inside one list (lands before the old index 2)");
+    Eq("{if a {cmd print [1]} else null; x = 1; cmd print [2]}", DumpL(body));
+    Eq(false, BlockEdits.MoveStatement(body, 1, body, 1), "same place");
+    Eq(false, BlockEdits.MoveStatement(body, 1, body, 2), "right after itself is the same place");
+    Eq(false, BlockEdits.MoveStatement(body, 9, body, 0), "bad index");
+    RoundTrip(Printer.Print([m]));
+});
+Test("block drag: across whens and mechanism-level moves", () =>
+{
+    var m = Parser.Parse("mechanism T\n    param a = 1\n    param b = 2\n    when start\n        print 1\n        repeat 2\n            wait 1\n    when tick\n        stop\n")[0];
+    var start = m.Whens[0].Body; var tick = m.Whens[1].Body;
+    Eq(true, BlockEdits.MoveStatement(start, 1, tick, 0));
+    Eq("{cmd print [1]}", DumpL(start));
+    Eq("{repeat 2 {wait 1}; stop}", DumpL(tick));
+    Eq(true, BlockEdits.MoveItem(m.Whens, 1, m.Whens, 0));
+    Eq(EventKind.Tick, m.Whens[0].Event.Kind);
+    Eq(true, BlockEdits.MoveItem(m.Params, 1, m.Params, 0));
+    Eq("b", m.Params[0].Name);
+    var other = Parser.Parse("mechanism U\n")[0];
+    Eq(true, BlockEdits.MoveItem(m.Whens, 0, other.Whens, 0), "a when into another mechanism");
+    Eq(1, m.Whens.Count); Eq(1, other.Whens.Count);
+    Eq(true, BlockEdits.IsMechanismLevel("when") && BlockEdits.IsMechanismLevel("param") && BlockEdits.IsMechanismLevel("uses"));
+    Eq(false, BlockEdits.IsMechanismLevel("if"));
+});
+Test("block drag: a block can't go inside itself", () =>
+{
+    var m = Parser.Parse(M("if a\n    repeat 2\n        wait 1\nelse\n    stop"))[0];
+    var body = m.Whens[0].Body;
+    var outer = (IfStmt)body[0];
+    var inner = ((RepeatStmt)outer.Then[0]).Body;
+    Eq(true, BlockEdits.Contains(outer, inner));
+    Eq(true, BlockEdits.Contains(outer, outer.Else!));
+    Eq(false, BlockEdits.Contains(outer, body));
+    Eq(false, BlockEdits.MoveStatement(body, 0, inner, 0), "into a grandchild body");
+    Eq(false, BlockEdits.MoveStatement(body, 0, outer.Then, 1), "into its own body");
+    Eq(1, body.Count, "nothing changed");
+    Eq(true, BlockEdits.MoveStatement(outer.Then, 0, outer.Else!, 0), "a child into a sibling branch is fine");
+    Eq("{if a {} else {repeat 2 {wait 1}; stop}}", DumpL(body));
+});
+Test("block drag: drop index from block positions", () =>
+{
+    var rows = new List<(double, double)> { (0, 20), (24, 44), (48, 108) };
+    Eq(0, BlockEdits.DropIndex(rows, -5));
+    Eq(0, BlockEdits.DropIndex(rows, 9));
+    Eq(1, BlockEdits.DropIndex(rows, 11));
+    Eq(2, BlockEdits.DropIndex(rows, 40));
+    Eq(2, BlockEdits.DropIndex(rows, 70));
+    Eq(3, BlockEdits.DropIndex(rows, 90));
+    Eq(0, BlockEdits.DropIndex(new List<(double, double)>(), 50));
+    var list = new List<Stmt> { new StopStmt(0) };
+    BlockEdits.Insert(list, 0, BlockEdits.NewStatement("wait"));
+    Eq("{wait 1; stop}", DumpL(list));
+});
+Test("block selection: path survives a reparse", () =>
+{
+    string src = "mechanism T\n    when start\n        stop\n    when tick\n        print 1\n        if a\n            x = 1\n        else\n            repeat 2\n                wait 1\n";
+    var m = Parser.Parse(src)[0];
+    var target = ((RepeatStmt)((IfStmt)m.Whens[1].Body[1]).Else![0]).Body;
+    var path = BlockEdits.PathOf(m, target)!;
+    Eq("1,1,1,0,0", string.Join(",", path));
+    var again = Parser.Parse(Printer.Print([m]))[0];
+    Eq("{wait 1}", DumpL(BlockEdits.BodyAt(again, path)));
+    Eq("{stop}", DumpL(BlockEdits.BodyAt(again, BlockEdits.PathOf(m, m.Whens[0].Body)!)));
+    Eq(null, BlockEdits.PathOf(m, new List<Stmt>()));
+    Eq(null, BlockEdits.BodyAt(again, [5]));
+    Eq(null, BlockEdits.BodyAt(again, [1, 0, 0]), "print has no body");
+    Eq(null, BlockEdits.BodyAt(again, [1, 1, 2]), "no third branch");
+});
+Test("block undo: steps, merging and redo", () =>
+{
+    var u = new BlockUndo();
+    Eq(false, u.CanUndo);
+    u.Record("a", "a");
+    Eq(false, u.CanUndo, "no change, no step");
+    u.Record("a", "b");
+    u.Record("b", "c", "field1");
+    u.Record("c", "d", "field1");
+    u.Record("d", "e", "field1");
+    Eq(2, u.UndoCount, "the same field typed three times is one step");
+    u.Record("e", "f", "field2");
+    Eq(3, u.UndoCount);
+    Eq("e", u.Undo("f"));
+    Eq("b", u.Undo("e"));
+    Eq(true, u.CanRedo);
+    Eq("e", u.Redo("b"));
+    u.Record("e", "g", "field2");
+    Eq(false, u.CanRedo, "a new edit drops the redo steps");
+    Eq(3, u.UndoCount, "and doesn't merge with the step before the undo");
+    u.BreakMerge();
+    u.Record("g", "h", "field2");
+    Eq(4, u.UndoCount);
+    Eq("g", u.Undo("h"));
+    Eq("e", u.Undo("g"));
+    Eq("b", u.Undo("e"));
+    Eq("a", u.Undo("b"));
+    Eq(null, u.Undo("a"));
+    u.Reset();
+    Eq(false, u.CanUndo || u.CanRedo);
+    var small = new BlockUndo { Limit = 2 };
+    small.Record("1", "2"); small.Record("2", "3"); small.Record("3", "4");
+    Eq(2, small.UndoCount);
+    Eq("3", small.Undo("4")); Eq("2", small.Undo("3")); Eq(null, small.Undo("2"));
+});
+
 Console.WriteLine("Project / scene");
 string TempDir()
 {
