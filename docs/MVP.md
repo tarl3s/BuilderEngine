@@ -27,12 +27,12 @@ export to `.exe` · sound editor · tilemaps · lighting · 3D · Mac/Linux buil
 
 ## Milestones
 
-1. **Core language** — lexer, parser, interpreter, coroutines, tests. *(started)*
+1. **Core language** — lexer, parser, interpreter, coroutines, tests. *(done)*
 2. **Runtime** — world, objects, collisions, events, starter kit in Builder Script.
-3. **Editor shell** — Avalonia window in the orange/black look, library panel, code editor with error check.
-4. **Scene + Play** — place objects, attach mechanisms, play window.
+3. **Editor shell** — Avalonia window in the orange/black look, library panel, code editor with live error check. *(done)*
+4. **Scene + Play** — place objects, attach mechanisms, play window. *(done; no physics yet)*
 5. **Library** — save/load mechanisms across projects.
-6. **Blocks view** — script ↔ blocks, 1 to 1.
+6. **Blocks view** — script ↔ blocks, 1 to 1. *(done; click-to-add, drag-and-drop later)*
 7. **Tutorial** — "Your first mechanism: a coin" with a self-ticking checklist.
 
 ## Builder Script cheat sheet

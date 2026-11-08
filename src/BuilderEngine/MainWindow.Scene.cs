@@ -1,21 +1,551 @@
+using System.Text.Json.Nodes;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+using BuilderEngine.Script;
 
 namespace BuilderEngine;
 
-// SCENE FEATURE (stub — replaced by the scene feature branch).
+// SCENE FEATURE: the project (load/save), the scene view, play mode and undo. The inspector is in MainWindow.Inspector.cs.
 public sealed partial class MainWindow
 {
-    /// <summary>Before the UI is built: load the project (may add project mechanisms to _sources).</summary>
-    void SceneInit() { }
+    Project _project = new();
+    string _projectDir = "";
+    /// <summary>Opened with --project: an explicit (maybe throwaway) folder that must not become the "last project".</summary>
+    bool _projectFromArg;
+    /// <summary>The starter kit as shipped, to tell which mechanisms belong to the project (new or edited ones).</summary>
+    Dictionary<string, string> _starterSources = new();
 
-    Control CreateSceneView() => new TextBlock { Text = "Scene view coming soon.", Foreground = Palette.TextDim, Margin = new Avalonia.Thickness(16) };
-    Control CreateInspector() => new TextBlock { Text = "Inspector", Foreground = Palette.TextDim, Margin = new Avalonia.Thickness(16) };
+    Scene _scene => _project.Scenes[0];
 
-    void ScenePlay() { }
-    void SceneStop() { }
-    void SceneSave() { }
-    void SceneOnClosing() { }
+    SceneCanvas _canvas = null!;
+    readonly ContentControl _sceneHost = new();
+    readonly ContentControl _sceneBar = new();
+    Control _editBar = null!, _playBar = null!;
+    readonly TextBlock _zoomText = new() { VerticalAlignment = VerticalAlignment.Center, Foreground = Palette.TextDim, FontSize = 12, MinWidth = 44, TextAlignment = TextAlignment.Center };
+    PlaySurface? _play;
+
+    readonly List<string> _undo = new(), _redo = new();
+    string? _checkpointKey;
+    DateTime _checkpointTime;
+
+    string? _dragName;
+    Point _dragStart;
+
+    static readonly string SettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BuilderEngine", "settings.json");
+    static readonly string DefaultProjectDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "BuilderEngine Projects", "My Game");
+
+    // ---------------- Project ----------------
+
+    /// <summary>Before the UI is built: load the project (adds the project's mechanisms to _sources).</summary>
+    void SceneInit()
+    {
+        _starterSources = new Dictionary<string, string>(_sources);
+        var args = Environment.GetCommandLineArgs();
+        int i = Array.IndexOf(args, "--project");
+        if (i >= 0 && i + 1 < args.Length)
+        {
+            _projectDir = Path.GetFullPath(args[i + 1]);
+            _projectFromArg = true;
+        }
+        else _projectDir = ReadSetting("lastProject") is { } last && Project.Exists(last) ? last : DefaultProjectDir;
+
+        LoadProject();
+        if (!_projectFromArg) WriteSetting("lastProject", _projectDir);
+        Title = $"BuilderEngine — {_project.Name}";
+        AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
+        SceneSnapIfAsked();
+    }
+
+    void LoadProject()
+    {
+        if (Project.Exists(_projectDir))
+        {
+            try { _project = Project.Load(_projectDir); }
+            catch (Exception e)
+            {
+                // Keep the broken file for the person to look at, start again with the demo.
+                string broken = Path.Combine(_projectDir, $"project.broken-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+                try { File.Move(Path.Combine(_projectDir, Project.FileName), broken); } catch { }
+                Log($"⚠ Couldn't read the project ({e.Message}). It was kept as {Path.GetFileName(broken)}; a new demo scene was made.");
+                _project = Project.CreateDemo(ProjectNameFromFolder());
+                TrySave();
+            }
+        }
+        else
+        {
+            _project = Project.CreateDemo(ProjectNameFromFolder());
+            TrySave();
+        }
+        foreach (var (_, src) in _project.Mechanisms)
+            foreach (var chunk in SplitMechanisms(src))
+                _sources[chunk.Name] = chunk.Source;
+    }
+
+    string ProjectNameFromFolder() => Path.GetFileName(_projectDir.TrimEnd('\\', '/')) is { Length: > 0 } n ? n : "My Game";
+
+    /// <summary>The project's own mechanisms: the ones that aren't in the starter kit, or that were edited.</summary>
+    void SyncProjectMechanisms()
+    {
+        _project.Mechanisms.Clear();
+        foreach (var (name, src) in _sources)
+            if (!_starterSources.TryGetValue(name, out var kit) || Normalize(kit) != Normalize(src))
+                _project.Mechanisms[name] = src;
+    }
+
+    static string Normalize(string s) => s.Replace("\r\n", "\n").TrimEnd();
+
+    bool TrySave()
+    {
+        try
+        {
+            SyncProjectMechanisms();
+            _project.Save(_projectDir);
+            return true;
+        }
+        catch (Exception e)
+        {
+            Log($"⚠ Couldn't save the project: {e.Message}");
+            SetStatus(false, $"Couldn't save: {e.Message}");
+            return false;
+        }
+    }
+
+    void SceneSave()
+    {
+        if (TrySave()) SetStatus(true, $"Saved “{_project.Name}” to {_projectDir}");
+    }
+
+    void SceneOnClosing()
+    {
+        SceneStop();
+        TrySave();
+    }
+
+    static string? ReadSetting(string key)
+    {
+        try
+        {
+            if (!File.Exists(SettingsPath)) return null;
+            return (JsonNode.Parse(File.ReadAllText(SettingsPath)) as JsonObject)?[key]?.GetValue<string>();
+        }
+        catch { return null; }
+    }
+
+    static void WriteSetting(string key, string value)
+    {
+        try
+        {
+            JsonObject o;
+            try { o = File.Exists(SettingsPath) ? JsonNode.Parse(File.ReadAllText(SettingsPath)) as JsonObject ?? new() : new(); }
+            catch { o = new(); }
+            o[key] = value;
+            Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
+            File.WriteAllText(SettingsPath, o.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch { /* settings are a convenience */ }
+    }
+
+    // ---------------- Mechanism changes from the shell ----------------
+
     /// <summary>A mechanism was added or its source changed (refresh pickers / inspector params).</summary>
-    void SceneOnMechanismsChanged() { }
-    void SceneOnMechanismRenamed(string oldName, string newName) { }
+    void SceneOnMechanismsChanged() => RebuildInspector();
+
+    void SceneOnMechanismRenamed(string oldName, string newName)
+    {
+        _project.RenameMechanism(oldName, newName);
+        // Undo snapshots follow the rename too, so undo never brings back a name that no longer exists.
+        for (int i = 0; i < _undo.Count; i++) _undo[i] = RenameInSnapshot(_undo[i], oldName, newName);
+        for (int i = 0; i < _redo.Count; i++) _redo[i] = RenameInSnapshot(_redo[i], oldName, newName);
+        _canvas.InvalidateVisual();
+        RebuildInspector();
+    }
+
+    static string RenameInSnapshot(string json, string oldName, string newName)
+    {
+        var p = new Project { Scenes = [Scene.FromJson(json)] };
+        return p.RenameMechanism(oldName, newName) > 0 ? p.Scenes[0].ToJson() : json;
+    }
+
+    // ---------------- Scene view ----------------
+
+    Control CreateSceneView()
+    {
+        _canvas = new SceneCanvas { Scene = _scene };
+        _canvas.SelectionChanged = RebuildInspector;
+        _canvas.BeforeEdit = () => Checkpoint();
+        _canvas.Edited = SyncTransformFields;
+        _canvas.ViewChanged = () => _zoomText.Text = $"{Math.Round(_canvas.Zoom * 100)}%";
+        _canvas.MechanismDropped = OnMechanismDropped;
+        _canvas.KeyCommand = OnSceneKey;
+
+        _editBar = EditBar();
+        _playBar = PlayBar();
+        _sceneBar.Content = _editBar;
+        _sceneHost.Content = _canvas;
+
+        HookLibraryDrag();
+
+        var root = new DockPanel();
+        var bar = new Border { Background = Palette.Bg1, BorderBrush = Palette.Border, BorderThickness = new Thickness(0, 0, 0, 1), Child = _sceneBar };
+        DockPanel.SetDock(bar, Dock.Top);
+        root.Children.Add(bar);
+        root.Children.Add(_sceneHost);
+        return root;
+    }
+
+    Control EditBar()
+    {
+        var add = PlainButton("+ Object");
+        add.Click += (_, _) => AddEmptyObject();
+        var grid = SmallButton("Grid", "Show or hide the grid (objects still snap to it; hold Alt to place freely)");
+        StyleTab(grid, true);
+        grid.Padding = new Thickness(10, 5);
+        grid.Click += (_, _) =>
+        {
+            _canvas.ShowGrid = !_canvas.ShowGrid;
+            StyleTab(grid, _canvas.ShowGrid);
+            grid.Padding = new Thickness(10, 5);
+            _canvas.InvalidateVisual();
+        };
+        var minus = SmallButton("−", "Zoom out");
+        minus.Click += (_, _) => _canvas.ZoomBy(1 / 1.25);
+        var plus = SmallButton("+", "Zoom in");
+        plus.Click += (_, _) => _canvas.ZoomBy(1.25);
+        var fit = SmallButton("Fit", "Show the whole scene");
+        fit.Click += (_, _) => _canvas.Fit();
+
+        var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        left.Children.Add(add);
+        left.Children.Add(new Border { Width = 1, Height = 20, Background = Palette.Border, Margin = new Thickness(4, 0) });
+        left.Children.Add(grid);
+        left.Children.Add(new Border { Width = 1, Height = 20, Background = Palette.Border, Margin = new Thickness(4, 0) });
+        left.Children.Add(minus);
+        left.Children.Add(_zoomText);
+        left.Children.Add(plus);
+        left.Children.Add(fit);
+
+        var hint = new TextBlock
+        {
+            Text = "Drag to move · Alt = no snap · Space or middle-drag to pan · Wheel to zoom",
+            Foreground = Palette.TextDim, FontSize = 11, VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(16, 0, 0, 0), HorizontalAlignment = HorizontalAlignment.Right
+        };
+        var dock = new DockPanel { Margin = new Thickness(12, 6) };
+        DockPanel.SetDock(left, Dock.Left);
+        dock.Children.Add(left);
+        dock.Children.Add(hint);
+        return dock;
+    }
+
+    Control PlayBar()
+    {
+        var dot = new Avalonia.Controls.Shapes.Ellipse { Width = 8, Height = 8, Fill = Palette.Ok, VerticalAlignment = VerticalAlignment.Center };
+        var text = new TextBlock { Text = "Playing — Esc or Stop to go back to editing (your scene stays as it was).", Foreground = Palette.Text, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
+        var stop = PlainButton("■  Stop");
+        stop.Click += (_, _) => SceneStop();
+        var row = new DockPanel { Margin = new Thickness(12, 6) };
+        DockPanel.SetDock(stop, Dock.Right);
+        row.Children.Add(stop);
+        var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        left.Children.Add(dot);
+        left.Children.Add(text);
+        row.Children.Add(left);
+        return row;
+    }
+
+    static Button SmallButton(string text, string tip)
+    {
+        var b = PlainButton(text);
+        b.Padding = new Thickness(10, 5);
+        ToolTip.SetTip(b, tip);
+        return b;
+    }
+
+    /// <summary>Dragging a mechanism out of the library: a click still opens it, a drag carries it to the scene.</summary>
+    void HookLibraryDrag()
+    {
+        _library.AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            if (!e.GetCurrentPoint(_library).Properties.IsLeftButtonPressed) return;
+            var item = (e.Source as Visual)?.FindAncestorOfType<ListBoxItem>(includeSelf: true);
+            if ((item?.DataContext ?? item?.Content) is not string name) return;
+            _dragName = name;
+            _dragStart = e.GetPosition(_library);
+            e.Pointer.Capture(_library);
+            e.Handled = true;
+        }, RoutingStrategies.Tunnel);
+
+        _library.AddHandler(PointerMovedEvent, async (_, e) =>
+        {
+            if (_dragName == null) return;
+            var p = e.GetPosition(_library);
+            if (Math.Abs(p.X - _dragStart.X) + Math.Abs(p.Y - _dragStart.Y) < 6) return;
+            string name = _dragName;
+            _dragName = null;
+            e.Pointer.Capture(null);
+            if (_play != null) return;
+            ShowTab(scene: true);
+            var data = new DataTransfer();
+            data.Add(DataTransferItem.CreateText(SceneCanvas.DragPrefix + name));
+            SetStatus(true, $"Drop “{name}” on the scene to make an object, or on an object to add it.");
+            await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Copy);
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
+
+        _library.AddHandler(PointerReleasedEvent, (_, e) =>
+        {
+            if (_dragName == null) return;
+            string name = _dragName;
+            _dragName = null;
+            e.Pointer.Capture(null);
+            e.Handled = true;
+            OpenMechanism(name);
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
+    }
+
+    void OnMechanismDropped(string name, Point at, SceneObject? target)
+    {
+        if (!_sources.ContainsKey(name) || _play != null) return;
+        if (target != null)
+        {
+            if (!target.Has(name))
+            {
+                Checkpoint();
+                target.Mechanisms.Add(new SceneMechanism { Name = name });
+                SetStatus(true, $"Added {name} to {target.Name}.");
+            }
+            Select(target.Id);
+        }
+        else
+        {
+            Checkpoint();
+            var o = _scene.Add(new SceneObject
+            {
+                Name = UniqueName(name),
+                X = Math.Round((at.X - 16) / SceneCanvas.GridStep) * SceneCanvas.GridStep,
+                Y = Math.Round((at.Y - 16) / SceneCanvas.GridStep) * SceneCanvas.GridStep,
+                Color = ColorFor(name),
+                Mechanisms = [new SceneMechanism { Name = name }]
+            });
+            Select(o.Id);
+            SetStatus(true, $"New object {o.Name} with {name}.");
+        }
+        _canvas.Focus();
+    }
+
+    // ---------------- Scene edits ----------------
+
+    void Select(int id)
+    {
+        _canvas.SelectedId = id;
+        _canvas.InvalidateVisual();
+        RebuildInspector();
+    }
+
+    SceneObject? Selected => _scene.Find(_canvas.SelectedId);
+
+    void AddEmptyObject()
+    {
+        if (_play != null) return;
+        Checkpoint();
+        var c = _canvas.ViewCenter;
+        double x = Math.Clamp(c.X - 16, 0, Math.Max(0, _scene.Width - 32)), y = Math.Clamp(c.Y - 16, 0, Math.Max(0, _scene.Height - 32));
+        var o = _scene.Add(new SceneObject
+        {
+            Name = UniqueName("Object"),
+            X = Math.Round(x / SceneCanvas.GridStep) * SceneCanvas.GridStep,
+            Y = Math.Round(y / SceneCanvas.GridStep) * SceneCanvas.GridStep,
+            Color = Swatches[_scene.Objects.Count % Swatches.Length]
+        });
+        Select(o.Id);
+        _canvas.Focus();
+    }
+
+    void DeleteSelected()
+    {
+        if (Selected is not { } o) return;
+        Checkpoint();
+        _scene.Objects.Remove(o);
+        Select(0);
+        SetStatus(true, $"Deleted {o.Name}. Ctrl+Z brings it back.");
+    }
+
+    void DuplicateSelected()
+    {
+        if (Selected is not { } o) return;
+        Checkpoint();
+        var copy = o.Clone();
+        copy.Name = UniqueName(BaseName(o.Name));
+        copy.X += 16;
+        copy.Y += 16;
+        _scene.Add(copy);
+        Select(copy.Id);
+    }
+
+    void Nudge(double dx, double dy)
+    {
+        if (Selected is not { } o) return;
+        Checkpoint("nudge" + o.Id);
+        o.X += dx;
+        o.Y += dy;
+        _canvas.InvalidateVisual();
+        SyncTransformFields();
+    }
+
+    /// <summary>"Coin 3" -> "Coin"; used to number copies.</summary>
+    static string BaseName(string name)
+    {
+        int sp = name.LastIndexOf(' ');
+        return sp > 0 && int.TryParse(name[(sp + 1)..], out _) ? name[..sp] : name;
+    }
+
+    string UniqueName(string baseName)
+    {
+        bool Taken(string n) => _scene.Objects.Any(o => string.Equals(o.Name, n, StringComparison.OrdinalIgnoreCase));
+        if (!Taken(baseName)) return baseName;
+        int i = 2;
+        while (Taken($"{baseName} {i}")) i++;
+        return $"{baseName} {i}";
+    }
+
+    bool OnSceneKey(KeyEventArgs e)
+    {
+        if (_play != null) return false;
+        bool ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+        double step = (e.KeyModifiers & KeyModifiers.Alt) != 0 ? 1 : SceneCanvas.GridStep;
+        switch (e.Key)
+        {
+            case Key.Delete or Key.Back: DeleteSelected(); return true;
+            case Key.D when ctrl: DuplicateSelected(); return true;
+            case Key.Escape: Select(0); return true;
+            case Key.Left: Nudge(-step, 0); return true;
+            case Key.Right: Nudge(step, 0); return true;
+            case Key.Up: Nudge(0, -step); return true;
+            case Key.Down: Nudge(0, step); return true;
+        }
+        return false;
+    }
+
+    void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        bool ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+        if (!ctrl) return;
+        if (e.Key == Key.S) { SceneSave(); e.Handled = true; return; }
+        if (!_sceneTab || _play != null || FocusManager?.GetFocusedElement() is TextBox) return;
+        bool shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+        if (e.Key == Key.Y || (e.Key == Key.Z && shift)) { Redo(); e.Handled = true; }
+        else if (e.Key == Key.Z) { Undo(); e.Handled = true; }
+    }
+
+    // ---------------- Undo ----------------
+
+    /// <summary>Remembers the scene before a change. Changes with the same key in a row (typing, spinning) are one step.</summary>
+    void Checkpoint(string? key = null)
+    {
+        var now = DateTime.UtcNow;
+        if (key != null && key == _checkpointKey && (now - _checkpointTime).TotalSeconds < 1.5) { _checkpointTime = now; return; }
+        _checkpointKey = key;
+        _checkpointTime = now;
+        _undo.Add(_scene.ToJson());
+        if (_undo.Count > 100) _undo.RemoveAt(0);
+        _redo.Clear();
+    }
+
+    void Undo()
+    {
+        if (_undo.Count == 0) { SetStatus(true, "Nothing to undo."); return; }
+        _redo.Add(_scene.ToJson());
+        RestoreScene(_undo[^1]);
+        _undo.RemoveAt(_undo.Count - 1);
+        SetStatus(true, "Undone.");
+    }
+
+    void Redo()
+    {
+        if (_redo.Count == 0) { SetStatus(true, "Nothing to redo."); return; }
+        _undo.Add(_scene.ToJson());
+        RestoreScene(_redo[^1]);
+        _redo.RemoveAt(_redo.Count - 1);
+        SetStatus(true, "Redone.");
+    }
+
+    void RestoreScene(string json)
+    {
+        _checkpointKey = null;
+        _project.Scenes[0] = Scene.FromJson(json);
+        _canvas.Scene = _scene;
+        if (_scene.Find(_canvas.SelectedId) == null) _canvas.SelectedId = 0;
+        _canvas.InvalidateVisual();
+        RebuildInspector();
+    }
+
+    // ---------------- Play ----------------
+
+    void ScenePlay()
+    {
+        if (_play != null) SceneStop();
+        var world = NewWorld();
+        world.Globals["score"] = 0.0;
+        var scene = _scene.Clone(); // the game plays a copy: the edited scene stays exactly as it was
+        var spawned = world.LoadScene(scene);
+        Log($"▶ Playing {scene.Name} ({spawned.Count} objects).");
+        _play = new PlaySurface(world, scene, spawned)
+        {
+            StopRequested = SceneStop,
+            Crashed = msg => { Log($"⚠ The game stopped: {msg}"); SceneStop(); }
+        };
+        _sceneHost.Content = _play;
+        _sceneBar.Content = _playBar;
+        RebuildInspector();
+        SetStatus(true, "Playing — arrow keys move the player. Esc or Stop to edit again.");
+        Dispatcher.UIThread.Post(() => _play?.Start(), DispatcherPriority.Loaded);
+    }
+
+    void SceneStop()
+    {
+        if (_play == null) return;
+        _play.Halt();
+        _play = null;
+        _sceneHost.Content = _canvas;
+        _sceneBar.Content = _editBar;
+        RebuildInspector();
+        Log("■ Stopped.");
+        SetStatus(true, "Stopped. Back to editing.");
+        Dispatcher.UIThread.Post(() => _canvas.Focus(), DispatcherPriority.Loaded);
+    }
+
+    // ---------------- Colours ----------------
+
+    static readonly string[] Swatches =
+    [
+        "#5B8DEF", "#4FC3F7", "#6FBF73", "#A3D977", "#E8B04B", "#F2994A",
+        "#D97757", "#E05D5D", "#E07AB5", "#9B7BE0", "#6B5B4B", "#ECECEC"
+    ];
+
+    static readonly string[] BackgroundSwatches =
+    [
+        "#1A1410", "#0B0B0B", "#1F1F1F", "#0F1A24", "#14201A", "#201427", "#2B2118", "#1B2A38", "#87B5E0", "#CFE3F0"
+    ];
+
+    static string ColorFor(string mechanism) => mechanism.ToLowerInvariant() switch
+    {
+        "coin" => "#E8B04B",
+        "playermove" => "#5B8DEF",
+        "patrol" => "#6FBF73",
+        "health" => "#E05D5D",
+        "blink" => "#9B7BE0",
+        _ => Swatches[(int)((uint)StableHash(mechanism) % Swatches.Length)]
+    };
+
+    static int StableHash(string s)
+    {
+        int h = 17;
+        foreach (var c in s) h = h * 31 + char.ToLowerInvariant(c);
+        return h;
+    }
 }

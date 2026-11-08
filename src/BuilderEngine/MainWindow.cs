@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Controls.Shapes;
 using Avalonia.Media;
+using Avalonia.Styling;
 using BuilderEngine.Script;
 
 namespace BuilderEngine;
@@ -215,6 +216,16 @@ public sealed partial class MainWindow : Window
         _library.Background = Brushes.Transparent;
         _library.Foreground = Palette.Text;
         _library.Margin = new Thickness(8, 0);
+        // Selected/hovered items in the accent instead of Fluent's blue.
+        void ItemStyle(Func<Avalonia.Styling.Selector?, Avalonia.Styling.Selector> sel, IBrush bg)
+        {
+            var st = new Avalonia.Styling.Style(x => sel(x).Template().OfType<Avalonia.Controls.Presenters.ContentPresenter>());
+            st.Setters.Add(new Avalonia.Styling.Setter(Avalonia.Controls.Presenters.ContentPresenter.BackgroundProperty, bg));
+            st.Setters.Add(new Avalonia.Styling.Setter(Avalonia.Controls.Presenters.ContentPresenter.ForegroundProperty, Palette.Text));
+            _library.Styles.Add(st);
+        }
+        ItemStyle(x => x.OfType<ListBoxItem>().Class(":pointerover"), Palette.Bg2);
+        ItemStyle(x => x.OfType<ListBoxItem>().Class(":selected"), Palette.AccentSoft);
         RefreshLibrary();
         _library.SelectionChanged += (_, _) => { if (_library.SelectedItem is string s && s != _current) OpenMechanism(s); };
 

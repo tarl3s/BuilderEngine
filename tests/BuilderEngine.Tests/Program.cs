@@ -421,6 +421,144 @@ Test("block edits: names and fields", () =>
     Eq("touched by", BlockEdits.EventLabel(EventKind.Touched));
 });
 
+Console.WriteLine("Project / scene");
+string TempDir()
+{
+    string d = Path.Combine(Path.GetTempPath(), "BE_Test_" + Guid.NewGuid().ToString("N")[..8]);
+    Directory.CreateDirectory(d);
+    return d;
+}
+Test("project save -> load round-trip", () =>
+{
+    string dir = TempDir();
+    try
+    {
+        var p = Project.CreateDemo("Round Trip");
+        p.Mechanisms["Spinner"] = "mechanism Spinner\n    param turns: number = 2\n";
+        var player = p.Scenes[0].Objects.First(o => o.Name == "Player");
+        player.Mechanisms.Add(new SceneMechanism { Name = "Coin", Params = { ["value"] = 5.0, ["sound"] = "ding.wav" } });
+        p.Scenes[0].Background = "#102030";
+        p.Save(dir);
+        Eq(true, File.Exists(Path.Combine(dir, "project.json")));
+        Eq(true, File.Exists(Path.Combine(dir, "mechanisms", "Spinner.bs")));
+
+        var q = Project.Load(dir);
+        Eq("Round Trip", q.Name);
+        Eq(p.Scenes[0].Objects.Count, q.Scenes[0].Objects.Count);
+        Eq("#102030", q.Scenes[0].Background);
+        var qp = q.Scenes[0].Objects.First(o => o.Name == "Player");
+        Eq(player.Id, qp.Id); Eq(80.0, qp.X); Eq(48.0, qp.Height); Eq("#5B8DEF", qp.Color);
+        Eq("player", qp.Tags[0]);
+        Eq(2, qp.Mechanisms.Count);
+        Eq(5.0, qp.Mechanisms[1].Params["value"]); Eq("ding.wav", qp.Mechanisms[1].Params["sound"]);
+        Eq(true, q.Mechanisms["Spinner"].Contains("param turns"));
+
+        // A mechanism removed from the project disappears from the folder on the next save.
+        q.Mechanisms.Remove("Spinner");
+        q.Save(dir);
+        Eq(false, File.Exists(Path.Combine(dir, "mechanisms", "Spinner.bs")));
+    }
+    finally { Directory.Delete(dir, true); }
+});
+Test("tolerant load: missing and unknown fields, numbers as text", () =>
+{
+    var p = Project.FromJson("""
+        {
+          // comments are fine
+          "Name": "Loose",
+          "extra": { "whatever": 1 },
+          "scenes": [ { "objects": [
+            { "name": "A", "x": "12.5", "y": "3,5", "tags": "player, hero", "mechanisms": [ "Coin", { "name": "Patrol", "params": { "speed": "90" } } ] },
+            { "id": 7, "mystery": true },
+            { "id": 7, "width": "abc" },
+          ] } ],
+        }
+        """);
+    Eq("Loose", p.Name);
+    var s = p.Scenes[0];
+    Eq(800.0, s.Width); Eq("#1A1410", s.Background);
+    Eq(3, s.Objects.Count);
+    var a = s.Objects[0];
+    Eq(12.5, a.X); Eq(3.5, a.Y); Eq(32.0, a.Width);
+    Eq(2, a.Tags.Count); Eq("hero", a.Tags[1]);
+    Eq("Coin", a.Mechanisms[0].Name); Eq("90", a.Mechanisms[1].Params["speed"]);
+    Eq(3, s.Objects.Select(o => o.Id).Distinct().Count(), "unique ids");
+    Eq(true, s.Objects.All(o => o.Id > 0), "positive ids");
+    Eq(32.0, s.Objects[2].Width, "bad number -> default");
+    Eq(1, Project.FromJson("{}").Scenes.Count, "an empty project still has a scene");
+});
+Test("scene spawns into a world: player collects a coin", () =>
+{
+    var p = Project.CreateDemo();
+    var w = NewWorld("");
+    w.Globals["score"] = 0.0;
+    var map = w.LoadScene(p.Scenes[0]);
+    Eq(p.Scenes[0].Objects.Count, map.Count);
+    w.Step(1.0 / 60);
+    var player = w.FindObject("player")!;
+    Eq(48.0, player.Height, "size from the scene");
+    var coin = map.First(kv => kv.Value.Name == "Coin 1").Key;
+    w.KeysDown.Add("right");
+    for (int i = 0; i < 60 * 3 && !coin.Destroyed; i++) w.Step(1.0 / 60);
+    Eq(true, coin.Destroyed, "coin collected");
+    Eq(1.0, w.Globals["score"]);
+});
+Test("scene param overrides reach the runtime (text numbers converted)", () =>
+{
+    var s = new Scene();
+    s.Add(new SceneObject { Name = "Big coin", Mechanisms = [new SceneMechanism { Name = "Coin", Params = { ["value"] = "7", ["sound"] = "big.wav", ["nope"] = 1.0 } }] });
+    s.Add(new SceneObject { Name = "P", Tags = ["player"] });
+    s.Add(new SceneObject { Name = "Blinker", X = 500, Mechanisms = [new SceneMechanism { Name = "Blink", Params = { ["every"] = 0.25 } }] });
+    var w = NewWorld(""); w.Globals["score"] = 0.0;
+    var map = w.LoadScene(s);
+    var coin = map.First(kv => kv.Value.Name == "Big coin").Key;
+    Eq(7.0, coin.Mechanisms[0].Vars["value"]);
+    Eq("big.wav", coin.Mechanisms[0].Vars["sound"]);
+    Eq(0.25, map.First(kv => kv.Value.Name == "Blinker").Key.Mechanisms[0].Vars["every"]);
+    w.Step(1.0 / 60);
+    Eq(7.0, w.Globals["score"]);
+    Eq(true, w.Output.Contains("♪ big.wav"));
+});
+Test("param values convert to the param's type", () =>
+{
+    Eq(2.5, World.ConvertParam("2,5", "number"));
+    Eq(1.0, World.ConvertParam(true, "seconds"));
+    Eq(true, World.ConvertParam("yes", "bool"));
+    Eq(false, World.ConvertParam(0.0, "yesno"));
+    Eq("3", World.ConvertParam(3.0, "text"));
+    Eq(4.0, World.ConvertParam("4", "any"));
+    Eq("hi", World.ConvertParam("hi", "any"));
+});
+Test("unknown mechanism in a scene is reported, object still appears", () =>
+{
+    var s = new Scene();
+    s.Add(new SceneObject { Name = "Odd", Mechanisms = [new SceneMechanism { Name = "Coyn" }, new SceneMechanism { Name = "Blink" }] });
+    var w = NewWorld("");
+    var map = w.LoadScene(s);
+    Eq(1, map.Count);
+    Eq(1, map.Keys.First().Mechanisms.Count);
+    Eq(true, w.Errors[0].Contains("Did you mean 'Coin'"), w.Errors[0]);
+});
+Test("renaming a mechanism updates scene references", () =>
+{
+    var p = Project.CreateDemo();
+    p.Mechanisms["Patrol"] = "mechanism Patrol\n";
+    int n = p.RenameMechanism("Patrol", "Walker");
+    Eq(1, n);
+    Eq(true, p.Scenes[0].Objects.Any(o => o.Has("Walker")));
+    Eq(false, p.Scenes[0].Objects.Any(o => o.Has("Patrol")));
+    Eq(true, p.Mechanisms.ContainsKey("Walker") && !p.Mechanisms.ContainsKey("Patrol"));
+});
+Test("scene clone is deep (undo snapshots)", () =>
+{
+    var s = Project.CreateDemo().Scenes[0];
+    var c = s.Clone();
+    c.Objects[1].X = 999; c.Objects[1].Mechanisms[0].Params["speed"] = 1.0; c.Objects[1].Tags.Add("x");
+    Eq(80.0, s.Objects[1].X); Eq(false, s.Objects[1].Mechanisms[0].Params.ContainsKey("speed")); Eq(1, s.Objects[1].Tags.Count);
+    var d = s.Objects[1].Clone();
+    Eq("PlayerMove", d.Mechanisms[0].Name);
+});
+
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;
