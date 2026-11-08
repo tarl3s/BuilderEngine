@@ -369,6 +369,7 @@ public sealed partial class MainWindow : Window
     void CommitSource(string text, bool fromBlocks)
     {
         if (_current == null) return;
+        LinkTouched(); // live link: save soon (MainWindow.Link.cs)
         _sources[_current] = text;
         var parsed = Check();
         if (parsed != null && parsed.Count == 1 && parsed[0].Name != _current && !_sources.ContainsKey(parsed[0].Name))

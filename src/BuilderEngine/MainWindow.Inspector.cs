@@ -138,6 +138,7 @@ public sealed partial class MainWindow
         _inspectorRoot.Children.Add(AnimationsRow(o)); // MainWindow.Animations.cs
 
         _inspectorRoot.Children.Add(Field("Tags", TagsEditor(o)));
+        EasyEngineCard(o); // "Built on EasyEngine" for objects with EasyEngine behaviors (MainWindow.Link.cs)
 
         _inspectorRoot.Children.Add(new Border { Height = 1, Background = Palette.Border, Margin = new Thickness(0, 6) });
         _inspectorRoot.Children.Add(Label("MECHANISMS"));
@@ -471,6 +472,7 @@ public sealed partial class MainWindow
         combo.SelectionChanged += (_, _) =>
         {
             if (combo.SelectedItem is not string name) return;
+            if (EasyAsksFirst(o, name)) { Dispatcher.UIThread.Post(RebuildInspector); return; } // MainWindow.Link.cs
             Checkpoint();
             o.Mechanisms.Add(new SceneMechanism { Name = name });
             Dispatcher.UIThread.Post(RebuildInspector);

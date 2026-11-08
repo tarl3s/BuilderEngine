@@ -23,6 +23,7 @@ public sealed partial class MainWindow
             try
             {
                 await Task.Delay(800);
+                if (_eeproj != null) { await SnapEasyLink(dir); Close(); return; } // an EasyEngine project (MainWindow.LinkSnap.cs)
                 if (ArgValue("--snap-only") == "qol") { await SnapQol(dir); Close(); return; } // just the editor conveniences (MainWindow.QolSnap.cs)
                 if (ArgValue("--snap-only") == "prefabs") { await SnapPrefabs(dir); Close(); return; } // prefabs, animations, sprite editor (MainWindow.PrefabsSnap.cs)
                 if (ArgValue("--snap-only") == "systems") { await SnapSystems(dir); Close(); return; } // systems and export (MainWindow.SystemsSnap.cs)

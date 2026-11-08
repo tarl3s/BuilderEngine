@@ -51,13 +51,13 @@ public sealed partial class MainWindow
         int i = Array.IndexOf(args, "--project");
         if (i >= 0 && i + 1 < args.Length)
         {
-            _projectDir = Path.GetFullPath(args[i + 1]);
+            SetProjectPath(args[i + 1]); // a folder or an .eeproj (MainWindow.Link.cs)
             _projectFromArg = true;
         }
         ProjectsInit();
         if (!_projectFromArg)
-            _projectDir = LaunchProject // picked on the start screen (LauncherWindow)
-                ?? (_settings.Get("lastProject") is { } last && Project.Exists(last) ? last : Path.Combine(ProjectsRoot, "My Game"));
+            SetProjectPath(LaunchProject // picked on the start screen (LauncherWindow)
+                ?? (_settings.Get("lastProject") is { } last && EasyLink.IsProjectFolder(last) ? last : Path.Combine(ProjectsRoot, "My Game")));
 
         LoadProject();
         RememberProject();
@@ -70,7 +70,8 @@ public sealed partial class MainWindow
 
     void LoadProject()
     {
-        if (Project.Exists(_projectDir))
+        if (_eeproj != null) LoadEeproj(); // an EasyEngine project (MainWindow.Link.cs)
+        else if (Project.Exists(_projectDir))
         {
             try { _project = Project.Load(_projectDir); }
             catch (Exception e)
@@ -93,10 +94,11 @@ public sealed partial class MainWindow
         }
         AdoptProjectMechanisms();
         // Projects made before sounds existed (or by hand) get the starter sounds once.
-        try { if (!Directory.Exists(Sounds.Folder(_projectDir))) Sounds.WriteDefaults(_projectDir); }
+        try { if (_eeproj == null && !Directory.Exists(Sounds.Folder(_projectDir))) Sounds.WriteDefaults(_projectDir); }
         catch (Exception e) { Log($"⚠ Couldn't write the starter sounds: {e.Message}"); }
         ToolsOnProjectLoaded();   // MainWindow.Tools.cs
         PluginsOnProjectLoaded(); // MainWindow.Plugins.cs
+        LinkOnProjectLoaded();    // the file watcher and live link (MainWindow.Link.cs)
     }
 
     /// <summary>The project's own mechanisms join the editor's sources (the demo brings its cutscene, Intro).</summary>
@@ -125,7 +127,7 @@ public sealed partial class MainWindow
         try
         {
             SyncProjectMechanisms();
-            _project.Save(_projectDir);
+            SaveProjectFiles(); // project.json + mechanisms, or the .eeproj (MainWindow.Link.cs)
             return true;
         }
         catch (Exception e)
@@ -351,6 +353,7 @@ public sealed partial class MainWindow
         if (name.StartsWith(LibDragTag)) { _ = DropFromLibraryAsync(name[LibDragTag.Length..], at, target); return; }
         if (name.StartsWith(SysDragTag)) { OnSystemDropped(name[SysDragTag.Length..], at); return; } // MainWindow.Systems.cs
         if (!_sources.ContainsKey(name) || _play != null) return;
+        if (target != null && !target.Has(name) && EasyAsksFirst(target, name)) return; // it has EasyEngine behaviors (MainWindow.Link.cs)
         if (target != null)
         {
             if (!target.Has(name))
@@ -412,6 +415,7 @@ public sealed partial class MainWindow
     void Checkpoint(string? key = null)
     {
         var now = DateTime.UtcNow;
+        LinkTouched(); // live link: save soon (MainWindow.Link.cs)
         if (key != null && key == _checkpointKey && (now - _checkpointTime).TotalSeconds < 1.5) { _checkpointTime = now; return; }
         _checkpointKey = key;
         _checkpointTime = now;
@@ -426,6 +430,7 @@ public sealed partial class MainWindow
     /// <summary>Adds an undo step that was taken earlier: a tool use remembers the scene before it and adds it at the end.</summary>
     void PushUndo(string before)
     {
+        LinkTouched();
         _checkpointKey = null;
         _undo.Add(before);
         if (_undo.Count > 100) _undo.RemoveAt(0);

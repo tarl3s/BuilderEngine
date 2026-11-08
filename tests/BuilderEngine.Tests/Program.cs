@@ -1255,6 +1255,7 @@ Test("opening never touches Ollama when the cloud AI is chosen", () =>
 
 SystemsTests.Run(Test); // systems (sets of mechanisms that work together) and "Export game…" (SystemsTests.cs)
 
+LinkTests.Run(Test); // the EasyEngine ⇄ BuilderEngine link: .eeproj round-trips, layers, ids, live link (LinkTests.cs)
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;
