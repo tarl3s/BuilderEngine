@@ -7,8 +7,18 @@ namespace BuilderEngine;
 public static class Program
 {
     [STAThread]
-    public static void Main(string[] args) =>
-        AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace().StartWithClassicDesktopLifetime(args);
+    public static int Main(string[] args)
+    {
+        // --make-sample "Name" <folder>: write a sample game project and exit (no window).
+        int i = Array.IndexOf(args, "--make-sample");
+        if (i >= 0)
+        {
+            if (i + 2 >= args.Length) { Console.Error.WriteLine("usage: --make-sample \"Name\" <folder>"); return 2; }
+            try { BuilderEngine.Script.SampleGames.Make(args[i + 1], args[i + 2]); return 0; }
+            catch (Exception e) { Console.Error.WriteLine(e.Message); return 1; }
+        }
+        return AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace().StartWithClassicDesktopLifetime(args);
+    }
 }
 
 public sealed class App : Application
