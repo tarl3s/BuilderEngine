@@ -366,6 +366,23 @@ stopped by solid tiles).
 The game draws a small light map over the view (smooth, tinted near coloured lights), under the screen objects and the
 HUD. Starter kit: **Light**, **Darkness**, **DayNight** (sunlight goes down and up; everyone is told "night" and "day").
 
+### Finding the way, angles and the minimap
+
+| In a script | Meaning |
+|---|---|
+| `chase player at 90` · `chase 400, 300 at 90` | (every tick) walk towards it the short way round solid tiles: a search over the cells, kept per object and searched again when either end changes cell or a tile changes; it heads for the furthest cell it can reach in a straight line, so it moves smoothly and turns corners cleanly |
+| `path_next(player)` · `can_see(player)` · `can_see(a, b)` | the point to head for now (`[x, y]`) / no solid tile in a straight line between them |
+| `sin(90)` · `cos(0)` · `angle(self, player)` · `angle(x1, y1, x2, y2)` | degrees (0 = right, 90 = down): a ring of shards is `made.vx = cos(a) * 200` |
+| `overlaps(self, player)` · `clamp(hp, 0, 10)` · `random_number(0.5, 2)` | the boxes are on top of each other right now (not only when they start to) / a number kept in a range / a random number with decimals |
+| `show minimap at 650, 12 with 136, 136 fog` · `hide minimap` | a small map of the tiles in a corner; with `fog` only the revealed cells show |
+| `minimap reveal 6` · `minimap reveal 6 at find("player")` · `minimap reveal all` · `minimap_seen(x, y)` | reveal the cells within 6 cells (call it every tick) |
+| `minimap mark "enemy" with "#E05D5D"` · `minimap mark "boss" with "#B07BFF" always` · `minimap unmark "enemy"` | a dot per object with that tag (`always` = also in the fog); the player is always a white dot |
+| `show bar hp of 90 at 200, 382 with "#9B6BFF" size 400, 12` | a bar of any size (a boss's health) |
+
+Starter kit (`StarterKit/Navigation.bs`): **Hunter** (hunts the nearest object with a tag once it sees it, round walls),
+**Minimap**. The sample game **Hollow Lantern** (`--make-sample "Hollow Lantern" <folder>`, its mechanisms in
+`src/BuilderEngine.Script/Samples/HollowLantern/`) is a whole top-down mining survival game made with them.
+
 ### The mouse
 
 | In a script | Meaning |

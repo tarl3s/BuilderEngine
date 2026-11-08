@@ -254,6 +254,10 @@ public sealed partial class World
         if (c.Named.TryGetValue("with", out var with))
             foreach (var v in with)
                 if (v is string col) item.Color = col;
+        var words = Words(c, "at", "with"); // 'size 300, 14': a wider or taller bar (a boss's health)
+        int sz = words.FindIndex(x => x.Name == "size");
+        if (sz >= 0 && sz + 1 < words.Count) item.Width = Math.Max(4, c.Number(words[sz + 1].Value));
+        if (sz >= 0 && sz + 2 < words.Count) item.Height = Math.Max(2, c.Number(words[sz + 2].Value));
         item.Value = c.Number(c.Args[0]);
         item.Max = maxExpr != null ? c.Number(c.Args[of + 1]) : Math.Max(item.Value, 1);
     }

@@ -1,0 +1,19 @@
+mechanism Shard
+    # A shard of murk flung by the Warden: it flies straight (set its vx and vy), breaks on walls and hurts the
+    # player it touches.
+    param damage: number = 1
+    param life: seconds = 3.5
+
+    when start
+        look "shard.png"
+        light 28 with "#B080FF" strength 0.7
+        born = time
+
+    when tick
+        if time - born > life or tile_solid(self.x + self.width / 2, self.y + self.height / 2)
+            destroy self
+            stop
+        p = find("player")
+        if p and overlaps(self, p)
+            tell p "damage" damage
+            destroy self

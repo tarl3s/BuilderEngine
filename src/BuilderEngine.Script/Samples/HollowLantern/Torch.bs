@@ -1,0 +1,8 @@
+mechanism Torch
+    # A torch on the cave floor: a warm, flickering light. Creatures keep away from it.
+    param radius: number = 135
+
+    when start
+        tag self "torch"
+        look "torch.png"
+        light radius with "#FFB060", 0.35

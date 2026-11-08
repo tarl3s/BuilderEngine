@@ -1,0 +1,94 @@
+mechanism Gloomling
+    # A shadow creature of the Hollow. It drifts about in the dark; when it sees the player close by it hunts them
+    # (finding its way round the walls) and bites. It is afraid of torches. Only its red eyes glow.
+    # Hit it with the pickaxe (it uses Health); sometimes it leaves a murk gem behind.
+    uses Health max 3, safe_time 0.15
+    param picture: Image = "gloomling.png"
+    param toughness: number = 3
+    param speed: number = 55
+    param hunt_speed: number = 100
+    param notice: number = 240
+    param bite: number = 1
+    param fear: number = 120
+    param loot_chance: number = 35
+
+    when start
+        tag self "enemy"
+        tag self "gloomling"
+        body 0, 0
+        look picture
+        light 22 with "#FF4A3A", 0.3 strength 0.55
+        Health.max = toughness
+        Health.hp = toughness
+        hunting = false
+        heading = random(0, 359)
+        next_turn = 0
+        next_bite = 0
+        stun_until = 0
+
+    when tick
+        p = find("player")
+        if not p
+            self.vx = 0
+            self.vy = 0
+            stop
+        if time < stun_until: stop
+        t = nearest("torch")
+        d = distance(self, p)
+        if t and distance(self, t) < fear
+            a = angle(t, self)
+            self.vx = cos(a) * hunt_speed
+            self.vy = sin(a) * hunt_speed
+            hunting = false
+        else
+            if not hunting and d < notice and can_see(p): hunting = true
+            if hunting and d > notice * 2.2: hunting = false
+            if hunting
+                chase p at hunt_speed
+            else
+                wander
+        if overlaps(self, p) and time >= next_bite
+            next_bite = time + 0.9
+            tell p "damage" bite
+            tell p "knock" self
+
+    to wander
+        if time >= next_turn or (abs(self.vx) < 1 and abs(self.vy) < 1)
+            heading = random(0, 359)
+            next_turn = time + random_number(1.5, 3.5)
+        self.vx = cos(heading) * speed
+        self.vy = sin(heading) * speed
+        if self.vx < 0: face left
+        if self.vx > 0: face right
+
+    when Health.hurt
+        play "squish.wav"
+        hunting = true
+        stun_until = time + 0.2
+        p = find("player")
+        if p
+            a = angle(p, self)
+            self.vx = cos(a) * 240
+            self.vy = sin(a) * 240
+        self.opacity = 0.5
+        wait 0.1
+        self.opacity = 1
+
+    when Health.died
+        if random(1, 100) <= loot_chance
+            make Pickup at self.x + 4, self.y + 4 with 14, 14
+            made.Pickup.item = "murk"
+            made.Pickup.sound = "pickup.wav"
+            made.picture = "murk.png"
+            made.light = 20
+        game = find("Game")
+        if game: tell game "creature down"
+        destroy self
+
+    when told "warden fallen"
+        # With the Warden gone, the shadows fade away.
+        self.vx = 0
+        self.vy = 0
+        stun_until = time + 10
+        fade self to 0 in 1
+        destroy self
