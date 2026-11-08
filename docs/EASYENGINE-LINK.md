@@ -146,7 +146,9 @@ argument: **EasyEngine opens a `.eeproj` given as its first argument in the edit
 BuilderEngine's start screen and Project menu: **Open project folder…** takes a folder with a `project.json` or a
 `.eeproj`; **Open EasyEngine project…** takes a `.eeproj` file. Recent lists the folder with an **EasyEngine** badge.
 `--project` takes either. A folder with both files opens `project.json` (unless the `.eeproj` is picked as a file).
-Saving writes the `.eeproj` atomically; a `.eeproj` that can't be read is never saved over.
+Saving writes the `.eeproj` atomically; a `.eeproj` that can't be read is never saved over. Likewise `SaveFromEeproj`
+throws (an `IOException` the caller shows) instead of saving into a folder whose `project.json` can't be read, since
+saving deletes the mechanism files it doesn't list.
 
 ## Live link
 

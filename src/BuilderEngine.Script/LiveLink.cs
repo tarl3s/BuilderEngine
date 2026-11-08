@@ -68,7 +68,8 @@ public sealed class LiveLink : IDisposable
     {
         if (string.IsNullOrEmpty(path)) return false;
         string full;
-        try { full = Path.GetFullPath(path); } catch { return false; }
+        try { full = Path.GetFullPath(path); }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException or System.Security.SecurityException) { return false; } // not a usable path
         if (string.Equals(full, FilePath, StringComparison.OrdinalIgnoreCase)) return true;
         if (!IncludesMechanisms) return false;
         string dir = Path.Combine(Folder, Project.MechanismsFolder) + Path.DirectorySeparatorChar;

@@ -76,16 +76,30 @@ public static partial class EasyLink
     /// <summary>
     /// Saves <c>.eeproj</c> text into a BuilderEngine project folder (EasyEngine saving a BuilderEngine project):
     /// <c>project.json</c> (atomically) and the mechanisms from <c>Builder.mechanisms</c>. When the text carries no
-    /// <c>Builder.mechanisms</c> at all, the folder's mechanisms are kept.
+    /// <c>Builder.mechanisms</c> at all, the folder's mechanisms are kept. Throws <see cref="IOException"/> (nothing written)
+    /// when the folder has a <c>project.json</c> that can't be read: saving would delete mechanism files it doesn't list.
     /// </summary>
     public static void SaveFromEeproj(string eeprojJson, string beFolder)
     {
         var ee = ParseObject(eeprojJson);
         var p = FromEeproj(ee, beFolder, stripImagesFolder: true);
         bool carriesMechanisms = Get(ee, BuilderKey) is JsonObject b && Get(b, "mechanisms") is JsonObject;
-        if (!carriesMechanisms && Project.Exists(beFolder))
-            try { foreach (var (n, src) in Project.Load(beFolder).Mechanisms) p.Mechanisms.TryAdd(n, src); }
-            catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { }
+        if (Project.Exists(beFolder))
+        {
+            // Never save over a folder whose project can't be read: saving deletes the mechanism files it doesn't list.
+            Project old;
+            try
+            {
+                if (Project.Parse(File.ReadAllText(Path.Combine(beFolder, Project.FileName))) is not JsonObject)
+                    throw new JsonException("project.json isn't a JSON object.");
+                old = Project.Load(beFolder);
+            }
+            catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+            {
+                throw new IOException($"The BuilderEngine project in \"{beFolder}\" can't be read ({e.Message}), so it wasn't saved over. Fix or move its project.json first.", e);
+            }
+            if (!carriesMechanisms) foreach (var (n, src) in old.Mechanisms) p.Mechanisms.TryAdd(n, src);
+        }
         p.Save(beFolder);
     }
 

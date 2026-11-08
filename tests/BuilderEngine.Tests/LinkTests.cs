@@ -421,6 +421,47 @@ static class LinkTests
             });
         });
 
+        test("SaveFromEeproj never saves over a folder whose project.json can't be read (its mechanism files stay)", () =>
+        {
+            InTemp(tmp =>
+            {
+                var p = Project.CreateDemo("Broken");
+                p.Save(tmp);
+                string mechDir = Path.Combine(tmp, Project.MechanismsFolder);
+                var files = Directory.GetFiles(mechDir, "*.bs").Select(File.ReadAllText).ToList();
+                True(files.Count > 0, "the demo has mechanism files");
+                string ee = EasyLink.ToEeprojFromFolder(tmp);
+                var noMechs = Parse(ee); noMechs.Remove("Builder");
+                foreach (var broken in new[] { "{ \"name\": \"Broken\", \"scenes\": [ ", "[1, 2]" })
+                {
+                    File.WriteAllText(Path.Combine(tmp, Project.FileName), broken);
+                    foreach (var text in new[] { ee, noMechs.ToJsonString() })
+                    {
+                        bool threw = false;
+                        try { EasyLink.SaveFromEeproj(text, tmp); }
+                        catch (IOException e) { threw = e.Message.Contains("can't be read"); }
+                        True(threw, "a clear error instead of saving over " + broken);
+                        Eq(broken, File.ReadAllText(Path.Combine(tmp, Project.FileName)), "project.json untouched");
+                        True(Directory.GetFiles(mechDir, "*.bs").Select(File.ReadAllText).SequenceEqual(files), "mechanism files untouched");
+                    }
+                }
+            });
+        });
+
+        test("LiveLink.Matters: an unusable path is simply not the project's (no hidden errors)", () =>
+        {
+            InTemp(tmp =>
+            {
+                string file = Path.Combine(tmp, "x.eeproj");
+                File.WriteAllText(file, "{}");
+                using var link = new LiveLink(file, 50);
+                True(link.Matters(file), "the file itself");
+                True(!link.Matters("bad\0name.eeproj"), "a path with a NUL");
+                True(!link.Matters(""), "empty");
+                True(!link.Matters(Path.Combine(tmp, "other.eeproj")), "another file");
+            });
+        });
+
         test("an EasyEngine prefab is a BuilderEngine prefab; edits to it change only those fields", () =>
         {
             string json = Synthetic();
