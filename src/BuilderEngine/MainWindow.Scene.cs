@@ -21,7 +21,7 @@ public sealed partial class MainWindow
     /// <summary>The starter kit as shipped, to tell which mechanisms belong to the project (new or edited ones).</summary>
     Dictionary<string, string> _starterSources = new();
 
-    Scene _scene => _project.Scenes[0];
+    Scene _scene => _project.Scenes[Math.Clamp(_sceneIndex, 0, _project.Scenes.Count - 1)];
 
     SceneCanvas _canvas = null!;
     readonly ContentControl _sceneHost = new();
@@ -29,16 +29,17 @@ public sealed partial class MainWindow
     Control _editBar = null!, _playBar = null!;
     readonly TextBlock _zoomText = new() { VerticalAlignment = VerticalAlignment.Center, Foreground = Palette.TextDim, FontSize = 12, MinWidth = 44, TextAlignment = TextAlignment.Center };
     PlaySurface? _play;
+    readonly TextBlock _playText = new();
+    /// <summary>The scene the game is showing (it changes with goto_scene; the edited scene stays the same).</summary>
+    string? _playSceneName;
 
     readonly List<string> _undo = new(), _redo = new();
     string? _checkpointKey;
     DateTime _checkpointTime;
 
     string? _dragName;
+    LibItem? _dragItem;
     Point _dragStart;
-
-    static readonly string SettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BuilderEngine", "settings.json");
-    static readonly string DefaultProjectDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "BuilderEngine Projects", "My Game");
 
     // ---------------- Project ----------------
 
@@ -53,11 +54,13 @@ public sealed partial class MainWindow
             _projectDir = Path.GetFullPath(args[i + 1]);
             _projectFromArg = true;
         }
-        else _projectDir = ReadSetting("lastProject") is { } last && Project.Exists(last) ? last : DefaultProjectDir;
+        ProjectsInit();
+        if (!_projectFromArg)
+            _projectDir = _settings.Get("lastProject") is { } last && Project.Exists(last) ? last : Path.Combine(ProjectsRoot, "My Game");
 
         LoadProject();
-        if (!_projectFromArg) WriteSetting("lastProject", _projectDir);
-        Title = $"BuilderEngine — {_project.Name}";
+        RememberProject();
+        UpdateTitle();
         AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
         SceneSnapIfAsked();
     }
@@ -85,6 +88,9 @@ public sealed partial class MainWindow
         foreach (var (_, src) in _project.Mechanisms)
             foreach (var chunk in SplitMechanisms(src))
                 _sources[chunk.Name] = chunk.Source;
+        // Projects made before sounds existed (or by hand) get the starter sounds once.
+        try { if (!Directory.Exists(Sounds.Folder(_projectDir))) Sounds.WriteDefaults(_projectDir); }
+        catch (Exception e) { Log($"⚠ Couldn't write the starter sounds: {e.Message}"); }
     }
 
     string ProjectNameFromFolder() => Path.GetFileName(_projectDir.TrimEnd('\\', '/')) is { Length: > 0 } n ? n : "My Game";
@@ -127,34 +133,14 @@ public sealed partial class MainWindow
         TrySave();
     }
 
-    static string? ReadSetting(string key)
-    {
-        try
-        {
-            if (!File.Exists(SettingsPath)) return null;
-            return (JsonNode.Parse(File.ReadAllText(SettingsPath)) as JsonObject)?[key]?.GetValue<string>();
-        }
-        catch { return null; }
-    }
-
-    static void WriteSetting(string key, string value)
-    {
-        try
-        {
-            JsonObject o;
-            try { o = File.Exists(SettingsPath) ? JsonNode.Parse(File.ReadAllText(SettingsPath)) as JsonObject ?? new() : new(); }
-            catch { o = new(); }
-            o[key] = value;
-            Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-            File.WriteAllText(SettingsPath, o.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-        }
-        catch { /* settings are a convenience */ }
-    }
-
     // ---------------- Mechanism changes from the shell ----------------
 
     /// <summary>A mechanism was added or its source changed (refresh pickers / inspector params).</summary>
-    void SceneOnMechanismsChanged() => RebuildInspector();
+    void SceneOnMechanismsChanged()
+    {
+        RefreshLibraryIfSectionsChanged();
+        RebuildInspector();
+    }
 
     void SceneOnMechanismRenamed(string oldName, string newName)
     {
@@ -162,6 +148,11 @@ public sealed partial class MainWindow
         // Undo snapshots follow the rename too, so undo never brings back a name that no longer exists.
         for (int i = 0; i < _undo.Count; i++) _undo[i] = RenameInSnapshot(_undo[i], oldName, newName);
         for (int i = 0; i < _redo.Count; i++) _redo[i] = RenameInSnapshot(_redo[i], oldName, newName);
+        foreach (var h in _sceneHistory.Values)
+        {
+            for (int i = 0; i < h.Undo.Count; i++) h.Undo[i] = RenameInSnapshot(h.Undo[i], oldName, newName);
+            for (int i = 0; i < h.Redo.Count; i++) h.Redo[i] = RenameInSnapshot(h.Redo[i], oldName, newName);
+        }
         _canvas.InvalidateVisual();
         RebuildInspector();
     }
@@ -221,6 +212,8 @@ public sealed partial class MainWindow
         fit.Click += (_, _) => _canvas.Fit();
 
         var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        left.Children.Add(ScenePicker());
+        left.Children.Add(new Border { Width = 1, Height = 20, Background = Palette.Border, Margin = new Thickness(4, 0) });
         left.Children.Add(add);
         left.Children.Add(new Border { Width = 1, Height = 20, Background = Palette.Border, Margin = new Thickness(4, 0) });
         left.Children.Add(grid);
@@ -246,7 +239,10 @@ public sealed partial class MainWindow
     Control PlayBar()
     {
         var dot = new Avalonia.Controls.Shapes.Ellipse { Width = 8, Height = 8, Fill = Palette.Ok, VerticalAlignment = VerticalAlignment.Center };
-        var text = new TextBlock { Text = "Playing — Esc or Stop to go back to editing (your scene stays as it was).", Foreground = Palette.Text, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
+        var text = _playText;
+        text.Foreground = Palette.Text;
+        text.VerticalAlignment = VerticalAlignment.Center;
+        text.FontSize = 12;
         var stop = PlainButton("■  Stop");
         stop.Click += (_, _) => SceneStop();
         var row = new DockPanel { Margin = new Thickness(12, 6) };
@@ -274,8 +270,9 @@ public sealed partial class MainWindow
         {
             if (!e.GetCurrentPoint(_library).Properties.IsLeftButtonPressed) return;
             var item = (e.Source as Visual)?.FindAncestorOfType<ListBoxItem>(includeSelf: true);
-            if ((item?.DataContext ?? item?.Content) is not string name) return;
-            _dragName = name;
+            if ((item?.DataContext ?? item?.Content) is not LibItem { IsHeader: false } lib || lib.Name.Length == 0) return;
+            _dragItem = lib;
+            _dragName = lib.Section == LibSection.Mine ? LibDragTag + lib.Name : lib.Name;
             _dragStart = e.GetPosition(_library);
             e.Pointer.Capture(_library);
             e.Handled = true;
@@ -293,23 +290,32 @@ public sealed partial class MainWindow
             ShowTab(scene: true);
             var data = new DataTransfer();
             data.Add(DataTransferItem.CreateText(SceneCanvas.DragPrefix + name));
-            SetStatus(true, $"Drop “{name}” on the scene to make an object, or on an object to add it.");
+            SetStatus(true, $"Drop “{(name.StartsWith(LibDragTag) ? name[LibDragTag.Length..] : name)}” on the scene to make an object, or on an object to add it.");
             await DragDrop.DoDragDropAsync(e, data, DragDropEffects.Copy);
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
         _library.AddHandler(PointerReleasedEvent, (_, e) =>
         {
             if (_dragName == null) return;
-            string name = _dragName;
             _dragName = null;
             e.Pointer.Capture(null);
             e.Handled = true;
-            OpenMechanism(name);
+            if (_dragItem != null) OnLibraryItemClicked(_dragItem);
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
+    }
+
+    /// <summary>A My Library mechanism dropped on the scene: copy it into the project first (it may ask about a name clash).</summary>
+    async Task DropFromLibraryAsync(string libName, Point at, SceneObject? target)
+    {
+        if (_play != null) return;
+        int targetId = target?.Id ?? 0;
+        if (await UseFromLibraryAsync(libName, open: false) is not { } name) return;
+        OnMechanismDropped(name, at, targetId == 0 ? null : _scene.Find(targetId));
     }
 
     void OnMechanismDropped(string name, Point at, SceneObject? target)
     {
+        if (name.StartsWith(LibDragTag)) { _ = DropFromLibraryAsync(name[LibDragTag.Length..], at, target); return; }
         if (!_sources.ContainsKey(name) || _play != null) return;
         if (target != null)
         {
@@ -436,6 +442,7 @@ public sealed partial class MainWindow
         bool ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
         if (!ctrl) return;
         if (e.Key == Key.S) { SceneSave(); e.Handled = true; return; }
+        if (e.Key == Key.O && !_snapMode) { _ = OpenProjectAsync(); e.Handled = true; return; }
         if (!_sceneTab || _play != null || FocusManager?.GetFocusedElement() is TextBox) return;
         bool shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
         if (e.Key == Key.Y || (e.Key == Key.Z && shift)) { Redo(); e.Handled = true; }
@@ -477,11 +484,12 @@ public sealed partial class MainWindow
     void RestoreScene(string json)
     {
         _checkpointKey = null;
-        _project.Scenes[0] = Scene.FromJson(json);
+        _project.Scenes[_sceneIndex] = Scene.FromJson(json);
         _canvas.Scene = _scene;
         if (_scene.Find(_canvas.SelectedId) == null) _canvas.SelectedId = 0;
         _canvas.InvalidateVisual();
         RebuildInspector();
+        RefreshScenes();
     }
 
     // ---------------- Play ----------------
@@ -491,19 +499,39 @@ public sealed partial class MainWindow
         if (_play != null) SceneStop();
         var world = NewWorld();
         world.Globals["score"] = 0.0;
-        var scene = _scene.Clone(); // the game plays a copy: the edited scene stays exactly as it was
+        world.UseScenes(_project.Scenes.Select(s => s.Name));
+        world.SoundPlayed += PlayGameSound;
+        world.SceneRequested += name => Dispatcher.UIThread.Post(() => PlaySwitchScene(name));
+        StartPlaySurface(world, _scene.Clone()); // the game plays a copy: the edited scene stays exactly as it was
+        RebuildInspector();
+        SetStatus(true, "Playing — arrow keys move the player. Esc or Stop to edit again.");
+    }
+
+    /// <summary>Shows a world playing a scene (a new surface each scene, so everything a scene sets up starts fresh).</summary>
+    void StartPlaySurface(World world, Scene scene)
+    {
         var spawned = world.LoadScene(scene);
         Log($"▶ Playing {scene.Name} ({spawned.Count} objects).");
+        _play?.Halt();
         _play = new PlaySurface(world, scene, spawned)
         {
             StopRequested = SceneStop,
             Crashed = msg => { Log($"⚠ The game stopped: {msg}"); SceneStop(); }
         };
+        _playSceneName = scene.Name;
+        _playText.Text = $"Playing {scene.Name} — Esc or Stop to go back to editing (your scenes stay as they were).";
         _sceneHost.Content = _play;
         _sceneBar.Content = _playBar;
-        RebuildInspector();
-        SetStatus(true, "Playing — arrow keys move the player. Esc or Stop to edit again.");
-        Dispatcher.UIThread.Post(() => _play?.Start(), DispatcherPriority.Loaded);
+        var surface = _play;
+        Dispatcher.UIThread.Post(() => { if (_play == surface) surface.Start(); }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>A script asked for another scene (goto_scene): same mechanisms and globals (score), the new scene's objects.</summary>
+    void PlaySwitchScene(string name)
+    {
+        if (_play == null) return;
+        if (_project.FindScene(name) is not { } target) { Log($"⚠ There's no scene called “{name}” any more."); return; }
+        StartPlaySurface(_play.World.ForNextScene(), target.Clone());
     }
 
     void SceneStop()
@@ -511,6 +539,8 @@ public sealed partial class MainWindow
         if (_play == null) return;
         _play.Halt();
         _play = null;
+        _playSceneName = null;
+        _audio.StopAll();
         _sceneHost.Content = _canvas;
         _sceneBar.Content = _editBar;
         RebuildInspector();

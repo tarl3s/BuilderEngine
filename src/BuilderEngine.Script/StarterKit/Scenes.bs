@@ -1,0 +1,9 @@
+# Starter kit: moving between scenes.
+
+mechanism Door
+    param scene: Scene = "Level 2"
+    param sound: Sound = "powerup.wav"
+
+    when touched by "player"
+        play sound
+        goto_scene scene

@@ -36,6 +36,7 @@ public sealed partial class MainWindow : Window
     readonly Button _tabScene = new(), _tabMech = new();
     readonly Button _modeBlocks = new(), _modeBoth = new(), _modeCode = new();
     Control? _sceneView, _inspector, _mechInfo, _mechPanel;
+    Control _leftPanel = null!;
     bool _loading;
     bool _sceneTab = true;
     string _mode = "both";
@@ -80,6 +81,7 @@ public sealed partial class MainWindow : Window
         ShowTab(scene: true);
         SetMode("both");
         Closing += (_, _) => SceneOnClosing();
+        Closed += (_, _) => _audio.Dispose();
     }
 
     // ---------------- Shared helpers for feature files ----------------
@@ -92,7 +94,7 @@ public sealed partial class MainWindow : Window
         _loading = true;
         _code.Text = _sources[name];
         _loading = false;
-        if (!Equals(_library.SelectedItem, name)) _library.SelectedItem = name;
+        SelectLibraryItem(name);
         Check();
         BlocksShow(_sources[name]);
         ShowTab(scene: false);
@@ -116,13 +118,6 @@ public sealed partial class MainWindow : Window
         StyleTab(_tabScene, scene);
         StyleTab(_tabMech, !scene);
         _tabMech.Content = _current == null ? "Mechanism" : $"Mechanism: {_current}";
-    }
-
-    internal void RefreshLibrary()
-    {
-        var sel = _library.SelectedItem as string;
-        _library.ItemsSource = _sources.Keys.OrderBy(k => k).ToList();
-        if (sel != null && _sources.ContainsKey(sel)) _library.SelectedItem = sel;
     }
 
     /// <summary>A fresh world with every mechanism loaded; prints and errors go to the console.</summary>
@@ -175,6 +170,11 @@ public sealed partial class MainWindow : Window
         bar.Children.Add(right);
         DockPanel.SetDock(logo, Dock.Left);
         bar.Children.Add(logo);
+        var project = ProjectMenuButton();
+        project.VerticalAlignment = VerticalAlignment.Center;
+        project.Margin = new Thickness(0, 0, 16, 0);
+        DockPanel.SetDock(project, Dock.Left);
+        bar.Children.Add(project);
         bar.Children.Add(tabs);
         return WithBorder(bar, new Thickness(0, 0, 0, 1));
     }
@@ -211,7 +211,7 @@ public sealed partial class MainWindow : Window
         header.Children.Add(add);
         header.Children.Add(Label("MECHANISMS"));
 
-        var hint = new TextBlock { Text = "Click to edit. Drag onto the scene to use.", Foreground = Palette.TextDim, FontSize = 11, Margin = new Thickness(16, 0, 16, 8), TextWrapping = TextWrapping.Wrap };
+        var hint = new TextBlock { Text = "Click to edit. Drag onto the scene to use. Right-click to save one to My Library.", Foreground = Palette.TextDim, FontSize = 11, Margin = new Thickness(16, 0, 16, 8), TextWrapping = TextWrapping.Wrap };
 
         _library.Background = Brushes.Transparent;
         _library.Foreground = Palette.Text;
@@ -226,16 +226,24 @@ public sealed partial class MainWindow : Window
         }
         ItemStyle(x => x.OfType<ListBoxItem>().Class(":pointerover"), Palette.Bg2);
         ItemStyle(x => x.OfType<ListBoxItem>().Class(":selected"), Palette.AccentSoft);
+        SetupLibraryList();
         RefreshLibrary();
-        _library.SelectionChanged += (_, _) => { if (_library.SelectedItem is string s && s != _current) OpenMechanism(s); };
+        _library.SelectionChanged += (_, _) =>
+        {
+            if (_library.SelectedItem is LibItem { IsHeader: false, Section: not LibSection.Mine } it && it.Name.Length > 0 && it.Name != _current) OpenMechanism(it.Name);
+        };
+        var sounds = SoundsPanel();
 
         var panel = new DockPanel { Background = Palette.Bg1 };
         DockPanel.SetDock(header, Dock.Top);
         panel.Children.Add(header);
         DockPanel.SetDock(hint, Dock.Top);
         panel.Children.Add(hint);
+        DockPanel.SetDock(sounds, Dock.Bottom);
+        panel.Children.Add(sounds);
         panel.Children.Add(_library);
-        return WithBorder(panel, new Thickness(0, 0, 1, 0));
+        _leftPanel = WithBorder(panel, new Thickness(0, 0, 1, 0));
+        return _leftPanel;
     }
 
     Control MechanismPanel()
@@ -271,7 +279,17 @@ public sealed partial class MainWindow : Window
         modes.Children.Add(_modeBlocks);
         modes.Children.Add(_modeBoth);
         modes.Children.Add(_modeCode);
-        var strip = new Border { Background = Palette.Bg1, BorderBrush = Palette.Border, BorderThickness = new Thickness(0, 0, 0, 1), Child = modes };
+        var toLibrary = PlainButton("Save to My Library");
+        toLibrary.Padding = new Thickness(12, 5);
+        toLibrary.Margin = new Thickness(12, 8);
+        ToolTip.SetTip(toLibrary, "Keep a copy in your personal library, so every project can use it");
+        toLibrary.Click += (_, _) => { if (_current != null) _ = SaveToLibraryAsync(_current); };
+        var stripRow = new DockPanel();
+        DockPanel.SetDock(modes, Dock.Right);
+        stripRow.Children.Add(modes);
+        toLibrary.HorizontalAlignment = HorizontalAlignment.Left;
+        stripRow.Children.Add(toLibrary);
+        var strip = new Border { Background = Palette.Bg1, BorderBrush = Palette.Border, BorderThickness = new Thickness(0, 0, 0, 1), Child = stripRow };
 
         var panel = new DockPanel();
         DockPanel.SetDock(strip, Dock.Top);
@@ -337,7 +355,7 @@ public sealed partial class MainWindow : Window
             _current = parsed[0].Name;
             _sources[_current] = text;
             RefreshLibrary();
-            _library.SelectedItem = _current;
+            SelectLibraryItem(_current);
             SceneOnMechanismRenamed(old, _current);
             ShowTab(false);
         }

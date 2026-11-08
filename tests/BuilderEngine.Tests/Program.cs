@@ -672,7 +672,7 @@ Test("scene clone is deep (undo snapshots)", () =>
     c.Objects[1].X = 999; c.Objects[1].Mechanisms[0].Params["speed"] = 1.0; c.Objects[1].Tags.Add("x");
     Eq(80.0, s.Objects[1].X); Eq(false, s.Objects[1].Mechanisms[0].Params.ContainsKey("speed")); Eq(1, s.Objects[1].Tags.Count);
     var d = s.Objects[1].Clone();
-    Eq("PlayerMove", d.Mechanisms[0].Name);
+    Eq("Platformer", d.Mechanisms[0].Name);
 });
 
 Console.WriteLine("Physics");
@@ -901,6 +901,7 @@ Test("physics demo: player lands, walks, collects a coin; crate lands", () =>
     Run(w, 0.7); // coin 1 at x 220, coin 2 at 300
     Eq(1.0, w.Globals["score"], "coin 1 collected");
 });
+ProjectTests.Run(Test); // scenes, sounds, My Library, settings (ProjectTests.cs)
 
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
