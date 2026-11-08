@@ -6,7 +6,7 @@ make, the faster you make games.
 
 **[⬇ Download for Windows](https://github.com/tarl3s/BuilderEngine/releases/latest/download/BuilderEngine-win-x64.zip)** — unzip and run `BuilderEngine.exe` (no install, no .NET needed). It updates itself when a new version comes out, and the four sample games (a sandbox, a cave survival, a camera horror and a card battler) come with it.
 
-Status: early version (v0.1.0). See [docs/MVP.md](docs/MVP.md). MIT license.
+Status: early version (v0.2.0). See [docs/MVP.md](docs/MVP.md). MIT license.
 
 What works today:
 - **Scene**: drag mechanisms from the library onto the scene, move/resize objects (snap, undo/redo), inspector with a field per `param`, Play inside the editor (Esc to stop).
