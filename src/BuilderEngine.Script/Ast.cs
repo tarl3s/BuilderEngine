@@ -111,3 +111,9 @@ public sealed record ProcDef(string Name, List<string> Params, List<Stmt> Body, 
     /// <summary>On a variant: the mechanism whose code this inherited command is (null = the mechanism itself).</summary>
     public string? From { get; init; }
 }
+
+/// <summary><c>{name: "Imp", cost: 1}</c>: a record value — named fields read and changed with <c>card.cost</c> (World.Records.cs).</summary>
+public sealed record RecordExpr(List<(string Key, Expr Value)> Fields, int Line) : Expr(Line);
+
+/// <summary><c>find("Turns").TurnManager.turn</c>, <c>hand[0].CardView</c>: a name read from the value of a call or an item.</summary>
+public sealed record MemberExpr(Expr Target, string Name, int Line) : Expr(Line);

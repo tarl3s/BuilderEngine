@@ -1,0 +1,90 @@
+mechanism DeckBuilder
+    # The deck screen: every card of the CardBook in a grid, cheapest first. Click a card to put it in your deck or
+    # take it out; a deck is exactly 'deck_size' different cards. "Save & fight" keeps it on disk (save "deck", ...)
+    # and the next game starts with it. Until then you play the starter deck.
+    param deck_size: number = 20
+    param columns: number = 8
+    param starter_deck: List of text = ["Cinder Pup", "Ash Sprite", "Reef Crab", "Moss Beetle", "Spark Bolt", "Tidal Ward", "Kindle Fox", "Mist Heron", "Thorn Hedgehog", "Dusk Moth", "Healing Spring", "Deep Insight", "Grove Stag", "Lantern Wisp", "Fire Lance", "Brazier Golem", "Coral Warden", "Bramble Knight", "Flare Drake", "Elder Oakheart"]
+
+    when start
+        ui
+        visible = false
+        join screen "Build"
+        book = find("Book").CardBook
+        made_grid = false
+        chosen = []
+        load_deck
+
+    when told "build"
+        hide screen "Title"
+        hide screen "Result"
+        hide screen "Battle"
+        show screen "Build"
+        load_deck
+        if not made_grid
+            make_grid
+            wait 0.05
+        refresh
+
+    when told "pick" c
+        name = c.CardView.card.name
+        if contains(chosen, name)
+            remove name from chosen
+            play "click.wav"
+        else if length(chosen) < deck_size
+            add name to chosen
+            play "click.wav"
+        else
+            notify "Your deck already has " + text(deck_size) + " cards: take one out first."
+        refresh
+
+    when told "auto fill"
+        for each card in sorted(book.cards, "cost")
+            if length(chosen) < deck_size and not contains(chosen, card.name): add card.name to chosen
+        refresh
+
+    when told "clear deck"
+        chosen = []
+        refresh
+
+    when told "save deck"
+        if length(chosen) != deck_size
+            notify "Pick " + text(deck_size - length(chosen)) + " more card(s) first."
+            stop
+        save "deck", chosen
+        notify "Deck saved!"
+        broadcast "fight"
+
+    to load_deck
+        # The saved deck when it is complete, else the starter deck (names the CardBook doesn't know are skipped).
+        chosen = []
+        names = saved("deck")
+        if length(names) != deck_size: names = starter_deck
+        for each n in names
+            if in_book(n) and not contains(chosen, n): add n to chosen
+
+    to in_book name
+        for each c in book.cards
+            if c.name == name: return true
+        return false
+
+    to make_grid
+        made_grid = true
+        i = 0
+        for each card in sorted(book.cards, "cost")
+            make CardView at 40 + (i % columns) * 64, 66 + floor(i / columns) * 88 with 57, 80
+            made.CardView.card = card
+            made.CardView.mode = "pool"
+            tag made "pool"
+            i += 1
+
+    to refresh
+        for each c in all("pool")
+            if contains(chosen, c.CardView.card.name)
+                outline c "#FFD54A", 3
+                c.opacity = 1
+            else
+                outline c off
+                c.opacity = 0.45
+        count = find("Deck Count")
+        count.caption = "Your deck: " + text(length(chosen)) + " / " + text(deck_size)

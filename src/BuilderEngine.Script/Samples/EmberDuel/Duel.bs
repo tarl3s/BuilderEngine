@@ -1,0 +1,399 @@
+mechanism Duel
+    # The match. Each duelist is a record: {hp, mana, max_mana, deck, hand, lanes, hero, ...}. A turn: mana grows by
+    # one (up to 10) and refills, you draw a card, play cards (creatures onto your lanes, spells onto a target), then
+    # every creature of yours attacks across its lane: the creature in front of it, or the enemy hero when the lane
+    # in front is empty. Bring the other hero to 0 to win. An empty deck hurts more each time you should draw.
+    param hero_health: number = 20
+    param lanes: number = 4
+    param max_hand: number = 7
+    param rival_name: text = "Morrow"
+    param auto_player: yesno = false
+    param rival_deck: List of text = ["Ash Sprite", "Cinder Pup", "Reef Crab", "Moss Beetle", "Shadow Spike", "Mending Dew", "Kindle Fox", "Thorn Hedgehog", "Dusk Moth", "Rally Horn", "Gloom Lurker", "Tide Caller", "Grove Stag", "Ember Storm", "Brazier Golem", "Bramble Knight", "Rune Sentinel", "Deepwater Serpent", "Molten Titan", "Hollow Colossus"]
+    uses RivalAI
+
+    when start
+        ui
+        visible = false
+        join screen "Battle"
+        book = find("Book").CardBook
+        over = true
+        running = false
+        busy = false
+        turn = ""
+        status = ""
+        round = 0
+        ended = false
+        winner = ""
+        you = none
+        rival = none
+        show text "{status}" at 606, 330 with "#EBDDBF", 12
+
+    # ---------------- Starting and leaving ----------------
+
+    when told "fight"
+        if running
+            over = true
+            wait until not running
+        hide screen "Title"
+        hide screen "Build"
+        hide screen "Result"
+        show screen "Battle"
+        new_match
+        play_match
+
+    when told "title"
+        over = true
+        status = ""
+
+    to new_match
+        for each o in all("battle_card")
+            destroy o
+        for each l in all("lane")
+            l.Lane.unit = none
+            if l.Lane.side == "you": tag l "open_lane"
+        names = find("Deck Builder").DeckBuilder.chosen
+        you = new_player("you", find("You"), names, auto_player)
+        rival = new_player("rival", find("Rival"), rival_deck, true)
+        over = false
+        winner = ""
+        round = 0
+        turn = ""
+        busy = false
+
+    to new_player side, hero, names, ai
+        p = {side: side, hp: hero_health, mana: 0, max_mana: 0, shield: false, fatigue: 0, ai: ai, hero: hero, deck: [], hand: [], lanes: []}
+        for each n in names
+            card = book_card(n)
+            if card: add copy(card) to p.deck
+        shuffle p.deck
+        for each i in range(0, lanes - 1)
+            for each l in all("lane")
+                if l.Lane.side == side and l.Lane.index == i: add l to p.lanes
+        tell hero "bind" p
+        return p
+
+    to play_match
+        running = true
+        draw you, 3
+        draw rival, 4
+        while not over
+            round += 1
+            take_turn you
+            if not over: take_turn rival
+        running = false
+        if winner != "": finish
+
+    to take_turn p
+        turn = p.side
+        p.max_mana = min(10, p.max_mana + 1)
+        p.mana = p.max_mana
+        if p.side == "you"
+            tell find("Banner") "show" "Your turn"
+        else
+            tell find("Banner") "show" rival_name + "'s turn"
+        wait 0.8
+        draw p, 1
+        if over: return
+        if p.ai
+            status = name_of(p) + " is thinking..."
+            refresh_playable
+            wait 0.4
+            ai_turn p
+        else
+            ended = false
+            status = "Round " + text(round) + "  ·  Your turn"
+            refresh_playable
+            wait until (ended and not busy) or over
+        if over: return
+        turn = "combat"
+        status = ""
+        refresh_playable
+        combat p
+
+    when told "end turn"
+        if turn == "you" and not busy: ended = true
+
+    # ---------------- Cards ----------------
+
+    to draw p, n
+        repeat n
+            if over: return
+            if length(p.deck) == 0
+                p.fatigue += 1
+                float_text p.hero, "Empty deck!", "#FFD54A"
+                hurt_hero p, p.fatigue
+                wait 0.4
+            else if length(p.hand) >= max_hand
+                card = pop(p.deck)
+                float_text p.hero, card.name + " burned", "#FFB0A0"
+                wait 0.3
+            else
+                card = pop(p.deck)
+                if p.side == "you"
+                    make CardView at 716, 356 with 76, 106
+                else
+                    make CardView at 344, -80 with 46, 64
+                    made.CardView.face_up = false
+                made.CardView.card = card
+                tag made "battle_card"
+                add made to p.hand
+                play "draw.wav"
+                arrange_hand p
+                wait 0.15
+
+    to arrange_hand p
+        if p.side == "you"
+            arrange p.hand in row at 367, 382 gap -8 over 0.2
+        else
+            arrange p.hand in row at 367, 4 gap -12 over 0.2
+
+    when told "arrange"
+        if not you: stop
+        arrange_hand you
+        refresh_playable
+
+    to refresh_playable
+        mine = turn == "you" and not you.ai and not busy and not over
+        open = 0
+        for each l in you.lanes
+            if not l.Lane.unit: open += 1
+        for each c in you.hand
+            card = c.CardView.card
+            ok = mine and card.cost <= you.mana
+            if card.kind == "creature" and open == 0: ok = false
+            tell c "playable" ok
+        b = find("End Turn")
+        if mine
+            b.Button.color = "#D9822B"
+            b.Button.text = "End turn"
+        else
+            b.Button.color = "#4A3F36"
+            b.Button.text = "Wait..."
+        b.color = b.Button.color
+        b.caption = b.Button.text
+
+    when told "play" pair
+        c = pair[0]
+        target = pair[1]
+        if busy or turn != "you" or you.ai or not contains(you.hand, c)
+            arrange_hand you
+            stop
+        card = c.CardView.card
+        if card.cost > you.mana
+            notify "Not enough mana for " + card.name + "."
+            arrange_hand you
+            stop
+        busy = true
+        refresh_playable
+        resolve_play you, c, target
+        busy = false
+        refresh_playable
+
+    to resolve_play p, c, target
+        # Pays for the card and plays it: a creature goes onto the lane, a spell flies to its target and is used up.
+        card = c.CardView.card
+        p.mana -= card.cost
+        remove c from p.hand
+        tell c "played"
+        if not c.CardView.face_up
+            resize c to 76, 106
+            tell c "reveal"
+        run arrange_hand p
+        if card.kind == "creature"
+            place c, target, p
+            if card.effect != ""
+                wait 0.15
+                apply card.effect, card.amount, p, none, c
+        else
+            cast c, target, p
+        cleanup
+
+    to place c, lane, p
+        lane.Lane.unit = c
+        untag lane "open_lane"
+        tag c "unit"
+        if p.side == "you"
+            tag c "friend"
+        else
+            tag c "foe"
+        c.CardView.mode = "board"
+        play "place.wav"
+        move c to lane.x + (lane.width - c.width) / 2, lane.y + (lane.height - c.height) / 2 in 0.22 ease out
+
+    to cast c, target, p
+        card = c.CardView.card
+        tell find("Zoom") "unpreview"
+        c.layer = 45
+        play "spell.wav"
+        if target
+            move c to target.x + (target.width - c.width) / 2, target.y + (target.height - c.height) / 2 in 0.25 ease out
+        else
+            move c to 367 - c.width / 2, 160 - c.height / 2 in 0.25 ease out
+        apply card.effect, card.amount, p, target, c
+        fade c to 0 in 0.25
+        destroy c
+
+    # ---------------- Effects ----------------
+
+    to apply effect, amount, p, target, source
+        foe = foe_of(p)
+        if effect == "damage"
+            if not target: target = weakest(foe)
+            if not target: target = foe.hero
+            strike target, amount
+        else if effect == "damage_all"
+            for each u in units(foe)
+                hurt_unit u, amount
+        else if effect == "heal"
+            if target and has_tag(target, "unit")
+                heal_unit target, amount
+            else
+                p.hp = min(hero_health, p.hp + amount)
+                float_text p.hero, "+" + text(amount), "#7CFF8A"
+                play "heal.wav"
+        else if effect == "draw"
+            draw p, amount
+        else if effect == "shield"
+            if not target: target = source
+            if target and has_tag(target, "unit")
+                target.CardView.card.shield = true
+                tell target "refresh"
+            else
+                p.shield = true
+                tell p.hero "refresh"
+                target = p.hero
+            float_text target, "Shield", "#9AD7FF"
+            play "shield.wav"
+        else if effect == "boost"
+            for each u in units(p)
+                u.CardView.card.attack += amount
+                float_text u, "+" + text(amount) + " attack", "#FFD54A"
+            play "heal.wav"
+
+    to strike target, amount
+        if has_tag(target, "hero")
+            hurt_hero owner_of(target), amount
+        else
+            hurt_unit target, amount
+
+    to hurt_unit u, amount
+        card = u.CardView.card
+        if card.shield
+            card.shield = false
+            tell u "refresh"
+            float_text u, "Blocked", "#9AD7FF"
+            play "shield.wav"
+            return
+        card.health -= amount
+        float_text u, "-" + text(amount), "#FF5A4A"
+        tell u "hit"
+        play "hit.wav"
+
+    to heal_unit u, amount
+        card = u.CardView.card
+        card.health = min(card.max_health, card.health + amount)
+        float_text u, "+" + text(amount), "#7CFF8A"
+        play "heal.wav"
+
+    to hurt_hero p, amount
+        if p.shield
+            p.shield = false
+            tell p.hero "refresh"
+            float_text p.hero, "Blocked", "#9AD7FF"
+            play "shield.wav"
+            return
+        p.hp -= amount
+        float_text p.hero, "-" + text(amount), "#FF5A4A"
+        tell p.hero "hit"
+        play "hit.wav"
+        if p.hp <= 0 and not over
+            over = true
+            other = foe_of(p)
+            winner = other.side
+
+    to cleanup
+        # Creatures with no health left fade away and free their lane.
+        for each p in [you, rival]
+            for each l in p.lanes
+                u = l.Lane.unit
+                if u and u.CardView.card.health <= 0
+                    l.Lane.unit = none
+                    if p.side == "you": tag l "open_lane"
+                    tell u "die"
+                    play "die.wav"
+
+    # ---------------- Combat ----------------
+
+    to combat p
+        foe = foe_of(p)
+        dir = 1
+        if p.side == "you": dir = -1
+        for each i in range(0, lanes - 1)
+            if over: return
+            a = p.lanes[i].Lane.unit
+            if a
+                b = foe.lanes[i].Lane.unit
+                move a by 0, dir * 28 in 0.1
+                power = a.CardView.card.attack
+                if b
+                    back = b.CardView.card.attack
+                    hurt_unit b, power
+                    hurt_unit a, back
+                else
+                    hurt_hero foe, power
+                move a by 0, -dir * 28 in 0.12 ease out
+                cleanup
+                wait 0.2
+
+    # ---------------- Helpers ----------------
+
+    to foe_of p
+        if p.side == "you": return rival
+        return you
+
+    to owner_of hero
+        if hero == you.hero: return you
+        return rival
+
+    to book_card name
+        for each c in book.cards
+            if c.name == name: return c
+        return none
+
+    to name_of p
+        if p.side == "you": return "You"
+        return rival_name
+
+    to units p
+        list = []
+        for each l in p.lanes
+            if l.Lane.unit: add l.Lane.unit to list
+        return list
+
+    to weakest p
+        # The enemy creature with the least health left (nothing when there is none).
+        best = none
+        for each u in units(p)
+            if not best or u.CardView.card.health < best.CardView.card.health: best = u
+        return best
+
+    to float_text o, words, tint
+        make FloatText at o.x + o.width / 2 - 60, o.y + o.height / 2 - 16 with 120, 32
+        made.FloatText.words = words
+        made.FloatText.tint = tint
+
+    to finish
+        turn = ""
+        refresh_playable
+        wait 0.8
+        panel = find("Result Panel")
+        if winner == "you"
+            caption panel "Victory!\nYou defeated " + rival_name + " in " + text(round) + " rounds." with "#FFE6B0", 22
+            save "wins", max(0, saved("wins")) + 1
+            play "win.wav"
+        else
+            caption panel "Defeat\n" + rival_name + " won in " + text(round) + " rounds. Try another deck?" with "#FFB0A0", 22
+            save "losses", max(0, saved("losses")) + 1
+            play "lose.wav"
+        status = ""
+        show screen "Result"

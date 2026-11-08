@@ -1,0 +1,144 @@
+mechanism CardView
+    # One card on the screen, drawn from a card record (see CardBook): its picture (images/<name>.png), the cost,
+    # attack and health badges, its name and rules. Point at it to see it big on the right. In your hand, drag it onto
+    # one of your lanes (a creature) or onto a target (a spell). The Duel tells it what happens to it.
+    param card
+    param mode: Choice "hand", "board", "pool", "zoom" = "hand"
+    param face_up: yesno = true
+
+    when start
+        ui
+        layer 2
+        base_w = self.width
+        base_h = self.height
+        zoomed = false
+        playable = false
+        tag self "card"
+        show_card
+
+    when hovered
+        if not face_up or mode == "zoom": stop
+        tell find("Zoom") "preview" card
+        if mode == "hand" or mode == "pool": grow
+
+    when unhovered
+        if mode == "zoom": stop
+        tell find("Zoom") "unpreview"
+        shrink
+
+    when clicked
+        if mode == "pool": tell find("Deck Builder") "pick" self
+
+    when picked up
+        broadcast "targeting", zone_for(card)
+
+    when dropped
+        broadcast "targeting off"
+        shrink_now
+        if mode != "hand": stop
+        if other
+            tell find("Duel") "play" [self, other]
+        else
+            tell find("Duel") "arrange"
+
+    when told "playable" ok
+        playable = ok
+        if ok
+            draggable to zone_for(card)
+        else
+            draggable off
+        show_outline
+
+    when told "played"
+        playable = false
+        draggable off
+        show_outline
+
+    when told "reveal"
+        face_up = true
+        base_w = self.width
+        base_h = self.height
+        show_card
+
+    when told "refresh"
+        show_outline
+
+    when told "targeting" zone
+        if has_tag(self, zone): outline "#FFE27A", 3
+
+    when told "targeting off"
+        show_outline
+
+    when told "hit"
+        repeat 2
+            move by 4, 0 in 0.03
+            move by -4, 0 in 0.03
+
+    when told "die"
+        untag self "friend"
+        untag self "foe"
+        untag self "unit"
+        outline off
+        fade self to 0 in 0.35
+        destroy self
+
+    to show_card
+        label none
+        outline off
+        if not card: return
+        if not face_up
+            look "Card Back"
+            return
+        look card.name
+        s = self.width / 76
+        label "cost" "{card.cost}" at top left by -6 * s, -6 * s with "#FFFFFF", 12 * s, "#2F6FD0"
+        label "name" card.name at top by 0, 2 * s with "#F6E7C8", 6.5 * s
+        label "rules" card.text at bottom by 0, -13 * s with "#3A2616", 5.5 * s
+        if card.kind == "creature"
+            label "attack" "{card.attack}" at bottom left by -6 * s, 6 * s with "#FFFFFF", 12 * s, "#D9822B"
+            label "health" "{card.health}" at bottom right by 6 * s, 6 * s with "#FFFFFF", 12 * s, "#C83A3A"
+        show_outline
+
+    to show_outline
+        if mode == "board" and card.shield
+            outline "#9AD7FF", 3
+        else if mode == "hand" and playable
+            outline "#8CFF6A", 2
+        else
+            outline off
+
+    to zone_for card
+        # Where a card may be dropped: a creature on an empty lane of yours, an attack on an enemy, the rest on a friend.
+        if card.kind == "creature": return "open_lane"
+        if card.effect == "damage" or card.effect == "damage_all": return "foe"
+        return "friend"
+
+    to grow
+        if zoomed: return
+        zoomed = true
+        self.layer = 30
+        together
+            resize self to base_w * 1.3, base_h * 1.3 in 0.08
+            move self to self.x - base_w * 0.15, self.y - base_h * 0.3 in 0.08
+
+    to shrink
+        if not zoomed: return
+        zoomed = false
+        self.layer = 2
+        if mode == "hand"
+            resize self to base_w, base_h in 0.08
+            tell find("Duel") "arrange"
+        else
+            together
+                resize self to base_w, base_h in 0.08
+                move self to self.x + base_w * 0.15, self.y + base_h * 0.3 in 0.08
+
+    to shrink_now
+        if not zoomed: return
+        zoomed = false
+        self.layer = 2
+        cx = self.x + self.width / 2
+        cy = self.y + self.height / 2
+        resize self to base_w, base_h
+        self.x = cx - base_w / 2
+        self.y = cy - base_h / 2

@@ -1,0 +1,18 @@
+mechanism CardZoom from CardView
+    # The big card on the right: it shows whichever card the pointer is over (a variant of CardView, so it draws
+    # cards exactly the same way, just bigger).
+    param mode = "zoom"
+
+    when start
+        self.layer = 40
+        hide
+
+    when told "preview" c
+        self.layer = 40
+        card = c
+        face_up = true
+        show_card
+        show
+
+    when told "unpreview"
+        hide

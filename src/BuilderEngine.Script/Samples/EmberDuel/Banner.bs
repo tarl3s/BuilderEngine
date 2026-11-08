@@ -1,0 +1,16 @@
+mechanism Banner
+    # The ribbon that sweeps across the screen: "Your turn", "Morrow's turn".
+    when start
+        ui
+        self.layer = 50
+        home_y = self.y
+        hide
+
+    when told "show" words
+        caption words with "#FFF1D0", 24
+        self.x = -self.width
+        show
+        move self to 400 - self.width / 2, home_y in 0.3 ease out
+        wait 0.7
+        move self to 800, home_y in 0.3
+        hide

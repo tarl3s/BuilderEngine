@@ -1,0 +1,95 @@
+mechanism RivalAI
+    # How the computer plays a turn: for every card it can afford it works out a plan (a score and a target) and
+    # plays the best one, again and again, until nothing is worth playing. Attacks go to the weakest enemy it can
+    # finish off; creatures go where they win their fight or hit the hero. Used by Duel ('uses RivalAI').
+
+    to ai_turn p
+        repeat 12
+            if over: return
+            choice = best_play(p)
+            if not choice: return
+            resolve_play p, choice.card, choice.target
+            wait 0.45
+
+    to best_play p
+        foe = foe_of(p)
+        best = none
+        for each c in p.hand
+            card = c.CardView.card
+            if card.cost <= p.mana
+                plan = plan_for(card, p, foe)
+                if plan and plan.score > 0
+                    if not best or plan.score > best.score
+                        plan.card = c
+                        best = plan
+        return best
+
+    to plan_for card, p, foe
+        if card.kind == "creature": return plan_creature(card, p, foe)
+        return plan_spell(card.effect, card.amount, p, foe)
+
+    to plan_creature card, p, foe
+        # The best empty lane for this creature, and how good playing it there is.
+        best = none
+        for each i in range(0, length(p.lanes) - 1)
+            lane = p.lanes[i]
+            if not lane.Lane.unit
+                score = card.attack + card.health
+                across = foe.lanes[i]
+                enemy = across.Lane.unit
+                if enemy
+                    e = enemy.CardView.card
+                    if card.attack >= e.health and not e.shield: score += e.attack + e.health
+                    if e.attack >= card.health
+                        score -= card.attack
+                    else
+                        score += 2
+                else
+                    score += card.attack
+                if not best or score > best.score: best = {score: score, target: lane}
+        if best and card.effect != ""
+            bonus = plan_spell(card.effect, card.amount, p, foe)
+            if bonus: best.score += max(0, bonus.score)
+        return best
+
+    to plan_spell effect, amount, p, foe
+        if effect == "damage"
+            if foe.hp <= amount and not foe.shield: return {score: 100, target: foe.hero}
+            victim = weakest_killable(foe, amount)
+            if victim
+                v = victim.CardView.card
+                return {score: v.attack + v.health + 2, target: victim}
+            return {score: amount - 1, target: foe.hero}
+        if effect == "damage_all"
+            score = 0
+            for each u in units(foe)
+                e = u.CardView.card
+                if e.health <= amount and not e.shield: score += e.attack + e.health
+            return {score: score - 2, target: foe.hero}
+        if effect == "heal"
+            missing = hero_health - p.hp
+            if missing < 4: return {score: 0, target: p.hero}
+            return {score: min(amount, missing) - 1, target: p.hero}
+        if effect == "draw"
+            if length(p.hand) <= 2: return {score: 4 + amount, target: p.hero}
+            return {score: amount, target: p.hero}
+        if effect == "shield"
+            best = none
+            for each u in units(p)
+                if not u.CardView.card.shield
+                    if not best or u.CardView.card.attack > best.CardView.card.attack: best = u
+            if best: return {score: best.CardView.card.attack + 1, target: best}
+            if p.hp <= 10 and not p.shield: return {score: 3, target: p.hero}
+            return {score: 0, target: p.hero}
+        if effect == "boost"
+            return {score: length(units(p)) * 2 * amount - 1, target: p.hero}
+        return none
+
+    to weakest_killable foe, amount
+        # The weakest enemy creature (least health) that this much damage finishes off (nothing when there is none).
+        best = none
+        for each u in units(foe)
+            e = u.CardView.card
+            if e.health <= amount and not e.shield
+                if not best or e.health < best.CardView.card.health: best = u
+        return best

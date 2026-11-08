@@ -1,0 +1,18 @@
+mechanism Scoreboard
+    # Wins and losses, kept on disk between games (save "wins", ... / saved("wins")).
+    when start
+        ui
+        join screen "Title"
+        color "#00000000"
+        show_stats
+
+    when told "stats"
+        show_stats
+
+    to show_stats
+        wins = max(0, saved("wins"))
+        losses = max(0, saved("losses"))
+        if wins + losses == 0
+            caption "Your first duel awaits." with "#D8C7A6", 14
+        else
+            caption "Wins " + text(wins) + "   ·   Losses " + text(losses) with "#D8C7A6", 14

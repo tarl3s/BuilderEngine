@@ -66,12 +66,12 @@ public sealed partial class World
         var data = ReadSlot(slot);
         if (data == null) return false;
         if (data["globals"] is JsonObject g)
-            foreach (var (k, v) in g) Globals[k] = Project.Value(v);
+            foreach (var (k, v) in g) Globals[k] = FromSaveJson(v);
         if (data["inventory"] is JsonObject inv)
         {
             Inventory.Clear();
             foreach (var (k, v) in inv)
-                if (Project.Value(v) is double n && n >= 1) Inventory.Add(new ItemStack(k, (int)n));
+                if (FromSaveJson(v) is double n && n >= 1) Inventory.Add(new ItemStack(k, (int)n));
         }
         if (slot == DefaultSlot) _store = ReadStore(data);
         return true;
@@ -86,7 +86,7 @@ public sealed partial class World
 
     public void SaveValue(string key, object? value)
     {
-        Store()[key] = value is GameObject g ? g.Name : value is MechanismInstance m ? m.Def.Name : value;
+        Store()[key] = value is GameObject g ? g.Name : value is MechanismInstance m ? m.Def.Name : CopyValue(value); // a copy: changing the list later doesn't change the save
         var data = ReadSlot(DefaultSlot) ?? new JsonObject();
         data["store"] = StoreJson(Store());
         WriteSlot(DefaultSlot, data);
@@ -96,7 +96,7 @@ public sealed partial class World
     public object? SavedValue(string key)
     {
         if (Store().TryGetValue(key, out var v)) return v;
-        return ReadSlot(DefaultSlot)?["globals"] is JsonObject g && g.TryGetPropertyValue(key, out var n) ? Project.Value(n) : null;
+        return ReadSlot(DefaultSlot)?["globals"] is JsonObject g && g.TryGetPropertyValue(key, out var n) ? FromSaveJson(n) : null;
     }
 
     Dictionary<string, object?> Store() => _store ??= ReadSlot(DefaultSlot) is { } d ? ReadStore(d) : new();
@@ -105,7 +105,7 @@ public sealed partial class World
     {
         var s = new Dictionary<string, object?>();
         if (data["store"] is JsonObject o)
-            foreach (var (k, v) in o) s[k] = Project.Value(v);
+            foreach (var (k, v) in o) s[k] = FromSaveJson(v);
         return s;
     }
 
@@ -122,7 +122,17 @@ public sealed partial class World
         double d when double.IsFinite(d) => JsonValue.Create(d),
         bool b => JsonValue.Create(b),
         string s => JsonValue.Create(s),
+        List<object?> l => new JsonArray(l.Select(x => ToJson(x) ?? JsonValue.Create("")).ToArray()), // lists and records (World.Records.cs)
+        Record r => new JsonObject(r.Select(kv => KeyValuePair.Create(kv.Key, ToJson(kv.Value)))),
         _ => null
+    };
+
+    /// <summary>A saved JSON value as a script value: numbers, yes/no, texts, lists and records.</summary>
+    static object? FromSaveJson(JsonNode? n) => n switch
+    {
+        JsonObject o => o.Aggregate(new Record(), (r, kv) => { r[kv.Key] = FromSaveJson(kv.Value); return r; }),
+        JsonArray a => a.Select(FromSaveJson).ToList(),
+        _ => Project.Value(n)
     };
 
     string SlotPath(string slot)

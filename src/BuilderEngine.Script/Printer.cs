@@ -294,8 +294,10 @@ public static class Printer
         BinaryExpr b => Wrap(b.Left, Prec(b.Left) < BinaryPrec(b.Op)) + " " + b.Op + " " + Wrap(b.Right, Prec(b.Right) <= BinaryPrec(b.Op)),
         CallExpr c => c.Name + "(" + Args(c.Args) + ")",
         ListExpr l => "[" + Args(l.Items) + "]",
+        RecordExpr r => Record.Print(r), // World.Records.cs
+        MemberExpr m => (m.Target is CallExpr or IndexExpr or MemberExpr ? Print(m.Target) : "(" + Print(m.Target) + ")") + "." + m.Name,
         // Only names, calls, lists, items and parenthesized values can be followed by [ ].
-        IndexExpr x => (x.Target is NameExpr or CallExpr or ListExpr or IndexExpr ? Print(x.Target) : "(" + Print(x.Target) + ")") + "[" + Print(x.Index) + "]",
+        IndexExpr x => (x.Target is NameExpr or CallExpr or ListExpr or IndexExpr or MemberExpr ? Print(x.Target) : "(" + Print(x.Target) + ")") + "[" + Print(x.Index) + "]",
         _ => throw new ArgumentException($"Unknown expression '{e.GetType().Name}'.")
     };
 

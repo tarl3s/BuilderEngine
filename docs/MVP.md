@@ -97,6 +97,8 @@ mechanism Boss
 | `together` / `run` | do each line at the same time / start something without waiting |
 | `for each x in list` / `while cond` | go through a list (`range(1, 10)` for numbers) / repeat while true (once per frame) |
 | `[1, 2]`, `list[0]`, `add x to list`, `remove x from list` | lists: `length(l)`, `contains(l, x)`, `random_item(l)`, `join(l, ", ")`, `text(x)` |
+| `card = {name: "Imp", cost: 1}`, `card.cost += 1`, `card["cost"]` | records: named fields (a missing one reads as nothing); `keys(r)`, `has_key(r, "cost")`, `copy(r)` (lists too), `sorted(cards, "cost")`, `reversed(l)`; `save "deck", deck` keeps lists and records |
+| `find("Turns").TurnManager.turn`, `hand[0].CardView.card` | names after a call or an item |
 | `nearest("enemy")`, `all("coin")`, `count("enemy")`, `find("Boss")` | find objects by tag or name; `distance(a, b)`, `has_tag(o, "x")` |
 
 ### Physics
@@ -431,6 +433,10 @@ static; the screen "Cameras" shows while watching; everyone is told "cameras on"
 |---|---|
 | `shuffle deck` · `pop(deck)` · `pop(deck, 0)` | mix a list; take the last (or first) item out |
 | `arrange all("in_hand") in row at 400, 380 gap 10 over 0.3` | lay objects out centred on x, y: `row`, `fan`, `column`, `grid … columns 4`, `stack`; `over` glides there and waits |
+| `label "cost" "{card.cost}" at top left with "#FFFFFF", 14, "#2F6FD0"` | a text on the object at one of nine places (`top left` … `bottom right`, `by dx, dy` moves it); a third colour makes it a round badge; long texts wrap; it scales with the object (a zoomed card keeps its layout); `label "cost" none`, `label none`, `label_text(obj, "cost")` |
+| `outline "#FFD54A", 3` · `outline off` | a coloured frame around the box (playable cards, targets) |
+
+The sample game **Ember Duel** (`--make-sample "Ember Duel" <folder>`) is a whole card battler made this way: card records in a CardBook, CardView with labels and hover zoom, drag onto lanes, a Duel with turns, mana and combat, a RivalAI, a deck builder that saves your deck.
 
 Starter kit: **Card** (front picture or title + value, back colour or picture; tell it "flip"; with a zone it can be
 dragged onto slots and then leaves the hand), **Deck** (shuffled; tell it "draw" 3 or click it; cards go to a row

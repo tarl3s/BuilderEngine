@@ -76,7 +76,7 @@ public static class AiPrompt
 
         // The mode's part (open mechanism + request) gets what's left after the fixed parts; the examples get the rest.
         string? open = ctx.OpenSource;
-        int openMax = Math.Clamp(MaxChars - system.Length - project.Length - request.Length - (ctx.Error?.Length ?? 0) - 900, 600, MaxOpenChars);
+        int openMax = Math.Clamp(MaxChars - system.Length - project.Length - request.Length - (ctx.Error?.Length ?? 0) - 900, 300, MaxOpenChars);
         var tail = new StringBuilder();
         switch (mode)
         {

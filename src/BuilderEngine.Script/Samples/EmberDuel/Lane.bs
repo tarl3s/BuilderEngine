@@ -1,0 +1,18 @@
+mechanism Lane
+    # One place on the table for a creature. Your empty lanes are tagged "open_lane": a creature card dragged from
+    # your hand can be dropped there. 'unit' is the creature standing on it (nothing when empty).
+    param side: Choice "you", "rival" = "you"
+    param index: number = 0
+
+    when start
+        ui
+        join screen "Battle"
+        tag self "lane"
+        unit = none
+        if side == "you": tag self "open_lane"
+
+    when told "targeting" zone
+        if has_tag(self, zone): outline "#FFE27A", 3
+
+    when told "targeting off"
+        outline off

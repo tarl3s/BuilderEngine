@@ -11,4 +11,7 @@
   <ItemGroup>
     <EmbeddedResource Include="StarterKit\*.bs" LogicalName="StarterKit.%(Filename).bs" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Samples\**\*.bs" LogicalName="Samples.%(RecursiveDir)%(Filename).bs" />
+  </ItemGroup>
 </Project>

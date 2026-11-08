@@ -67,6 +67,8 @@ public sealed partial class World
     {
         public GameObject O = null!;
         public double X0, Y0, X1, Y1, T0, Seconds;
+        /// <summary>The object's move tween when the glide started: a script's move or arrange after that takes over.</summary>
+        public int Tween;
     }
     readonly List<Glide> _glides = [];
 
@@ -221,7 +223,7 @@ public sealed partial class World
             var g = _glides[i];
             double k = g.Seconds <= 0 ? 1 : Math.Clamp((RealTime - g.T0) / g.Seconds, 0, 1);
             double e = Ease("out", k);
-            if (g.O.Destroyed || g.O == Dragging) { _glides.RemoveAt(i); continue; }
+            if (g.O.Destroyed || g.O == Dragging || g.O.MoveTween != g.Tween) { _glides.RemoveAt(i); continue; }
             g.O.X = g.X0 + (g.X1 - g.X0) * e;
             g.O.Y = g.Y0 + (g.Y1 - g.Y0) * e;
             if (k >= 1) _glides.RemoveAt(i);
@@ -279,6 +281,6 @@ public sealed partial class World
     {
         _glides.RemoveAll(g => g.O == o);
         if (seconds <= 0) { o.X = x; o.Y = y; return; }
-        _glides.Add(new Glide { O = o, X0 = o.X, Y0 = o.Y, X1 = x, Y1 = y, T0 = RealTime, Seconds = seconds });
+        _glides.Add(new Glide { O = o, X0 = o.X, Y0 = o.Y, X1 = x, Y1 = y, T0 = RealTime, Seconds = seconds, Tween = o.MoveTween });
     }
 }
