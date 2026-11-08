@@ -102,6 +102,7 @@ public static class Printer
         EventKind.Touched => "touched by",
         EventKind.Told => "told",
         EventKind.Key => "key",
+        EventKind.Tool => "tool",
         _ => ""
     };
 
@@ -112,6 +113,7 @@ public static class Printer
         EventKind.Told => Quote(e.Filter ?? "") + (e.Bind != null ? " " + e.Bind : ""),
         EventKind.Key => Quote(e.Filter ?? ""),
         EventKind.Signal => e.Source == null ? e.Name ?? "" : e.Source + "." + e.Name,
+        EventKind.Tool => EditorTools.EventTail(e),
         _ => ""
     };
 

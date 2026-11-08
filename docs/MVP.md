@@ -22,7 +22,7 @@ presses Play and collects them. Then they save `Coin` to their library and use i
 
 ## Out of scope (later)
 
-AI tutor and "make me a mechanism" · editable blocks with drag and drop · editor-tool mechanisms · sharing/gallery ·
+AI tutor and "make me a mechanism" · editable blocks with drag and drop · sharing/gallery ·
 export to `.exe` · sound editor · tilemaps · lighting · 3D · Mac/Linux builds.
 
 ## Milestones
@@ -35,7 +35,9 @@ export to `.exe` · sound editor · tilemaps · lighting · 3D · Mac/Linux buil
 6. **Blocks view** — script ↔ blocks, 1 to 1. *(done; click-to-add, drag-and-drop later)*
 7. **Tutorial** — "Your first mechanism: a coin" with a self-ticking checklist.
 
-Also done beyond the plan: several scenes per project (`goto_scene "Name"`, the Door mechanism), a Project menu (new / open / recent / save), and project sounds (`sounds/` folder, generated starter WAVs, import, a Sound dropdown with preview, real playback on Windows). And the engine features for cutscenes and real games: tweens, camera, dialogue and choices, HUD, screen effects, locked controls, slow motion, pictures and animation, saves (see below).
+Also done beyond the plan: several scenes per project (`goto_scene "Name"`, the Door mechanism), a Project menu (new / open / recent / save), and project sounds (`sounds/` folder, generated starter WAVs, import, a Sound dropdown with preview, real playback on Windows). And the engine features for cutscenes and real games: tweens, camera, dialogue and choices, HUD, screen effects, locked controls, slow motion, pictures and animation, saves (see below). And the mechanisms that
+extend the editor itself: **editor tools** (a mechanism with `when tool …` edits the scene while you build) and
+**C# plugins** for programmers (see below and [PLUGINS.md](PLUGINS.md)).
 
 ## Builder Script cheat sheet
 
@@ -167,3 +169,55 @@ mechanism Intro
         camera follow player
         unlock controls
 ```
+
+### Editor tools: mechanisms that build for you
+
+A mechanism with `when tool …` is a **tool**: it shows up in the scene's **TOOLS** row and edits the scene while you
+build (it does nothing in the game). Pick it, set its options in the row under it, then click or drag on the scene.
+Everything one use does (press → drag → release) is one Ctrl+Z. Right-click a tool to open it and see how it works.
+
+```
+mechanism CoinLine
+    # Click where a line of coins starts, then where it ends.
+    param coin: text = "Coin"
+    param gap: number = 40
+
+    when tool click at x, y
+        if not has_start
+            sx = x
+            sy = y
+            has_start = true
+            stop
+        has_start = false
+        n = max(1, round(distance(sx, sy, x, y) / gap))
+        for each i in range(0, n)
+            place coin at sx + (x - sx) * i / n, sy + (y - sy) * i / n
+```
+
+| Events | |
+|---|---|
+| `when tool click at x, y` | the mouse was pressed on the scene (`at pos` gives `pos` = `[x, y]`) |
+| `when tool drag at x, y` / `when tool release at x, y` | moved while pressed / let go (a tool with `release` shows a box while you drag) |
+| `when tool used` | the tool's button was pressed (also a **▶ Use** button in its options) |
+| `when tool key "r"` | a key while it is the active tool (Esc always goes back to Select) |
+
+| Only in tools | |
+|---|---|
+| `place "Coin" at x, y` · `place "Ground" at x, y with 32, 32` | a copy of the scene object called Coin (its mechanisms, params, colour, picture, tags — a "prefab"), or a new object with the mechanism Coin; then `placed` is the new object |
+| `erase at x, y` · `erase obj` · `erase all("coin")` · `erase "Rock 2"` | remove the top object there / that object / a list |
+| `fill_row "Ground" from x1 to x2 at y` | copies side by side |
+| `select obj` · `selected` | select an object in the editor / the selected one |
+| `objects_at(x, y)` · `object_at(x, y)` · `snap(x, 32)` | the objects there (top first) / the top one / the start of the 32-px cell |
+| `obj.x = …`, `destroy obj`, `all("coin")`, `find("Ground")`, `print`, `notify` | the usual commands work on the scene's objects; `print` / `notify` show in the status bar |
+
+Tool variables last between uses (CoinLine remembers the first click). The starter kit has **PlatformPainter**
+(drag to paint ground tiles), **CoinLine**, **Eraser**, **Scatter** (drag a box: random things inside) and
+**RoomMaker** (drag a box: walls around it).
+
+### C# plugins
+
+For programmers: a .NET 8 class library implementing `IBuilderPlugin` (`src/BuilderEngine.Plugin`) adds commands and
+functions to Builder Script. Drop its `.dll` in the project's `plugins/` folder; BuilderEngine asks once per project
+before running it ("Plugins run code on your computer — only use ones you trust"). Project → Plugins… lists them,
+opens the folder and reloads; their commands also show in the blocks palette. See [PLUGINS.md](PLUGINS.md) and
+`samples/HelloPlugin` (`confetti 20`, `wave(time)`).

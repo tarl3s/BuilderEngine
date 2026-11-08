@@ -17,6 +17,8 @@ What works today:
 - **HUD**: `show text "Score: {score}" at 16, 16` (`{name}` is filled in every frame), `show bar hp of max`, and the starter kit's **Label** and **HealthBar**.
 - **Pictures**: each project has an `images/` folder. An object's **Picture** (and `Image` params) is a dropdown with thumbnails and "Import picture…"; the scene and the game draw it. Scripts use `look "hero.png"`, `animate "walk"` (walk1.png, walk2.png… or a strip of frames), `face left`, `layer 2`; the **Sprite** and **Animator** mechanisms do it for you.
 - **Saves**: `save game` / `load game` (global variables), `save "coins", 12` and `saved("coins")`, in the project's `saves/` folder.
+- **Editor tools**: a mechanism with `when tool click at x, y` (or `drag`, `release`, `used`, `key`) is a tool — it shows in the scene's **TOOLS** row and edits the scene while you build: `place "Coin" at x, y` (a copy of a scene object, or a new object with that mechanism), `erase at x, y`, `fill_row "Ground" from 0 to 800 at 400`, `select obj`, `objects_at(x, y)`, `snap(x, 32)`. Its params show in an options row; each use is one Ctrl+Z. The starter kit has PlatformPainter, CoinLine, Eraser, Scatter and RoomMaker — every tool you make speeds up every game after it.
+- **C# plugins** (for programmers): a .NET 8 class library implementing `IBuilderPlugin` (`src/BuilderEngine.Plugin`) adds commands and functions to Builder Script. Put the `.dll` in the project's `plugins/` folder; BuilderEngine asks once per project before running plugins, and Project → Plugins… lists, reloads and opens the folder. See [docs/PLUGINS.md](docs/PLUGINS.md) and `samples/HelloPlugin`.
 - **Projects**: a folder with `project.json` + `mechanisms/*.bs` + `sounds/`. The **Project** menu makes new projects (in `Documents\BuilderEngine Projects`), opens folders, lists recent ones and saves; switching saves first. Settings live in `%APPDATA%\BuilderEngine\settings.json`. `--project <folder>` opens another one without touching the settings; `--appdata <folder>` moves settings and My Library (dev/test runs).
 
 ```
@@ -40,5 +42,8 @@ dotnet run --project tests/BuilderEngine.Tests      # language/runtime tests
 | Project | What |
 |---|---|
 | `src/BuilderEngine.Script` | the language and runtime (lexer, parser, interpreter with `wait` coroutines, starter kit) and the engine features (camera, tweens, dialogue, HUD, pictures, saves) — no UI, reusable by any host |
+| `src/BuilderEngine.Script` (also) | editor tools (`EditorTools.cs`: tool events run on a copy of the scene, edits go back as one undo step) and the plugin loader (`Plugins.cs`) |
+| `src/BuilderEngine.Plugin` | the plugin SDK: `IBuilderPlugin`, `IPluginHost`, `IPluginCommand`, `IPluginObject` (no dependencies) |
 | `src/BuilderEngine` | the editor (Avalonia: Windows now, Mac/Linux later) |
+| `samples/HelloPlugin` | a sample plugin (`confetti 20`, `wave(time)`) |
 | `tests/BuilderEngine.Tests` | test runner, no NuGet packages |

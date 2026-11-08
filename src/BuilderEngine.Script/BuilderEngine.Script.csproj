@@ -6,6 +6,9 @@
     <RootNamespace>BuilderEngine.Script</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\BuilderEngine.Plugin\BuilderEngine.Plugin.csproj" />
+  </ItemGroup>
+  <ItemGroup>
     <EmbeddedResource Include="StarterKit\*.bs" LogicalName="StarterKit.%(Filename).bs" />
   </ItemGroup>
 </Project>

@@ -33,6 +33,7 @@ sealed partial class BlocksView
 
         var open = _defs[MechIndex()];
         var commands = BlockEdits.CommandsFor(open, _project);
+        commands.AddRange(PluginRegistry.BlockCommands()); // C# plugins' commands, "From plugins" (Plugins.cs)
         if (commands.Count == 0)
         {
             _myCommands.Children.Add(PaletteNote("Commands you make show up here, ready to use in this mechanism and the others."));

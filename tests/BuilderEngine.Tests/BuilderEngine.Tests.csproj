@@ -7,5 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\BuilderEngine.Script\BuilderEngine.Script.csproj" />
+    <!-- Built so ToolsTests can load its dll from a plugins/ folder like the editor does (its types are never used directly). -->
+    <ProjectReference Include="..\..\samples\HelloPlugin\HelloPlugin.csproj" />
   </ItemGroup>
 </Project>

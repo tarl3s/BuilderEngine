@@ -401,7 +401,7 @@ public static class BlockEdits
         _ => throw new ArgumentException($"Unknown block '{id}'.")
     };
 
-    public static readonly EventKind[] EventKinds = [EventKind.Start, EventKind.Tick, EventKind.Touched, EventKind.Told, EventKind.Key, EventKind.Signal];
+    public static readonly EventKind[] EventKinds = [EventKind.Start, EventKind.Tick, EventKind.Touched, EventKind.Told, EventKind.Key, EventKind.Signal, EventKind.Tool];
 
     /// <summary>The event's name in a menu: start, tick, touched by, told, key, signal.</summary>
     public static string EventLabel(EventKind k) => k == EventKind.Signal ? "signal" : Printer.EventWord(k);
@@ -412,6 +412,7 @@ public static class BlockEdits
         EventKind.Told => new EventSpec(k, Filter: "damage", Bind: "amount"),
         EventKind.Key => new EventSpec(k, Filter: "space"),
         EventKind.Signal => new EventSpec(k, Name: "died"),
+        EventKind.Tool => new EventSpec(k, Name: "click", Bind: "x, y"),
         _ => new EventSpec(k)
     };
 

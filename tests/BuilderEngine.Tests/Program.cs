@@ -1205,6 +1205,7 @@ Test("starter kit still runs without errors", () =>
     Eq(0, w.Errors.Count, string.Join(" | ", w.Errors));
 });
 
+ToolsTests.Run(Test); // editor tools and C# plugins (ToolsTests.cs)
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;
