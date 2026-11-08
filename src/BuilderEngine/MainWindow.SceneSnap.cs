@@ -25,6 +25,7 @@ public sealed partial class MainWindow
                 await Task.Delay(800);
                 if (ArgValue("--snap-only") == "qol") { await SnapQol(dir); Close(); return; } // just the editor conveniences (MainWindow.QolSnap.cs)
                 if (ArgValue("--snap-only") == "deepdelve") { await SnapDeepdelve(dir); Close(); return; } // the Deepdelve sample (MainWindow.DeepdelveSnap.cs)
+                if (await SnapNightShift(dir)) { Close(); return; } // the Night Shift sample project (MainWindow.NightShiftSnap.cs)
                 Snap(dir, "1_scene");
                 if (_scene.Objects.FirstOrDefault(o => o.Mechanisms.Count > 0 && o.Tags.Contains("player")) is { } player) Select(player.Id);
                 await Task.Delay(300);

@@ -1,0 +1,155 @@
+mechanism NightShift
+    # The game itself: the title screen, three nights from 12 AM to 6 AM, the power that drains, winning and losing.
+    # It tells everyone what happens: "night start" (with the night), "hour", "power out", "six am", "freeze".
+    # Creatures tell it "caught" when they get in. Progress is kept with save "night", n.
+    param night_seconds: seconds = 300
+    param last_night: number = 3
+    param power_rates: List of number = [0.42, 0.5, 0.58]
+    param intro_seconds: seconds = 3
+    param dark_visitor: Object
+    param hints: List of text = ["Close a door when something waits outside it. Doors, lights and cameras all drain the power.", "Pip is awake now. Odette grows restless faster: check the Music Room often.", "Last night. They all know the way to your office."]
+
+    when start
+        visible = false
+        global mode, night, power, usage, hour, pace, clock_text, cam_label, power_out, caught_by, best, win_text, hint
+        pace = night_seconds / 300
+        night_id = 0
+        play "drone.wav" loop with 0.35
+        wait 0 # every object joins its screen first
+        if mode == "night"
+            start_night
+        else
+            show_title
+
+    # ---------------- Title ----------------
+
+    to show_title
+        mode = "title"
+        night_id += 1
+        hide screen "Hud"
+        hide screen "Win"
+        hide screen "Lose"
+        hide screen "Cameras"
+        show screen "Title"
+        best = saved("night")
+        if not best or best < 2
+            hide find("Continue")
+        if saved("beaten")
+            show find("Trophy")
+        else
+            hide find("Trophy")
+
+    when told "new game"
+        if mode != "title": stop
+        save "night", 1
+        night = 1
+        start_night
+
+    when told "continue"
+        if mode != "title": stop
+        night = max(1, min(saved("night"), last_night))
+        start_night
+
+    when told "to title"
+        show_title
+
+    # ---------------- A night ----------------
+
+    to start_night
+        night_id += 1
+        id = night_id
+        mode = "intro"
+        power = 100
+        hour = 0
+        usage = 1
+        power_out = false
+        clock_text = "12 AM"
+        hint = hints[min(night, length(hints)) - 1]
+        hide screen "Title"
+        hide screen "Win"
+        hide screen "Lose"
+        show screen "Intro"
+        stop sounds
+        play "drone.wav" loop with 0.35
+        play "boom.wav"
+        broadcast "night reset", night
+        wait intro_seconds
+        if id != night_id: return
+        fade out in 0.4
+        hide screen "Intro"
+        show screen "Hud"
+        mode = "night"
+        play "hum.wav" loop with 0.45
+        broadcast "night start", night
+        fade in in 0.8
+        run clock id
+        run drain id
+
+    to clock id
+        repeat 6
+            wait night_seconds / 6
+            if id != night_id or mode != "night": return
+            hour += 1
+            clock_text = text(hour) + " AM"
+            broadcast "hour", hour
+        six_am
+
+    to drain id
+        rate = power_rates[min(night, length(power_rates)) - 1]
+        while id == night_id and mode == "night" and not power_out
+            wait 0.1
+            usage = 1 + count("uses_power")
+            power -= usage * rate * 100 / night_seconds * 0.1
+            if power <= 0: go_dark id
+
+    to go_dark id
+        power = 0
+        power_out = true
+        usage = 0
+        stop sound "hum.wav"
+        play "powerdown.wav"
+        broadcast "power out"
+        if dark_visitor: tell dark_visitor "dark visit"
+
+    to six_am
+        mode = "won"
+        broadcast "six am"
+        stop sounds
+        play "chime.wav"
+        clock_text = "6 AM"
+        wait 1.2
+        hide screen "Hud"
+        show screen "Win"
+        if night >= last_night
+            save "night", last_night
+            save "beaten", true
+            win_text = "You survived every night at the Museum of Dolls."
+            hide find("Next Night")
+        else
+            save "night", night + 1
+            win_text = "Night " + text(night) + " survived. They will be busier tomorrow."
+            hide find("Win Title")
+
+    when told "next night"
+        if mode != "won": stop
+        night = min(night + 1, last_night)
+        start_night
+
+    # ---------------- Caught ----------------
+
+    when told "caught" picture
+        if mode != "night": stop
+        mode = "over"
+        night_id += 1
+        broadcast "freeze"
+        stop sounds
+
+    when told "scare over"
+        if mode != "over": stop
+        hide screen "Hud"
+        show screen "Lose"
+        play "drone.wav" loop with 0.25
+
+    when told "retry"
+        if mode != "over": stop
+        start_night

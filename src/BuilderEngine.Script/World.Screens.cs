@@ -91,7 +91,13 @@ public sealed partial class World
         w.Commands["camera view"] = c =>
         {
             var world = c.World;
-            if (WordAt(c, 0) is "off" or "none" || c.Args.Count == 0) { world.CameraView = null; world.ResetCamera(); return; }
+            if (WordAt(c, 0) is "off" or "none" || c.Args.Count == 0)
+            {
+                world.CameraView = null;
+                world.ResetCamera();
+                world.Camera.Placed = false; // jump back (to the player, or where the game started) instead of staying at the camera
+                return;
+            }
             var o = ObjectAt(c, 0) ?? throw c.Error($"There's no object called '{DescribeArg(c, 0)}' to look through. Put an object where the camera should look (its box = what it shows).");
             world.ViewThrough(o);
         };

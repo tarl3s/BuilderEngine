@@ -1,0 +1,185 @@
+mechanism Office
+    # The guard's office at night: dark, a desk lamp that sometimes flickers, keys for the doors and lights
+    # (Q / E close the left / right door, A / D switch the hall lights). When the power dies, it all goes black.
+    # 'view' is the CameraPoint that shows the office.
+    param lamp: Object
+    param view: Object
+    param left_door: Object
+    param right_door: Object
+    param left_light: Object
+    param right_light: Object
+    param dark: number = 0.86
+
+    when start
+        visible = false
+        camera view view
+        darkness 0.55
+        lamp_on
+
+    when told "night reset"
+        darkness dark in 0.5
+        lamp_on
+
+    when told "night start"
+        run flicker
+
+    when told "power out"
+        light lamp off
+        darkness 0.985 in 1.5
+
+    when told "six am"
+        lamp_on
+        darkness 0.35 in 2
+
+    when key "q"
+        tell left_door "toggle"
+
+    when key "e"
+        tell right_door "toggle"
+
+    when key "a"
+        tell left_light "toggle"
+
+    when key "d"
+        tell right_light "toggle"
+
+    to lamp_on
+        light lamp 250 with "#FFC27A" flicker 0.12
+
+    to flicker
+        while mode == "night" and not power_out
+            wait random(6, 16) * pace
+            if mode == "night" and not power_out
+                repeat random(2, 4)
+                    light lamp off
+                    play "flicker.wav"
+                    wait random(4, 10) / 100
+                    lamp_on
+                    wait random(5, 18) / 100
+
+mechanism OfficeDoor
+    # A steel shutter over a doorway. Tell it "toggle" (its wall button or a key does). While it is down nothing gets
+    # through — but it draws power. It slides open by itself when the power dies.
+    param sound: Sound = "door.wav"
+
+    when start
+        layer 2
+        full = self.height
+        self.height = 0
+
+    when told "toggle"
+        if mode != "night" or power_out
+            play "jam.wav"
+            stop
+        if has_tag(self, "closed")
+            open
+        else
+            close
+
+    when told "night reset"
+        untag self "closed"
+        untag self "uses_power"
+        self.height = 0
+
+    when told "power out"
+        if has_tag(self, "closed"): open
+
+    to close
+        tag self "closed"
+        tag self "uses_power"
+        play sound
+        resize self to self.width, full in 0.12
+
+    to open
+        untag self "closed"
+        untag self "uses_power"
+        play sound
+        resize self to self.width, 0 in 0.18
+
+mechanism HallLight
+    # A light over a doorway: tell it "toggle". It shows who is standing out there — and draws power.
+    param radius: number = 150
+    param color: Color = "#FFE6A8"
+    param sound: Sound = "buzz.wav"
+
+    when start
+        visible = false
+
+    when told "toggle"
+        if mode != "night" or power_out
+            play "jam.wav"
+            stop
+        if has_tag(self, "uses_power")
+            turn_off
+        else
+            light radius with color flicker 0.35
+            tag self "uses_power"
+            play "click.wav"
+            play sound loop with 0.25
+
+    when told "night reset"
+        turn_off
+
+    when told "power out"
+        turn_off
+
+    when told "six am"
+        turn_off
+
+    to turn_off
+        if not has_tag(self, "uses_power"): return
+        light off
+        untag self "uses_power"
+        stop sound sound
+
+mechanism WallSwitch
+    # A button on the office wall: clicking it tells 'target' "toggle". It glows while the target draws power.
+    param label: text = "DOOR"
+    param target: Object
+    param on_color: Color = "#D84A3A"
+    param off_color: Color = "#3A2622"
+
+    when start
+        caption label with "#F2E6D8", 11
+        light 34 with on_color strength 0.55
+
+    when tick
+        if has_tag(target, "uses_power")
+            color on_color
+        else
+            color off_color
+
+    when clicked
+        play "click.wav"
+        tell target "toggle"
+
+mechanism Doorway
+    # Where a creature stands when it reaches the office (it fills this box). 'door' is the shutter that keeps it out.
+    param door: Object
+
+    when start
+        visible = false
+        tag self "doorway"
+
+mechanism UsageCell
+    # One bar of the power usage meter: lit while the usage is at least 'level'.
+    param level: number = 1
+    param color: Color = "#6FCF6A"
+
+    when start
+        ui
+        join screen "Hud"
+
+    when tick
+        if usage >= level
+            color color
+        else
+            color "#202820"
+
+mechanism Spinner
+    # Plays numbered pictures over and over (fan1.png, fan2.png…): the desk fan, a ceiling fan.
+    param frames: text = "fan"
+    param fps: number = 14
+
+    when start
+        animate frames at fps

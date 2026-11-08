@@ -492,6 +492,7 @@ sealed partial class PlaySurface : Control, ICustomHitTest
     {
         if (_world.Globals.Count == 0) return;
         foreach (var h in _world.Hud) if (!h.IsBar) return;
+        foreach (var o in _uiOrder) if (!string.IsNullOrEmpty(o.Caption)) return; // texts of its own on screen objects
         _hud.Clear();
         foreach (var (k, v) in _world.Globals)
         {

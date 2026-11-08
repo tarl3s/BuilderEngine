@@ -1,0 +1,225 @@
+mechanism Creature
+    # A creature of the museum. Every few seconds it may walk to the next place of its route (more often on later
+    # nights); the last place is a Doorway of the office. There it waits a moment: a closed door sends it back to
+    # the start (it bangs on it — that costs power), an open one lets it in.
+    # A shy one never moves while the camera is watching it. With alt_route it picks one of two routes each time.
+    param display_name: text = "Clementine"
+    param route: List of Object
+    param alt_route: List of Object
+    param levels: List of number = [5, 9, 14]
+    param move_every: seconds = 5
+    param shy: yesno = false
+    param door_wait: seconds = 4
+    param knock_cost: number = 1
+    param scare: Image = ""
+    param slot: number = 0
+    param first_night: number = 1
+    param sound: Sound = ""
+
+    when start
+        layer 1
+        width0 = self.width
+        height0 = self.height
+        gen = 0
+        step = 0
+        level = 0
+        where = ""
+        visits = 0
+        if length(route) > 0: go_to route[0]
+
+    when told "night reset" n
+        gen += 1
+        level = levels[min(n, length(levels)) - 1]
+        if sound != "": stop sound sound
+        if length(route) > 0: go_to route[0]
+        if n < first_night or level <= 0
+            hide
+        else
+            show
+
+    when told "night start" n
+        if n >= first_night and level > 0: run hunt gen
+
+    when told "freeze"
+        gen += 1
+
+    when told "six am"
+        gen += 1
+        if sound != "": stop sound sound
+
+    when told "dark visit"
+        gen += 1
+        run lurk gen
+
+    to pick_route
+        if length(alt_route) > 0 and random(1, 2) == 2: return alt_route
+        return route
+
+    to hunt id
+        path = pick_route()
+        step = 0
+        go_to path[0]
+        while id == gen
+            wait move_every * pace * random(75, 125) / 100
+            if id == gen and random(1, 20) <= level and not (shy and on_screen())
+                step += 1
+                go_to path[step]
+                if step == length(path) - 1
+                    visit path[step], id
+                    if id == gen
+                        path = pick_route()
+                        step = 0
+                        go_to path[0]
+
+    to go_to place
+        before = where
+        if has_tag(place, "doorway")
+            self.x = place.x
+            self.y = place.y
+            self.width = place.width
+            self.height = place.height
+        else
+            self.width = width0
+            self.height = height0
+            self.x = place.x + 24 + slot * (place.width - width0 - 48) / 3
+            self.y = place.y + place.height - height0 - 10
+        where = place.name
+        if camera_view() == before or camera_view() == where
+            screen noise 0.95 for 0.45
+            play "static.wav"
+        if has_tag(place, "near"): play "steps.wav"
+        if sound != ""
+            if step == 0
+                stop sound sound
+            else
+                play sound loop with 0.15 + 0.5 * step / max(1, length(route) - 1)
+
+    to visit spot, id
+        visits += 1
+        seen = false
+        repeat round(door_wait * pace * random(80, 120) / 10)
+            wait 0.1
+            if id != gen: return
+            if not seen and light_at(self.x + self.width / 2, self.y + self.height / 3) > 0.5
+                seen = true
+                play "sting.wav"
+        if has_tag(spot.Doorway.door, "closed")
+            play "knock.wav"
+            power = max(0, power - knock_cost)
+            emit blocked
+        else
+            get_in
+
+    to get_in
+        gen += 1
+        caught_by = display_name
+        broadcast "caught", scare
+
+    to lurk id
+        wait random(3, 7) * pace
+        if id != gen: return
+        if sound != "": play sound loop with 0.6
+        wait random(5, 10) * pace
+        if id != gen: return
+        get_in
+
+mechanism Ballerina from Creature
+    # Odette dances on her music box while someone watches. Left alone she grows restless (faster on later nights)
+    # and her music fades; when it stops she runs for the office. Check her camera now and then to calm her.
+    param display_name = "Odette"
+    param levels = [6, 10, 15]
+    param calm: number = 14
+    param run_step: seconds = 1.1
+    param restless_picture: Image = "ballerina_restless.png"
+
+    when start
+        restless = 0
+        calm_picture = self.image
+
+    to hunt id
+        restless = 0
+        step = 0
+        go_to route[0]
+        look calm_picture
+        play sound loop with 0.3
+        while id == gen
+            wait 0.25
+            if id != gen: return
+            if on_screen()
+                restless = max(0, restless - calm * 0.25 / pace)
+            else
+                restless += level * 0.05 / pace
+            if restless >= 60
+                look restless_picture
+            else
+                look calm_picture
+            volume sound max(0, 0.32 - restless * 0.003)
+            if restless >= 100
+                stop sound sound
+                play "music_stop.wav"
+                for each i in range(1, length(route) - 1)
+                    wait run_step * pace
+                    if id != gen: return
+                    step = i
+                    go_to route[i]
+                visit route[length(route) - 1], id
+                if id != gen: return
+                restless = 0
+                step = 0
+                go_to route[0]
+                look calm_picture
+                play sound loop with 0.3
+
+    to go_to place
+        before = where
+        if has_tag(place, "doorway")
+            self.x = place.x
+            self.y = place.y
+            self.width = place.width
+            self.height = place.height
+        else
+            self.width = width0
+            self.height = height0
+            self.x = place.x + place.width / 2 - width0 / 2
+            self.y = place.y + place.height - height0 - 10
+        where = place.name
+        if camera_view() == before or camera_view() == where
+            screen noise 0.95 for 0.45
+            play "static.wav"
+        if has_tag(place, "near"): play "steps.wav"
+
+mechanism Jumpscare
+    # Fills the screen with whoever got in: a red flash, a scream, the picture shaking — then tells everyone
+    # "scare over" (the game shows its game over screen).
+    param seconds: seconds = 1.6
+
+    when start
+        ui
+        hide
+        x0 = self.x
+        y0 = self.y
+        scaring = false
+
+    when told "caught" picture
+        if scaring: stop
+        scaring = true
+        look picture
+        show
+        play "scream.wav"
+        flash "#FF1A1A"
+        screen noise 0.85 for 0.5
+        camera shake 12 for 0.8
+        repeat round(seconds / 0.04)
+            self.x = x0 + random(-16, 16)
+            self.y = y0 + random(-12, 12)
+            wait 0.04
+        self.x = x0
+        self.y = y0
+        hide
+        screen noise off
+        scaring = false
+        broadcast "scare over"
+
+    when told "night reset"
+        hide
+        scaring = false

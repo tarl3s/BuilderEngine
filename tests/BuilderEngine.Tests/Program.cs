@@ -1211,6 +1211,7 @@ AiTests.Run(Test); // the AI assistant with a fake AI: prompts, reading answers,
 QolTests.Run(Test); // the scene editor's conveniences: selection, nudge, copy/paste, order, align, wheel, search, shortcuts (QolTests.cs)
 GameKitTests.Run(Test); // tiles, lights, mouse, screens, inventory, crafting, cards, sounds, performance (GameKitTests.cs)
 DeepdelveTests.Run(Test); // the Deepdelve sample game, played headless (Samples/DeepdelveTests.cs)
+NightShiftTests.Run(Test); // the Night Shift sample game played headless (Samples/NightShiftTests.cs)
 
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
