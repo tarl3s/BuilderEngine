@@ -39,6 +39,7 @@ public sealed partial class World
     {
         if (RequestedScene != null) return;
         RequestedScene = name;
+        Debug?.Event(DebugEventKind.Scene, null, "go to scene " + Printer.Quote(name));
         SceneRequested?.Invoke(name);
     }
 

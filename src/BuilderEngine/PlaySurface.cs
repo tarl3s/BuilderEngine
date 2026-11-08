@@ -43,6 +43,12 @@ sealed class PlaySurface : Control, ICustomHitTest
 
     public Action? StopRequested;
     public Action<string>? Crashed;
+    /// <summary>The debugger watching this game (draws "paused", F5 pauses / resumes, F10 steps).</summary>
+    public Debugger? Debugger;
+    /// <summary>The object the Debug panel looks inside (outlined).</summary>
+    public GameObject? Inspected;
+    /// <summary>A click on the game that isn't for a dialogue: the object under the pointer, or null.</summary>
+    public Action<GameObject?>? ObjectClicked;
 
     public PlaySurface(World world, Scene scene, Dictionary<GameObject, SceneObject> spawned, ImageCache? images = null)
     {
@@ -159,6 +165,7 @@ sealed class PlaySurface : Control, ICustomHitTest
                 ctx.FillRectangle(SceneCanvas.BrushOf(_scene.Background, Palette.Bg1), new Rect(0, 0, _world.SceneWidth, _world.SceneHeight));
                 DrawObjects(ctx);
                 DrawHudItems(ctx, anchored: true, area, scale);
+                DrawDebugMarks(ctx, s);
             }
             DrawHudItems(ctx, anchored: false, area, scale);
             DrawOverlay(ctx, area, _world.FadeAmount, _world.FadeColor, _fadeBrush);
@@ -166,6 +173,7 @@ sealed class PlaySurface : Control, ICustomHitTest
             DrawDialogue(ctx, area, scale);
             DrawToasts(ctx, area, scale);
             if (_world.Paused) DrawCentered(ctx, area, "PAUSED", 28 * scale);
+            if (Debugger?.Paused == true) DrawDebugBanner(ctx, area);
         }
 
         DrawGlobals(ctx, size);
@@ -504,6 +512,14 @@ sealed class PlaySurface : Control, ICustomHitTest
         base.OnKeyDown(e);
         e.Handled = true;
         if (e.Key == Key.Escape) { StopRequested?.Invoke(); return; }
+        if (Debugger != null && e.Key is Key.F5 or Key.F10)
+        {
+            if (e.Key == Key.F10) Debugger.StepFrame();
+            else if (Debugger.Paused) Debugger.Resume();
+            else Debugger.Pause();
+            InvalidateVisual();
+            return;
+        }
         _world.KeyDown(MainWindow.KeyName(e.Key)); // the world ignores auto-repeat
     }
 
@@ -524,10 +540,64 @@ sealed class PlaySurface : Control, ICustomHitTest
     {
         base.OnPointerPressed(e);
         Focus();
-        if (_world.Dialogue is not { Closed: false }) return;
         var p = e.GetPosition(this);
-        int hit = _optionRects.FindIndex(r => r.Contains(p));
-        _world.Click(hit >= 0 ? hit : null);
+        // A dialogue takes the click (unless the debugger paused the game: then a click looks inside an object).
+        if (_world.Dialogue is { Closed: false } && Debugger?.Paused != true)
+        {
+            int hit = _optionRects.FindIndex(r => r.Contains(p));
+            _world.Click(hit >= 0 ? hit : null);
+            e.Handled = true;
+            return;
+        }
+        if (ObjectClicked == null) return;
+        ObjectClicked(ObjectAtScreen(p));
+        InvalidateVisual();
         e.Handled = true;
+    }
+
+    // ---------------- Debugger ----------------
+
+    static readonly IPen InspectPen = new Pen(Palette.Accent, 2).ToImmutable();
+    static readonly IPen BreakPen = new Pen(new SolidColorBrush(Color.Parse("#E05D5D")), 2, new DashStyle([3, 2], 0)).ToImmutable();
+    FormattedText? _bannerFt;
+    string? _bannerText;
+
+    /// <summary>The object drawn on top under a point of the control (what a click inspects), or null.</summary>
+    public GameObject? ObjectAtScreen(Point p)
+    {
+        var (area, scale) = Viewport();
+        if (scale <= 0 || !area.Contains(p)) return null;
+        var cam = _world.Camera;
+        double s = scale * cam.Zoom;
+        double x = cam.Left + (p.X - area.X) / s, y = cam.Top + (p.Y - area.Y) / s;
+        for (int i = _order.Count - 1; i >= 0; i--)
+        {
+            var o = _order[i];
+            if (!o.Destroyed && x >= o.X && x <= o.X + o.Width && y >= o.Y && y <= o.Y + o.Height) return o;
+        }
+        return null;
+    }
+
+    /// <summary>The inspected object outlined; the object stopped at a breakpoint dashed red. Inside the world transform.</summary>
+    void DrawDebugMarks(DrawingContext ctx, double s)
+    {
+        if (Inspected is { Destroyed: false } i)
+            ctx.DrawRectangle(null, InspectPen, new Rect(i.X - 3 / s, i.Y - 3 / s, i.Width + 6 / s, i.Height + 6 / s).Normalize(), 4 / s, 4 / s);
+        if (Debugger?.PausedAt?.Object is { Destroyed: false } b && b != Inspected)
+            ctx.DrawRectangle(null, BreakPen, new Rect(b.X - 3 / s, b.Y - 3 / s, b.Width + 6 / s, b.Height + 6 / s).Normalize(), 4 / s, 4 / s);
+    }
+
+    /// <summary>"⏸ Paused by the debugger" at the top of the game (with where, when a breakpoint stopped it).</summary>
+    void DrawDebugBanner(DrawingContext ctx, Rect area)
+    {
+        string text = Debugger?.PausedAt is { } at ? $"⏸  Paused at {at}  ·  F5 resume · F10 step" : "⏸  Paused  ·  F5 resume · F10 step";
+        if (_bannerFt == null || _bannerText != text)
+        {
+            _bannerText = text;
+            _bannerFt = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, HudFont, 13, Palette.Text);
+        }
+        var r = new Rect(area.X + (area.Width - _bannerFt.Width) / 2 - 14, area.Y + 10, _bannerFt.Width + 28, _bannerFt.Height + 10);
+        ctx.DrawRectangle(PanelBg, PanelPen, r, r.Height / 2, r.Height / 2);
+        ctx.DrawText(_bannerFt, new Point(r.X + 14, r.Y + 5));
     }
 }

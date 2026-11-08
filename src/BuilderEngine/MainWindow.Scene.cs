@@ -153,6 +153,7 @@ public sealed partial class MainWindow
     void SceneOnMechanismRenamed(string oldName, string newName)
     {
         _project.RenameMechanism(oldName, newName);
+        VariantsOnRenamed(oldName, newName); // variants follow, and breakpoints (MainWindow.Variants.cs)
         // Undo snapshots follow the rename too, so undo never brings back a name that no longer exists.
         for (int i = 0; i < _undo.Count; i++) _undo[i] = RenameInSnapshot(_undo[i], oldName, newName);
         for (int i = 0; i < _redo.Count; i++) _redo[i] = RenameInSnapshot(_redo[i], oldName, newName);
@@ -521,6 +522,7 @@ public sealed partial class MainWindow
     /// <summary>Shows a world playing a scene (a new surface each scene, so everything a scene sets up starts fresh).</summary>
     void StartPlaySurface(World world, Scene scene)
     {
+        DebugAttach(world); // before loading, so scene errors reach the timeline (MainWindow.Debug.cs)
         var spawned = world.LoadScene(scene);
         Log($"▶ Playing {scene.Name} ({spawned.Count} objects).");
         _play?.Halt();
@@ -529,6 +531,7 @@ public sealed partial class MainWindow
             StopRequested = SceneStop,
             Crashed = msg => { Log($"⚠ The game stopped: {msg}"); SceneStop(); }
         };
+        DebugSurface(_play);
         _playSceneName = scene.Name;
         _playText.Text = $"Playing {scene.Name} — Esc or Stop to go back to editing (your scenes stay as they were).";
         _sceneHost.Content = _play;
@@ -550,6 +553,7 @@ public sealed partial class MainWindow
         if (_play == null) return;
         _play.Halt();
         _play = null;
+        DebugStop();
         _playSceneName = null;
         _audio.StopAll();
         _sceneHost.Content = _canvas;

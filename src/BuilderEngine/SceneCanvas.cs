@@ -40,8 +40,13 @@ sealed class SceneCanvas : Control, ICustomHitTest
     public Action<string, Point, SceneObject?>? MechanismDropped;
     /// <summary>Keys the canvas doesn't use itself (Delete, Ctrl+D, arrows...). Return true when handled.</summary>
     public Func<KeyEventArgs, bool>? KeyCommand;
+    /// <summary>A tool drawn over the scene that gets the pointer first (the path editor, picking an object for a param).</summary>
+    public ICanvasOverlay? Overlay;
 
-    enum Mode { None, Pan, Move, Resize }
+    /// <summary>Scene coordinates → this control's pixels.</summary>
+    public Point WorldToScreen(Point world) => ToScreen(world.X, world.Y);
+
+    enum Mode { None, Pan, Move, Resize, Overlay }
     Mode _mode;
     Point _pressScreen;
     Point _pressWorld;
@@ -154,6 +159,8 @@ sealed class SceneCanvas : Control, ICustomHitTest
             ctx.DrawText(ft, at);
         }
 
+        Overlay?.Draw(ctx, this);
+
         if (Scene.Objects.Count == 0)
         {
             var ft = new FormattedText("Drag a mechanism here, or click  + Object", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, UiFont, 14, Palette.TextDim);
@@ -241,6 +248,11 @@ sealed class SceneCanvas : Control, ICustomHitTest
             _mode = Mode.Pan;
             Cursor = HandCursor;
         }
+        else if ((pt.Properties.IsLeftButtonPressed || pt.Properties.IsRightButtonPressed) && Overlay != null && Overlay.Press(_pressWorld, pt.Properties.IsRightButtonPressed, e.KeyModifiers))
+        {
+            _mode = Mode.Overlay;
+            InvalidateVisual();
+        }
         else if (pt.Properties.IsLeftButtonPressed)
         {
             int h = HandleAt(pt.Position);
@@ -279,6 +291,10 @@ sealed class SceneCanvas : Control, ICustomHitTest
             case Mode.Pan:
                 _pan += p - _pressScreen;
                 _pressScreen = p;
+                InvalidateVisual();
+                return;
+            case Mode.Overlay:
+                Overlay?.Drag(ToWorld(p), e.KeyModifiers);
                 InvalidateVisual();
                 return;
             case Mode.Move:
@@ -333,6 +349,7 @@ sealed class SceneCanvas : Control, ICustomHitTest
     {
         base.OnPointerReleased(e);
         if (_mode == Mode.None) return;
+        if (_mode == Mode.Overlay) { Overlay?.Release(); InvalidateVisual(); }
         _mode = Mode.None;
         e.Pointer.Capture(null);
         Cursor = Cursor.Default;
@@ -374,6 +391,7 @@ sealed class SceneCanvas : Control, ICustomHitTest
     }
 
     // ---------------- Drop from the library ----------------
+    // (ICanvasOverlay is declared at the end of this file.)
 
     static string? DroppedMechanism(DragEventArgs e)
     {
@@ -400,4 +418,17 @@ sealed class SceneCanvas : Control, ICustomHitTest
         e.Handled = true;
         InvalidateVisual();
     }
+}
+
+/// <summary>
+/// An editor tool drawn over the scene canvas that gets the pointer before the canvas does (the path editor, picking an
+/// object for an Object param). Positions are in scene coordinates.
+/// </summary>
+interface ICanvasOverlay
+{
+    void Draw(DrawingContext ctx, SceneCanvas canvas);
+    /// <summary>A press (left, or right when <paramref name="right"/>). True = the overlay takes it, and gets the drag and release.</summary>
+    bool Press(Point world, bool right, KeyModifiers mods);
+    void Drag(Point world, KeyModifiers mods);
+    void Release();
 }

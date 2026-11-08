@@ -95,7 +95,27 @@ public sealed partial class World
         var defs = Parser.Parse(source);
         foreach (var d in defs) Library[d.Name] = d;
         _procIndex = null; // user commands are looked up again
+        _resolved.Clear(); // variants are merged again (their parent may have changed)
         return defs;
+    }
+
+    /// <summary>Mechanisms as they run (variants merged with what they come from), made the first time they are needed.</summary>
+    readonly Dictionary<string, (MechanismDef Raw, MechanismDef Def)> _resolved = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A mechanism as it runs — a variant (<c>mechanism RedSlime from Slime</c>) merged with its parent — or null when
+    /// there's none with that name. A broken variant (missing parent, a loop) is a friendly error.
+    /// </summary>
+    public MechanismDef? TryDef(string name, int line = 0)
+    {
+        if (!Library.TryGetValue(name, out var raw)) return null;
+        if (raw.Base == null) return raw;
+        if (_resolved.TryGetValue(name, out var c) && ReferenceEquals(c.Raw, raw)) return c.Def;
+        MechanismDef def;
+        try { def = Variants.Resolve(raw, n => Library.GetValueOrDefault(n)); }
+        catch (ScriptError e) when (line > 0) { throw new ScriptError(e.Message, line); }
+        _resolved[name] = (raw, def);
+        return def;
     }
 
     /// <summary>Creates an object with these mechanisms. Overrides set params by name.</summary>
@@ -115,8 +135,7 @@ public sealed partial class World
     }
 
     MechanismDef Find(string name, int line) =>
-        Library.TryGetValue(name, out var d) ? d
-            : throw new ScriptError($"There's no mechanism called '{name}'.{Suggest(name, Library.Keys)}", line);
+        TryDef(name, line) ?? throw new ScriptError($"There's no mechanism called '{name}'.{Suggest(name, Library.Keys)}", line);
 
     MechanismInstance Instantiate(MechanismDef def, GameObject owner, MechanismInstance? parent, Dictionary<string, object?>? overrides, int depth = 0)
     {
@@ -124,8 +143,13 @@ public sealed partial class World
         var inst = new MechanismInstance(def, owner, parent);
         var ctx = new Ctx(this, inst);
         foreach (var p in def.Params)
-            inst.Vars[p.Name] = overrides != null && overrides.TryGetValue(p.Name, out var v) ? v
+        {
+            var value = overrides != null && overrides.TryGetValue(p.Name, out var v) ? v
                 : p.Default != null ? Eval(p.Default, ctx) : DefaultFor(p.Type);
+            // An Object param written as a name ("Boss") is that object, when it is already there.
+            if (value is string name && ParamTypes.Kind(p.Type) == ParamKind.Object) value = ObjectNamed(name) ?? (object?)name;
+            inst.Vars[p.Name] = value;
+        }
         foreach (var u in def.Uses)
         {
             var childDef = Find(u.Name, u.Line);
@@ -146,13 +170,7 @@ public sealed partial class World
         return inst;
     }
 
-    static object? DefaultFor(string type) => type.ToLowerInvariant() switch
-    {
-        "number" or "seconds" => 0.0,
-        "bool" or "yesno" => false,
-        "text" or "string" => "",
-        _ => null
-    };
+    static object? DefaultFor(string type) => ParamTypes.Empty(type);
 
     public GameObject? FindObject(string nameOrTag) =>
         _objects.FirstOrDefault(o => !o.Destroyed && o.Is(nameOrTag)) ?? _pendingAdd.FirstOrDefault(o => o.Is(nameOrTag));
@@ -161,6 +179,7 @@ public sealed partial class World
     {
         key = key.ToLowerInvariant();
         _keyPressed[key] = ++_keySeq; // for 'wait for key'
+        Debug?.Event(DebugEventKind.Key, null, "key " + key);
         foreach (var o in _objects.ToArray())
             foreach (var m in o.AllMechanisms())
                 foreach (var w in m.Def.Whens)
@@ -203,7 +222,12 @@ public sealed partial class World
                 var key = (Math.Min(a.Id, b.Id), Math.Max(a.Id, b.Id));
                 if (a.InContact(b))
                 {
-                    if (_touching.Add(key)) { FireTouch(a, b); FireTouch(b, a); }
+                    if (_touching.Add(key))
+                    {
+                        Debug?.Event(DebugEventKind.Touched, a, $"{a.Name} touched {b.Name}", b);
+                        FireTouch(a, b);
+                        FireTouch(b, a);
+                    }
                 }
                 else _touching.Remove(key);
             }
@@ -231,6 +255,7 @@ public sealed partial class World
 
     internal void Emit(MechanismInstance from, string signal, List<object?> args)
     {
+        Debug?.Event(DebugEventKind.Emit, from.Owner, $"{from.Def.Name}: emit {signal}" + DebugArgs(args));
         NotifySignalWaiters(from, signal);
         foreach (var m in from.Owner.AllMechanisms().ToArray())
             foreach (var w in m.Def.Whens)
@@ -245,6 +270,7 @@ public sealed partial class World
     public void Tell(GameObject target, string message, List<object?> args)
     {
         if (target.Destroyed) return;
+        Debug?.Event(DebugEventKind.Told, target, $"{target.Name} told {Printer.Quote(message)}" + DebugArgs(args));
         foreach (var m in target.AllMechanisms().ToArray())
             foreach (var w in m.Def.Whens)
                 if (w.Event.Kind == EventKind.Told && w.Event.Filter == message)
@@ -254,8 +280,9 @@ public sealed partial class World
     void StartWhen(MechanismInstance m, WhenDef w, Dictionary<string, object?>? locals, GameObject? other = null)
     {
         if (m.Owner.Destroyed) return;
-        var ctx = new Ctx(this, m) { Locals = locals ?? new(), Other = other };
+        var ctx = new Ctx(this, m) { Locals = locals ?? new(), Other = other, Source = w.From };
         var co = new Coroutine(m, w, Exec(w.Body, ctx).GetEnumerator());
+        if (Debug != null) co.State = ctx.State = new CoState { Line = w.Line, Source = w.From };
         // Runs right away until its first 'wait' (so effects happen in the same step).
         Advance(co);
         if (!co.Done) _running.Add(co);
@@ -277,13 +304,7 @@ public sealed partial class World
             co.Until = co.It.Current.Until;
         }
         catch (StopException) { co.Done = true; }
-        catch (ScriptError e)
-        {
-            co.Done = true;
-            string msg = $"{co.Inst.Def.Name} (line {e.Line}): {e.Message}";
-            Errors.Add(msg);
-            Printed?.Invoke("⚠ " + msg);
-        }
+        catch (ScriptError e) { CoroutineError(co, e); }
     }
 
     /// <summary>A condition that throws (a script error inside 'wait until') ends that coroutine with the error.</summary>
@@ -292,12 +313,22 @@ public sealed partial class World
         try { return co.Until!(); }
         catch (ScriptError e)
         {
-            co.Done = true;
-            string msg = $"{co.Inst.Def.Name} (line {e.Line}): {e.Message}";
-            Errors.Add(msg);
-            Printed?.Invoke("⚠ " + msg);
+            CoroutineError(co, e);
             return false;
         }
+    }
+
+    /// <summary>A script error ends its 'when': it goes to Errors, the console and the debugger (with whose code it was).</summary>
+    void CoroutineError(Coroutine co, ScriptError e)
+    {
+        co.Done = true;
+        string? source = co.State?.Source ?? co.When?.From;
+        string where = source != null && !string.Equals(source, co.Inst.Def.Name, StringComparison.OrdinalIgnoreCase)
+            ? $"{co.Inst.Def.Name} (from {source}, line {e.Line})" : $"{co.Inst.Def.Name} (line {e.Line})";
+        string msg = $"{where}: {e.Message}";
+        Errors.Add(msg);
+        Printed?.Invoke("⚠ " + msg);
+        Debug?.Event(DebugEventKind.Error, co.Inst.Owner, msg, null, source ?? co.Inst.Def.Name, e.Line);
     }
 
     /// <summary>A running 'when' (When set) or a background task started with 'run' (When null).</summary>
@@ -309,6 +340,8 @@ public sealed partial class World
         public double WakeAt;
         public Func<bool>? Until;
         public bool Done;
+        /// <summary>Where it is (only while a debugger is attached).</summary>
+        public CoState? State;
     }
 
     sealed class StopException : Exception;
@@ -325,6 +358,12 @@ public sealed partial class World
         public int Depth;
         public bool Returned;
         public object? ReturnValue;
+        /// <summary>The mechanism whose code this is when it isn't Inst's own (an inherited 'when' or command of a variant).</summary>
+        public string? Source;
+        /// <summary>The running 'when's position, shared with its commands (only while a debugger is attached).</summary>
+        public CoState? State;
+        /// <summary>Running inside a value (<c>bonus(3)</c>): it can't stop at a breakpoint.</summary>
+        public bool NoBreak;
     }
 
     // ---------------- Statements ----------------
@@ -338,6 +377,14 @@ public sealed partial class World
         foreach (var s in body)
         {
             if (ctx.Inst.Owner.Destroyed || ctx.Returned) yield break;
+            // Debugger: where each 'when' is, and breakpoints (nothing but two null checks when none is attached).
+            if (ctx.State is { } st) { st.Line = s.Line; st.Stmt = s; st.Source = ctx.Source; }
+            if (Debug is { } dbg && dbg.Statement(ctx.Inst, ctx.Source ?? ctx.Inst.Def.Name, s, canBreak: !ctx.NoBreak))
+            {
+                if (ctx.State is { } bs) bs.AtBreak = true;
+                yield return new WaitFor(0, () => !dbg.HoldBreak);
+                if (ctx.State is { } be) be.AtBreak = false;
+            }
             switch (s)
             {
                 case WaitStmt w:
@@ -645,6 +692,7 @@ public sealed partial class World
                 string text = string.Join(" ", args.Select(ToText));
                 Output.Add(text);
                 Printed?.Invoke(text);
+                Debug?.Event(DebugEventKind.Print, ctx.Inst.Owner, text, null, ctx.Source ?? ctx.Inst.Def.Name, c.Line);
                 return;
             }
             case "destroy":

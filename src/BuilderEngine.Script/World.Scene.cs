@@ -4,8 +4,9 @@ public sealed partial class World
 {
     /// <summary>
     /// Creates the runtime objects of a scene (position, size, tags, mechanisms with their param overrides).
-    /// A mechanism that can't be used (unknown name, broken 'uses') is reported in <see cref="Errors"/> and skipped;
-    /// the object still appears. Returns each runtime object with the scene object it came from.
+    /// A mechanism that can't be used (unknown name, broken 'uses', a variant of a missing mechanism) is reported in
+    /// <see cref="Errors"/> and skipped; the object still appears. Object params (saved as names) become the objects
+    /// once the whole scene is there. Returns each runtime object with the scene object it came from.
     /// </summary>
     public Dictionary<GameObject, SceneObject> LoadScene(Scene scene)
     {
@@ -17,7 +18,10 @@ public sealed partial class World
             var overrides = new Dictionary<string, Dictionary<string, object?>>(StringComparer.OrdinalIgnoreCase);
             foreach (var m in so.Mechanisms)
             {
-                if (!Library.TryGetValue(m.Name, out var def))
+                MechanismDef? def;
+                try { def = TryDef(m.Name, 0); }
+                catch (ScriptError e) { SceneError($"'{so.Name}': {e.Message}"); continue; }
+                if (def == null)
                 {
                     SceneError($"'{so.Name}' uses '{m.Name}', but there's no mechanism with that name.{Suggest(m.Name, Library.Keys)}");
                     continue;
@@ -45,6 +49,10 @@ public sealed partial class World
             if (!string.IsNullOrWhiteSpace(so.Image)) o.Image = so.Image.Trim();
             map[o] = so;
         }
+        // Now every object exists: Object params written as names point at the objects.
+        foreach (var o in map.Keys)
+            foreach (var inst in o.AllMechanisms())
+                ResolveObjectParams(inst);
         return map;
     }
 
@@ -52,33 +60,31 @@ public sealed partial class World
     {
         Errors.Add(msg);
         Printed?.Invoke("⚠ " + msg);
+        Debug?.Event(DebugEventKind.Error, null, msg);
     }
 
-    /// <summary>A saved param value as the runtime wants it for that param type.</summary>
-    public static object? ConvertParam(object? value, string type)
+    /// <summary>A saved param value as the runtime wants it for that param type (see <see cref="ParamTypes"/>).</summary>
+    public static object? ConvertParam(object? value, string type) => ParamTypes.Convert(value, type);
+
+    /// <summary>Object params (and lists of objects) that still hold a name get the object with that name (or tag).</summary>
+    void ResolveObjectParams(MechanismInstance inst)
     {
-        switch (type.ToLowerInvariant())
+        foreach (var p in inst.Def.Params)
         {
-            case "number" or "seconds":
-                return value switch
-                {
-                    double d => d,
-                    bool b => b ? 1.0 : 0.0,
-                    string s when Project.TryNumber(s, out var d) => d,
-                    _ => 0.0
-                };
-            case "bool" or "yesno":
-                return value switch
-                {
-                    bool b => b,
-                    double d => d != 0,
-                    string s => s.Trim().ToLowerInvariant() is "true" or "yes" or "1" or "on",
-                    _ => false
-                };
-            case "text" or "string" or "sound" or "scene" or "image" or "picture":
-                return ToText(value);
-            default: // 'any' or a custom type: numbers written as text become numbers
-                return value is string t && Project.TryNumber(t, out var n) ? n : value;
+            var kind = ParamTypes.Kind(p.Type);
+            if (kind == ParamKind.Object && inst.Vars.TryGetValue(p.Name, out var v) && v is string name)
+                inst.Vars[p.Name] = ObjectNamed(name) ?? (object?)name;
+            else if (kind == ParamKind.List && ParamTypes.Kind(ParamTypes.ItemType(p.Type)) == ParamKind.Object
+                     && inst.Vars.TryGetValue(p.Name, out var lv) && lv is List<object?> list)
+                for (int i = 0; i < list.Count; i++)
+                    if (list[i] is string n) list[i] = ObjectNamed(n) ?? (object?)n;
         }
+    }
+
+    /// <summary>The object with exactly this name, else the first with this name or tag (any case).</summary>
+    GameObject? ObjectNamed(string name)
+    {
+        foreach (var o in LiveObjects()) if (o.Name == name) return o;
+        return FindObject(name);
     }
 }

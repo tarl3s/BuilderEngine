@@ -109,8 +109,9 @@ public sealed partial class World
     /// <summary>'run': starts the block as its own background task (with a copy of the current locals) and goes on.</summary>
     void StartBackground(List<Stmt> body, Ctx ctx)
     {
-        var bctx = new Ctx(this, ctx.Inst) { Locals = new(ctx.Locals), Other = ctx.Other, InProc = ctx.InProc, Depth = ctx.Depth };
+        var bctx = new Ctx(this, ctx.Inst) { Locals = new(ctx.Locals), Other = ctx.Other, InProc = ctx.InProc, Depth = ctx.Depth, Source = ctx.Source };
         var co = new Coroutine(ctx.Inst, null, Exec(body, bctx).GetEnumerator());
+        if (Debug != null) co.State = bctx.State = new CoState { Line = body.Count > 0 ? body[0].Line : 0, Source = ctx.Source };
         Advance(co);
         if (!co.Done) _running.Add(co);
     }
@@ -154,7 +155,7 @@ public sealed partial class World
         if (dot > 0)
         {
             string mech = name[..dot], proc = name[(dot + 1)..];
-            if (!Library.TryGetValue(mech, out var md))
+            if (TryDef(mech, line) is not { } md)
                 throw new ScriptError($"There's no mechanism called '{mech}'.{Suggest(mech, Library.Keys)}", line);
             return OwnProc(md, proc) is { } pd ? new ProcRef(pd, md)
                 : throw new ScriptError($"'{md.Name}' has no command called '{proc}'.{Suggest(proc, md.Procs.Select(p => p.Name))}", line);
@@ -165,7 +166,7 @@ public sealed partial class World
         ProcRef? found = null;
         foreach (var u in own.Uses)
         {
-            if (!Library.TryGetValue(u.Name, out var ud) || OwnProc(ud, name) is not { } up) continue;
+            if (TryDef(u.Name, line) is not { } ud || OwnProc(ud, name) is not { } up) continue;
             if (found != null && found.Mech != ud)
                 throw new ScriptError($"Both '{found.Mech.Name}' and '{ud.Name}' have a command called '{name}': write {found.Mech.Name}.{name} or {ud.Name}.{name}.", line);
             found = new ProcRef(up, ud);
@@ -218,17 +219,23 @@ public sealed partial class World
         {
             owner.Helpers ??= new(StringComparer.OrdinalIgnoreCase);
             if (!owner.Helpers.TryGetValue(mech, out inst))
-                owner.Helpers[mech] = inst = Instantiate(proc.Mech, owner, null, null);
+                owner.Helpers[mech] = inst = Instantiate(TryDef(proc.Mech.Name) ?? proc.Mech, owner, null, null);
         }
         var locals = new Dictionary<string, object?>();
         for (int i = 0; i < p.Params.Count; i++) locals[p.Params[i]] = args[i];
-        return new Ctx(this, inst) { Locals = locals, Other = caller.Other, InProc = true, Depth = caller.Depth + 1 };
+        return new Ctx(this, inst)
+        {
+            Locals = locals, Other = caller.Other, InProc = true, Depth = caller.Depth + 1,
+            Source = p.From ?? proc.Mech.Name, State = caller.State, NoBreak = caller.NoBreak
+        };
     }
 
     /// <summary>A user command used as a value (<c>bonus(3)</c>): runs it right away and gives what it returns.</summary>
     object? CallProcValue(ProcRef proc, CallExpr c, Ctx ctx)
     {
         var pctx = ProcContext(proc, c.Args.Select(x => Eval(x, ctx)).ToList(), ctx, c.Line);
+        pctx.NoBreak = true; // a value can't pause halfway
+        pctx.State = null;
         foreach (var _ in Exec(proc.Def.Body, pctx))
             throw new ScriptError($"'{c.Name}' waits, so it can't be used inside a value. Put it on its own line: {ProcUsage(proc.Def)}", c.Line);
         return pctx.ReturnValue;

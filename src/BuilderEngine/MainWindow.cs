@@ -114,7 +114,7 @@ public sealed partial class MainWindow : Window
     {
         _sceneTab = scene;
         _center.Content = scene ? _sceneView : _mechPanel;
-        _rightTop.Content = scene ? _inspector : _mechInfo;
+        _rightTop.Content = scene || _play != null ? _inspector : _mechInfo; // while playing: the Debug panel on both tabs
         StyleTab(_tabScene, scene);
         StyleTab(_tabMech, !scene);
         _tabMech.Content = _current == null ? "Mechanism" : $"Mechanism: {_current}";
@@ -265,7 +265,7 @@ public sealed partial class MainWindow : Window
 
         _blocksBox.Child = CreateBlocksView();
         _blocksBox.Background = Palette.Bg0;
-        _codeBox.Child = _code;
+        _codeBox.Child = CodeWithGutter(_code); // line numbers + breakpoints (DebuggerGutter.cs)
         _codeBox.BorderBrush = Palette.Border;
         _codeBox.BorderThickness = new Thickness(1, 0, 0, 0);
         Grid.SetColumn(_codeBox, 1);
@@ -404,6 +404,7 @@ public sealed partial class MainWindow : Window
         {
             var defs = Parser.Parse(_code.Text ?? "");
             SetStatus(true, defs.Count == 0 ? "Empty — start with 'mechanism Name'." : $"No problems. {Summary(defs)}");
+            if (defs.Count > 0 && VariantProblem(defs[0]) is { } problem) SetStatus(false, problem); // MainWindow.Variants.cs
             return defs;
         }
         catch (ScriptError e)
@@ -416,7 +417,7 @@ public sealed partial class MainWindow : Window
     static string Summary(List<MechanismDef> defs)
     {
         var d = defs[0];
-        return $"{d.Name}: {d.Params.Count} param(s), {d.Uses.Count} used mechanism(s), {d.Whens.Count} 'when'(s).";
+        return $"{Variants.Label(d)}: {d.Params.Count} param(s), {d.Uses.Count} used mechanism(s), {d.Whens.Count} 'when'(s).";
     }
 
     internal void SetStatus(bool ok, string text)
@@ -445,7 +446,9 @@ public sealed partial class MainWindow : Window
         {
             int end = k + 1 < starts.Count ? starts[k + 1] : lines.Length;
             string body = string.Join("\n", lines[starts[k]..end]).TrimEnd() + "\n";
-            yield return (lines[starts[k]]["mechanism ".Length..].Trim(), body);
+            // "mechanism RedSlime from Slime  # comment" -> RedSlime
+            string head = lines[starts[k]]["mechanism ".Length..].Split('#')[0].Trim();
+            yield return (head.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? head, body);
         }
     }
 

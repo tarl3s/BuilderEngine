@@ -45,8 +45,21 @@ public sealed record EventSpec(EventKind Kind, string? Filter = null, string? Bi
     };
 }
 
-public sealed record WhenDef(EventSpec Event, List<Stmt> Body, int Line);
-public sealed record ParamDef(string Name, string Type, Expr? Default, int Line);
+public sealed record WhenDef(EventSpec Event, List<Stmt> Body, int Line)
+{
+    /// <summary>On a variant: the mechanism whose code this inherited <c>when</c> is (null = the mechanism itself).</summary>
+    public string? From { get; init; }
+}
+
+/// <summary>
+/// <c>param speed: number = 100</c>. Type is what the inspector shows: number, text, Sound, Image, Object, Path, Color,
+/// Key, <c>List</c> or <c>List of number</c>, <c>Choice</c> (with <see cref="Options"/>), or "any" when not written.
+/// </summary>
+public sealed record ParamDef(string Name, string Type, Expr? Default, int Line)
+{
+    /// <summary>The options of a <c>Choice</c>: <c>param level: Choice "easy", "normal", "hard"</c>.</summary>
+    public List<string>? Options { get; init; }
+}
 /// <summary><c>uses Health max 2</c>: Name "Health", Args {max: 2}; <c>uses Sprite "slime.png"</c>: Positional.</summary>
 public sealed record UsesDef(string Name, Expr? Positional, Dictionary<string, Expr> Args, int Line);
 
@@ -54,6 +67,8 @@ public sealed record MechanismDef(string Name, List<ParamDef> Params, List<UsesD
 {
     /// <summary>The commands this mechanism makes (<c>to name params</c>), in the order they are written.</summary>
     public List<ProcDef> Procs { get; init; } = [];
+    /// <summary><c>mechanism RedSlime from Slime</c>: the mechanism this one is a variant of (null = not a variant).</summary>
+    public string? Base { get; init; }
 }
 
 // ---- Builder Script 2: user commands, waiting, parallel, loops, lists ----
@@ -90,4 +105,8 @@ public sealed record ReturnStmt(Expr? Value, int Line) : Stmt(Line);
 /// <c>to attack target, power</c>: a command the person makes. Called like any command (<c>attack Boss, 3</c>);
 /// when it gives back a value with <c>return</c> it can also be used in a value (<c>damage_for(3)</c>).
 /// </summary>
-public sealed record ProcDef(string Name, List<string> Params, List<Stmt> Body, int Line);
+public sealed record ProcDef(string Name, List<string> Params, List<Stmt> Body, int Line)
+{
+    /// <summary>On a variant: the mechanism whose code this inherited command is (null = the mechanism itself).</summary>
+    public string? From { get; init; }
+}

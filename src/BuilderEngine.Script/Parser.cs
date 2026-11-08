@@ -84,13 +84,25 @@ public sealed class Parser
     {
         int line = Next().Line; // 'mechanism'
         string name = Expect(Tok.Ident, "the mechanism's name").Text;
+        // 'mechanism RedSlime from Slime': a variant (see Variants.cs).
+        string? baseName = null;
+        if (IsWord("from"))
+        {
+            _p++;
+            var b = Peek();
+            if (b.Kind != Tok.Ident) throw new ScriptError($"After 'from' write the mechanism '{name}' is a variant of, like 'mechanism RedSlime from Slime' — found {b}.", b.Line);
+            _p++;
+            if (string.Equals(b.Text, name, StringComparison.OrdinalIgnoreCase))
+                throw new ScriptError($"'{name}' can't come from itself: write the mechanism it's a variant of after 'from'.", b.Line);
+            baseName = b.Text;
+        }
         EndLine();
         var ps = new List<ParamDef>();
         var uses = new List<UsesDef>();
         var whens = new List<WhenDef>();
         var procs = new List<ProcDef>();
         if (Peek().Kind != Tok.Indent)
-            return new MechanismDef(name, ps, uses, whens, line);
+            return new MechanismDef(name, ps, uses, whens, line) { Base = baseName };
         _p++;
         while (true)
         {
@@ -107,7 +119,7 @@ public sealed class Parser
         if (dupParam != null) throw new ScriptError($"The param '{dupParam.Key}' is declared twice.", dupParam.Last().Line);
         var dupProc = procs.GroupBy(x => x.Name).FirstOrDefault(g => g.Count() > 1);
         if (dupProc != null) throw new ScriptError($"There are two commands called '{dupProc.Key}' in '{name}'.", dupProc.Last().Line);
-        return new MechanismDef(name, ps, uses, whens, line) { Procs = procs };
+        return new MechanismDef(name, ps, uses, whens, line) { Procs = procs, Base = baseName };
     }
 
     /// <summary>Words a user command can't be called: Builder Script words, built-in commands and functions.</summary>
@@ -160,11 +172,45 @@ public sealed class Parser
         int line = Next().Line;
         string name = Expect(Tok.Ident, "the param's name").Text;
         string type = "any";
+        List<string>? options = null;
         Expr? def = null;
-        if (IsOp(":")) { _p++; type = Expect(Tok.Ident, "a type (number, text, Sound...)").Text; }
+        if (IsOp(":")) { _p++; (type, options) = ParseParamType(); }
         if (IsOp("=")) { _p++; def = ParseExpr(); }
         EndLine();
-        return new ParamDef(name, type, def, line);
+        return new ParamDef(name, type, def, line) { Options = options };
+    }
+
+    /// <summary>
+    /// A param's type after the colon: a name (<c>number</c>, <c>Object</c>, <c>Path</c>...), <c>List of number</c>,
+    /// or <c>Choice "easy", "normal", "hard"</c> (the options in quotes).
+    /// </summary>
+    (string Type, List<string>? Options) ParseParamType()
+    {
+        string type = Expect(Tok.Ident, "a type (number, text, Sound, Object, Path, List, Color, Key, Choice...)").Text;
+        if (string.Equals(type, "List", StringComparison.OrdinalIgnoreCase) && IsWord("of"))
+        {
+            _p++;
+            type += " of " + Expect(Tok.Ident, "the type of the items, like 'List of number' or 'List of Object'").Text;
+        }
+        if (!string.Equals(type, "Choice", StringComparison.OrdinalIgnoreCase)) return (type, null);
+        var options = new List<string>();
+        while (Peek().Kind == Tok.String)
+        {
+            options.Add(Next().Text);
+            if (IsOp(",")) _p++;
+        }
+        if (options.Count == 0)
+            throw new ScriptError("A Choice needs its options in quotes, like: param level: Choice \"easy\", \"normal\", \"hard\"", Peek().Line);
+        return (type, options);
+    }
+
+    /// <summary>Reads a param type written on its own (the blocks' type field): <c>List of number</c>, <c>Choice "a", "b"</c>.</summary>
+    public static (string Type, List<string>? Options) ParseTypeText(string text)
+    {
+        var p = new Parser(Lexer.Tokenize(text.Trim()));
+        var r = p.ParseParamType();
+        p.ExpectEnd();
+        return r;
     }
 
     UsesDef ParseUses()

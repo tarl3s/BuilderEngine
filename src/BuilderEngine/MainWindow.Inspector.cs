@@ -37,13 +37,10 @@ public sealed partial class MainWindow
         if (_canvas is not null) _canvas.Images = Pictures; // follows a project switch
         _numX = _numY = _numW = _numH = null;
         _inspectorRoot.Children.Clear();
-        if (_play != null)
-        {
-            _inspectorRoot.Children.Add(Label("PLAYING"));
-            _inspectorRoot.Children.Add(Note("The game is running on a copy of the scene. Press Esc or Stop to go back to editing — nothing you see change while playing is kept.", Palette.TextDim));
-        }
+        if (_play != null) DebugPanel(); // MainWindow.Debug.cs
         else if (Selected is { } o) ObjectInspector(o);
         else SceneSettings();
+        UpdateCanvasOverlay(); // the selected object's paths (MainWindow.ParamPickers.cs)
     }
 
     // ---------------- Nothing selected: the scene ----------------
@@ -237,7 +234,7 @@ public sealed partial class MainWindow
 
         var title = new Button
         {
-            Content = m.Name, Background = Brushes.Transparent, Foreground = Palette.Accent, FontWeight = FontWeight.SemiBold,
+            Content = MechLabel(m.Name), Background = Brushes.Transparent, Foreground = Palette.Accent, FontWeight = FontWeight.SemiBold,
             BorderThickness = new Thickness(0), Padding = new Thickness(0), Cursor = new Cursor(StandardCursorType.Hand)
         };
         ToolTip.SetTip(title, "Open this mechanism");
@@ -290,7 +287,8 @@ public sealed partial class MainWindow
 
         Control field;
         Action<bool> showOverridden;
-        switch (type)
+        if (TypedParamField(o, m, p, def, current, reset) is { } typed) (field, showOverridden) = typed; // Object, Path, List, Color, Key, Choice (MainWindow.ParamPickers.cs)
+        else switch (type)
         {
             case "number" or "seconds":
             {
@@ -436,7 +434,7 @@ public sealed partial class MainWindow
         showOverridden(overridden);
 
         var label = new TextBlock { Text = Pretty(p.Name), Foreground = Palette.TextDim, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-        ToolTip.SetTip(label, $"{p.Name}: {p.Type}");
+        ToolTip.SetTip(label, $"{p.Name}: {Printer.ParamType(p)}");
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("96,*,Auto") };
         row.Children.Add(label);
         Grid.SetColumn(field, 1);
@@ -467,7 +465,17 @@ public sealed partial class MainWindow
 
     // ---------------- Mechanism definitions ----------------
 
+    /// <summary>A mechanism as it runs: a variant merged with its parent (so the inspector shows the inherited params too).</summary>
     MechanismDef? DefOf(string name, out string? error)
+    {
+        var raw = RawDefOf(name, out error);
+        if (raw?.Base == null) return raw;
+        try { return Variants.Resolve(raw, RawDef); }
+        catch (ScriptError e) { error = e.ToString(); return null; }
+    }
+
+    /// <summary>A mechanism as written (parsed once per source text).</summary>
+    MechanismDef? RawDefOf(string name, out string? error)
     {
         error = null;
         if (!_sources.TryGetValue(name, out var src)) return null;
@@ -487,19 +495,12 @@ public sealed partial class MainWindow
     /// <summary>The value a param has when the inspector doesn't set it (literal defaults; otherwise the type's zero).</summary>
     static object? ParamDefault(ParamDef p)
     {
-        object? v = p.Default switch
+        if (ParamTypes.TryConstant(p.Default, out var v) && v != null) return World.ConvertParam(v, p.Type);
+        return ParamTypes.Kind(p.Type) switch
         {
-            NumberExpr n => n.Value,
-            StringExpr s => s.Value,
-            BoolExpr b => b.Value,
-            UnaryExpr { Op: "-", Operand: NumberExpr n } => -n.Value,
-            _ => null
-        };
-        if (v != null) return World.ConvertParam(v, p.Type);
-        return p.Type.ToLowerInvariant() switch
-        {
-            "number" or "seconds" => 0.0,
-            "bool" or "yesno" => false,
+            ParamKind.Number => 0.0,
+            ParamKind.Bool => false,
+            ParamKind.Path or ParamKind.List => new List<object?>(),
             _ => ""
         };
     }

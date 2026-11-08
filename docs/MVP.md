@@ -35,6 +35,8 @@ export to `.exe` · sound editor · tilemaps · lighting · 3D · Mac/Linux buil
 6. **Blocks view** — script ↔ blocks, 1 to 1. *(done; click-to-add, drag-and-drop later)*
 7. **Tutorial** — "Your first mechanism: a coin" with a self-ticking checklist.
 
+Also done: a **debugger** (pause, step, breakpoints, live variables, an event timeline), **param types** you pick (Object, Path, List, Color, Key, Choice) and **variants** (`mechanism RedSlime from Slime`) — see the sections at the end.
+
 Also done beyond the plan: several scenes per project (`goto_scene "Name"`, the Door mechanism), a Project menu (new / open / recent / save), and project sounds (`sounds/` folder, generated starter WAVs, import, a Sound dropdown with preview, real playback on Windows). And the engine features for cutscenes and real games: tweens, camera, dialogue and choices, HUD, screen effects, locked controls, slow motion, pictures and animation, saves (see below).
 
 ## Builder Script cheat sheet
@@ -167,3 +169,61 @@ mechanism Intro
         camera follow player
         unlock controls
 ```
+
+### Debugger
+
+While the game plays, the right column is the **Debug** panel:
+
+| Part | What it does |
+|---|---|
+| ⏸ Pause / ▶ Resume / ⏭ Step | freeze the game, let it run, or run exactly one frame (also F5 / F10 in the game) |
+| Object | click an object in the game: its mechanisms and every variable, live (while paused numbers, yes/no and texts can be changed — the game uses the new value when it goes on; x and y too), and the `when`s running in it with their line: `Health · when told "damage" amount · line 18 · waiting 0.4s` |
+| Globals | the global variables (editable while paused) |
+| Breakpoints | click a line number in the code, or a block's ⋯ → **Pause here**: the game pauses when any object gets there (the panel says which, the object gets a red outline). They stay for the whole session |
+| Events | the last 200 touches, signals, messages, keys, prints, scene changes and errors, with the time; **This object** shows only the inspected object's |
+
+Clicking a running `when`, an error or the "Paused at" line opens that mechanism with the line marked in the code (an
+arrow in the line numbers) and its block outlined. A variant's inherited code opens in the mechanism it comes from.
+The runtime only reports to a debugger when one is attached (`World.Debug`); without one it costs a null check per line.
+
+### Param types (values are picked, not typed)
+
+```
+mechanism Guard
+    param target: Object                        # a dropdown of the scene's objects + ⌖ pick it in the scene
+    param route: Path = [[100, 120], [260, 120]] # points: ✎ Edit in scene, click to add, drag, right-click to remove
+    param loot: List of Image                   # rows with ↑ ↓ ✕ and + Add (List, List of number / text / Object / Image / Sound / Color / Key)
+    param tint: Color = "#E05D5D"               # swatches
+    param attack_key: Key = "space"             # click, then press the key
+    param level: Choice "easy", "normal", "hard" = "normal"   # a dropdown of the options
+
+    when start
+        for each p in route
+            move to p[0], p[1] in 0.5
+        tell target "alarm"
+```
+
+At runtime an Object param is the object itself (saved by name, found when the scene loads — `distance(self, target)`
+works), a Path is a list of `[x, y]` points in scene pixels, a List is a list, and Color / Key / Choice are texts.
+Everything is saved in `project.json` (lists as JSON arrays; a list written as text, or a single value, still loads).
+
+### Variants
+
+`mechanism RedSlime from Slime` is Slime with changes — it has everything Slime has (params, `uses`, `when`s, `to`
+commands), and Slime's changes reach it. Right-click a mechanism in the library → **Make a variant…**; the library and
+the inspector show "RedSlime (from Slime)".
+
+```
+mechanism RedSlime from Slime
+    param speed = 90          # no type: a new default for Slime's 'speed'
+    param angry: bool = true  # a new param
+
+    when touched by "player"  # 'when's are added: Slime's ones still run too
+        tell other "damage" 2
+
+    to greet                  # same name as one of Slime's commands: this one replaces it (also inside Slime's 'when's)
+        say "GRR"
+```
+
+A variant of a variant works; a loop (`A from B`, `B from A`) or a missing parent is a friendly error (the object is
+still placed, without that mechanism).

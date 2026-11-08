@@ -362,9 +362,10 @@ public sealed class Project
         double.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out d) && double.IsFinite(d)
         || double.TryParse(s.Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out d) && double.IsFinite(d);
 
-    /// <summary>A JSON value as the runtime sees it: double, string, bool or null.</summary>
+    /// <summary>A JSON value as the runtime sees it: double, string, bool, null, or a list of those (List/Path params).</summary>
     internal static object? Value(JsonNode? n)
     {
+        if (n is JsonArray arr) return arr.Select(Value).ToList();
         if (n is not JsonValue v) return n?.ToJsonString();
         if (v.TryGetValue<bool>(out var b)) return b;
         if (v.TryGetValue<double>(out var d)) return d;

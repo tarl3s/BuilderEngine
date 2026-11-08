@@ -379,6 +379,7 @@ sealed partial class BlocksView : Border
         _mechSlots.Clear();
         _revealControl = null;
         _blocks.Children.Clear();
+        _debugStmt = _debugLine > 0 ? FindStmtAt(_debugLine) : null; // BlocksView.Debug.cs
         _project = ProjectDefs?.Invoke() ?? [];
         RefreshMyCommands();
         if (_defs.Count == 0)
@@ -660,12 +661,14 @@ sealed partial class BlocksView : Border
         var dock = new DockPanel { MinHeight = 24 };
         dock.Children.Add(content);
         var row = new Border { Background = look.Bg, CornerRadius = radius, Padding = new Thickness(8, 3, 4, 3), Child = dock };
+        var stmt = _rowStmt; // a statement's head row gets the ⋯ menu (Pause here)
+        _rowStmt = null;
         if (ops != null)
         {
             StackPanel? tools = null;
             row.PointerEntered += (_, _) =>
             {
-                tools ??= Tools(look, ops, dock);
+                tools ??= Tools(look, ops, dock, stmt == null ? null : p => AddMoreTool(p, look, stmt));
                 tools.IsVisible = true;
             };
             row.PointerExited += (_, _) => { if (tools != null) tools.IsVisible = false; };
@@ -679,7 +682,7 @@ sealed partial class BlocksView : Border
         return row;
     }
 
-    static StackPanel Tools(BlockLook look, BlockOps ops, DockPanel dock)
+    static StackPanel Tools(BlockLook look, BlockOps ops, DockPanel dock, Action<StackPanel>? more = null)
     {
         var p = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 1, VerticalAlignment = VerticalAlignment.Top };
         void Tool(string text, string tip, Action? act)
@@ -696,6 +699,7 @@ sealed partial class BlocksView : Border
             p.Children.Add(b);
         }
         if (ops.Extra != null) Tool(ops.ExtraText!, ops.ExtraTip!, ops.Extra);
+        more?.Invoke(p);
         Tool("↑", "Move up", ops.Up);
         Tool("↓", "Move down", ops.Down);
         Tool("⧉", "Duplicate", ops.Duplicate);
@@ -744,8 +748,15 @@ sealed partial class BlocksView : Border
         var title = Parts(Word("mechanism", Palette.AccentText), NameField(m.Name, false, n =>
         {
             if (_defs.Where((d, k) => k != mi).Any(d => d.Name == n)) throw Bad($"There's already a mechanism called '{n}'.");
+            if (n == _defs[mi].Base) throw Bad($"'{n}' can't come from itself.");
             _defs[mi] = _defs[mi] with { Name = n };
         }));
+        if (m.Base != null) // a variant: 'mechanism RedSlime from Slime'
+            title.Children.Add(Parts(Word("from", Palette.AccentText), NameField(m.Base, false, n =>
+            {
+                if (n == _defs[mi].Name) throw Bad($"'{n}' can't come from itself.");
+                _defs[mi] = _defs[mi] with { Base = n };
+            }, "mechanism")));
         var header = new Border { Background = Palette.Accent, CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 6), Child = title, Margin = new Thickness(0, 0, 0, 6) };
         header.PointerPressed += (_, e) =>
         {
@@ -774,13 +785,19 @@ sealed partial class BlocksView : Border
                     ps[k] = ps[k] with { Name = n };
                 }),
                 Word(":", BlockColors.Setting.Fg),
-                new Field(p.Type == "any" ? "" : p.Type, text =>
+                new Field(Printer.ParamType(p), text =>
                 {
+                    // A name (number, Object, Path...), 'List of number', or 'Choice "easy", "hard"'.
                     string t = text.Trim();
-                    if (t.Length > 0 && BlockEdits.CheckName(t) is { } err) throw Bad(err);
-                    ps[k] = ps[k] with { Type = t.Length == 0 ? "any" : t };
+                    if (t.Length == 0) ps[k] = ps[k] with { Type = "any", Options = null };
+                    else
+                    {
+                        var (type, options) = Parser.ParseTypeText(t);
+                        if (BlockEdits.CheckName(ParamTypes.Base(type)) is { } err) throw Bad(err);
+                        ps[k] = ps[k] with { Type = type, Options = options };
+                    }
                     Commit(rebuild: false);
-                    return t;
+                    return Printer.ParamType(ps[k]);
                 }, "any type"),
                 Word("=", BlockColors.Setting.Fg),
                 ExprField(p.Default, e => ps[k] = ps[k] with { Default = e }, "no default", optional: true)),
@@ -864,6 +881,7 @@ sealed partial class BlocksView : Border
     {
         var s = list[j];
         Action dup = () => { BlockEdits.Duplicate(list, j); Commit(); };
+        _rowStmt = s;
         Control block = s switch
         {
             IfStmt i => IfBlock(list, j, i, mi, dup),
@@ -872,6 +890,8 @@ sealed partial class BlocksView : Border
             _ => SimpleBlock(list, j, s, dup, mi)
         };
         block.Margin = new Thickness(0, 0, 0, 3);
+        _rowStmt = null;
+        block = DebugDecorate(s, block); // breakpoint dot, the highlighted line (BlocksView.Debug.cs)
         Mark(s, block);
         return block;
     }

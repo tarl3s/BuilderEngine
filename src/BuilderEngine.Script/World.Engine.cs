@@ -29,6 +29,7 @@ public sealed partial class World
     /// <summary>One frame of the game: <paramref name="realDt"/> real seconds passed.</summary>
     public void Frame(double realDt)
     {
+        if (Debug != null && !Debug.AllowFrame()) return; // held by the debugger (paused, or between steps)
         if (!double.IsFinite(realDt) || realDt < 0) realDt = 0;
         RealTime += realDt;
         UpdateScreen(realDt);

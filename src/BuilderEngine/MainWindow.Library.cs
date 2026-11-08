@@ -54,7 +54,7 @@ public sealed partial class MainWindow
             DockPanel.SetDock(badge, Dock.Right);
             row.Children.Add(badge);
         }
-        row.Children.Add(new TextBlock { Text = item.Name, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new TextBlock { Text = item.Section == LibSection.Mine ? item.Name : MechLabel(item.Name), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
         row.ContextMenu = LibraryContextMenu(item);
         return row;
     }
@@ -77,6 +77,7 @@ public sealed partial class MainWindow
         {
             menu.Items.Add(Item("Open", () => OpenMechanism(item.Name)));
             menu.Items.Add(Item("Save to My Library", () => _ = SaveToLibraryAsync(item.Name)));
+            menu.Items.Add(Item("Make a variant…", () => _ = MakeVariantAsync(item.Name))); // MainWindow.Variants.cs
         }
         return menu;
     }

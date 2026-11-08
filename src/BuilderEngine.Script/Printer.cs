@@ -36,7 +36,9 @@ public static class Printer
 
     static void Print(StringBuilder sb, MechanismDef m)
     {
-        sb.Append("mechanism ").Append(m.Name).Append('\n');
+        sb.Append("mechanism ").Append(m.Name);
+        if (m.Base != null) sb.Append(" from ").Append(m.Base);
+        sb.Append('\n');
         foreach (var p in m.Params) sb.Append(Indent).Append(Print(p)).Append('\n');
         foreach (var u in m.Uses) sb.Append(Indent).Append(Print(u)).Append('\n');
         bool gap = m.Params.Count + m.Uses.Count > 0;
@@ -62,9 +64,17 @@ public static class Printer
     public static string Print(ParamDef p)
     {
         var s = "param " + p.Name;
-        if (p.Type != "any") s += ": " + p.Type;
+        if (p.Type != "any") s += ": " + ParamType(p);
         if (p.Default != null) s += " = " + Print(p.Default);
         return s;
+    }
+
+    /// <summary>A param's type as written after the colon: <c>number</c>, <c>List of Object</c>, <c>Choice "easy", "hard"</c>.</summary>
+    public static string ParamType(ParamDef p)
+    {
+        if (p.Type == "any") return "";
+        if (p.Options is not { Count: > 0 } opts) return p.Type;
+        return p.Type + " " + string.Join(", ", opts.Select(Quote));
     }
 
     public static string Print(UsesDef u)
