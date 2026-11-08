@@ -1,0 +1,85 @@
+mechanism Tablet from CameraMonitor
+    # The camera tablet (a variant of the starter kit's CameraMonitor): Tab or the CAMERAS button flips it up,
+    # 1-6 or the map pick a room. While it is up it draws power and the room on screen counts as watched.
+    param noise = 0.12
+    param office: Object
+
+    when told "flip"
+        if watching
+            stop_watching
+        else
+            watch current
+
+    when told "night reset"
+        current = 1
+        if watching: stop_watching
+
+    when told "freeze"
+        if watching: stop_watching
+
+    when told "power out"
+        if watching: stop_watching
+
+    when told "six am"
+        if watching: stop_watching
+
+    to watch n
+        if mode != "night" or power_out: return
+        if n < 1 or n > length(cameras): return
+        if not watching
+            play "tablet.wav"
+            tag self "uses_power"
+        watching = true
+        current = n
+        room = cameras[n - 1]
+        camera view room
+        cam_label = "CAM " + text(n) + "   " + room.name
+        screen noise noise
+        screen noise 0.9 for 0.18
+        screen tint "#0B2A16", 0.22
+        play "static.wav"
+        show screen "Cameras"
+        broadcast "cameras on", n
+
+    to stop_watching
+        watching = false
+        untag self "uses_power"
+        camera view office
+        screen noise off
+        screen tint off
+        hide screen "Cameras"
+        play "tablet.wav"
+        broadcast "cameras off"
+
+mechanism CamButton
+    # One room on the tablet's map: click it to watch that camera. Lit while its camera is on.
+    param number: number = 1
+    param tablet: Object
+    param color: Color = "#18301F"
+    param lit_color: Color = "#3F8A55"
+
+    when start
+        ui
+        join screen "Cameras"
+        color color
+        caption "CAM " + text(number) with "#D8F0DC", 11
+
+    when told "cameras on" n
+        if n == number
+            color lit_color
+        else
+            color color
+
+    when clicked
+        tell tablet "camera" number
+
+mechanism Room from CameraPoint
+    # A room the cameras can show (this box is what the camera sees), with a dim lamp of its own.
+    # Creatures stand on its floor. Rooms tagged "near" are next to the office: footsteps are heard there.
+    param lamp: number = 250
+    param lamp_color: Color = "#9DB4FF"
+    param lamp_strength: number = 0.85
+
+    when start
+        tag self "room"
+        light lamp with lamp_color strength lamp_strength

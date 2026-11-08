@@ -1210,6 +1210,7 @@ ToolsTests.Run(Test); // editor tools and C# plugins (ToolsTests.cs)
 AiTests.Run(Test); // the AI assistant with a fake AI: prompts, reading answers, checks, retry, accept, keys (AiTests.cs)
 QolTests.Run(Test); // the scene editor's conveniences: selection, nudge, copy/paste, order, align, wheel, search, shortcuts (QolTests.cs)
 GameKitTests.Run(Test); // tiles, lights, mouse, screens, inventory, crafting, cards, sounds, performance (GameKitTests.cs)
+NightShiftTests.Run(Test); // the Night Shift sample game played headless (Samples/NightShiftTests.cs)
 
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
