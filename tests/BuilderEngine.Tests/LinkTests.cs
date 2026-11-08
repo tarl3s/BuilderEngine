@@ -226,6 +226,7 @@ static class LinkTests
             var full = Parse(json);
             full["Scenes"]![0]!["Layers"]![2]!["Objects"]!.AsArray().RemoveAt(2);
             var q = EasyLink.FromEeproj(full.ToJsonString(), "Synthetic");
+            full["Prefabs"]![0]!["Category"] = "General"; // a prefab saved without a Category gets the default too
             // Each layer comes back in draw order (the order it had in the list can only come from the previous file).
             if (FirstDiff(InDrawOrder(full), InDrawOrder(Parse(EasyLink.ToEeproj(q, null)))) is { } d) throw new Exception(d);
         });
@@ -244,7 +245,8 @@ static class LinkTests
             True(EasyLink.HasEasyBehaviors(s.Objects.First(o => o.Name == "Hero")), "Hero has behaviors");
             Eq("Platformer,Health", string.Join(",", EasyLink.EasyBehaviors(s.Objects.First(o => o.Name == "Hero"))));
             True(!EasyLink.HasEasyBehaviors(s.Objects.First(o => o.Name == "Moon")), "Moon has none");
-            True(p.Easy is JsonObject pe && pe.ContainsKey("Prefabs") && pe.ContainsKey("Theme") && !pe.ContainsKey("Scenes"), "project easy");
+            True(p.Easy is JsonObject pe && !pe.ContainsKey("Prefabs") && pe.ContainsKey("Theme") && !pe.ContainsKey("Scenes"), "project easy");
+            Eq("Player", p.Prefabs.Single().Name, "EasyEngine prefabs are BuilderEngine prefabs");
             True(s.Easy is JsonObject se && se["Layers"]!.AsArray().Count == 4 && !se["Layers"]![0]!.AsObject().ContainsKey("Objects"), "scene easy keeps layer settings");
         });
 
@@ -417,6 +419,74 @@ static class LinkTests
                 if (FirstDiff(eeRoot, Parse(EasyLink.ToEeprojFromFolder(b))) is { } d2) throw new Exception("second trip: " + d2);
                 Eq("hero.png", q.Scenes[0].Objects[1].Image, "images\\ is taken off again in a BuilderEngine folder");
             });
+        });
+
+        test("an EasyEngine prefab is a BuilderEngine prefab; edits to it change only those fields", () =>
+        {
+            string json = Synthetic();
+            var p = EasyLink.FromEeproj(json, "x");
+            var pf = p.Prefabs.Single();
+            Eq("Player", pf.Name); Eq("🎮", pf.Icon); Eq("General", pf.Category, "no Category key reads as General");
+            True(pf.Template.Easy is JsonObject te && te.ContainsKey("Behaviors") && !te.ContainsKey(EasyLink.LayerKey), "template keeps EasyEngine data, no layer");
+            Eq(json, EasyLink.ToEeproj(p, json), "unchanged prefabs come back as the same text");
+            pf.Icon = "★"; pf.Template.Width = 99;
+            pf.Template.Mechanisms.Add(new SceneMechanism { Name = "Coin", Params = { ["value"] = 3.0 } });
+            var back = Parse(EasyLink.ToEeproj(p, json));
+            var bp = back["Prefabs"]![0]!.AsObject();
+            Eq("★", (string?)bp["Icon"]);
+            True(!bp.ContainsKey("Category"), "an unchanged default isn't added");
+            Eq(99.0, bp["Template"]!["Width"]!.GetValue<double>());
+            Eq("Coin", (string?)bp["Template"]!["Builder"]!["mechanisms"]![0]!["name"]);
+            Eq("Object", (string?)bp["Template"]!["Type"], "EasyEngine data of the template survives");
+        });
+
+        test("a BuilderEngine prefab survives .eeproj → BuilderEngine → .eeproj (and into a BuilderEngine folder)", () =>
+        {
+            string json = Synthetic();
+            var p = EasyLink.FromEeproj(json, "x");
+            var slime = new SceneObject { Name = "Slime", Width = 40, Height = 30, Color = "#33CC66", Tags = ["enemy"] };
+            slime.Mechanisms.Add(new SceneMechanism { Name = "Patrol", Params = { ["speed"] = 80.0 } });
+            p.Prefabs.Add(new Prefab { Name = "Slime", Icon = "🟢", Category = "Enemies", Template = slime });
+            p.Prefabs.RemoveAll(x => x.Name == "Player");
+            string saved = EasyLink.ToEeproj(p, json);
+            var root = Parse(saved);
+            var arr = root["Prefabs"]!.AsArray();
+            Eq(1, arr.Count, "the deleted prefab is gone");
+            var s = arr[0]!.AsObject();
+            Eq("Slime", (string?)s["Name"]); Eq("Enemies", (string?)s["Category"]);
+            Eq("Object", (string?)s["Template"]!["Type"], "a new template gets EasyEngine's defaults");
+            Eq(80.0, s["Template"]!["Builder"]!["mechanisms"]![0]!["params"]!["speed"]!.GetValue<double>());
+            Eq("enemy", (string?)s["Template"]!["Builder"]!["tags"]![0]);
+            True(root["Builder"]?["extra"]?["prefabs"] == null, "prefabs no longer travel in Builder.extra");
+            var q = EasyLink.FromEeproj(saved, "x");
+            var qs = q.Prefabs.Single();
+            Eq("Slime", qs.Name); Eq("🟢", qs.Icon); Eq(40.0, qs.Template.Width); Eq("Patrol", qs.Template.Mechanisms[0].Name);
+            Eq(saved, EasyLink.ToEeproj(q, saved), "and again: nothing drifts");
+            InTemp(tmp =>
+            {
+                EasyLink.SaveFromEeproj(saved, tmp);
+                var f = Project.Load(tmp);
+                Eq("Slime", f.Prefabs.Single().Name);
+                Eq("Patrol", f.Prefabs[0].Template.Mechanisms[0].Name);
+                var ee2 = Parse(EasyLink.ToEeprojFromFolder(tmp));
+                Eq("Slime", (string?)ee2["Prefabs"]![0]!["Name"]);
+            });
+        });
+
+        test("prefabs from the first link version (Builder.extra.prefabs) are read and moved to Prefabs", () =>
+        {
+            var root = Parse(Synthetic());
+            root["Builder"] = new JsonObject
+            {
+                ["linkVersion"] = 1,
+                ["extra"] = new JsonObject { ["prefabs"] = new JsonArray(new JsonObject { ["name"] = "Bat", ["icon"] = "B", ["category"] = "General", ["template"] = new JsonObject { ["name"] = "Bat", ["width"] = 20, ["height"] = 20 } }) },
+            };
+            string json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            var p = EasyLink.FromEeproj(json, "x");
+            Eq("Player,Bat", string.Join(",", p.Prefabs.Select(x => x.Name)));
+            var back = Parse(EasyLink.ToEeproj(p, json));
+            Eq("Player,Bat", string.Join(",", back["Prefabs"]!.AsArray().Select(x => (string?)x!["Name"])));
+            True(back["Builder"] == null || back["Builder"]!["extra"] == null, "the old place is emptied");
         });
 
         test("the Builder block survives an EasyEngine-like load and save that keeps unknown properties", () =>

@@ -248,8 +248,10 @@ public static partial class EasyLink
         foreach (var s in Scenes(ee))
             scenes.Add(SceneToBe(s, ++si, ids, stripImagesFolder));
         root["scenes"] = scenes;
+        if (Get(ee, "Prefabs") is JsonArray eePrefabs) root["prefabs"] = PrefabsToBe(eePrefabs, stripImagesFolder);
         root[EasyKey] = Without(ee, ProjectKeys);
         MergeExtra(root, builder);
+        MergeOldPrefabs(root, builder);
         return root;
     }
 
@@ -319,6 +321,42 @@ public static partial class EasyLink
         return be;
     }
 
+    /// <summary>EasyEngine's project prefabs (<c>PrefabDef{Name, Icon, Category, Template}</c>) as BuilderEngine prefabs.</summary>
+    static JsonArray PrefabsToBe(JsonArray eePrefabs, bool stripImagesFolder)
+    {
+        var arr = new JsonArray();
+        foreach (var pf in eePrefabs.OfType<JsonObject>()) arr.Add(PrefabToBe(pf, stripImagesFolder));
+        return arr;
+    }
+
+    /// <summary>One prefab: its template goes through the same object mapping as a scene object (no layer).</summary>
+    static JsonObject PrefabToBe(JsonObject pf, bool stripImagesFolder)
+    {
+        var t = Get(pf, "Template") as JsonObject ?? new JsonObject();
+        var template = ObjectToBe(t, 0, false, IdOf(t), stripImagesFolder);
+        if (template[EasyKey] is JsonObject e) e.Remove(LayerKey); // a template isn't on any layer
+        return new JsonObject
+        {
+            ["name"] = Text(pf, "Name", "Prefab"),
+            ["icon"] = Text(pf, "Icon", "▢"),
+            ["category"] = Text(pf, "Category", "General"),
+            ["template"] = template,
+        };
+    }
+
+    /// <summary>
+    /// Files written by the first link version kept prefabs made in BuilderEngine in <c>Builder.extra.prefabs</c>:
+    /// the ones whose name isn't already an EasyEngine prefab are added.
+    /// </summary>
+    static void MergeOldPrefabs(JsonObject be, JsonObject? builder)
+    {
+        if (builder == null || Get(builder, "extra") is not JsonObject extra || Get(extra, "prefabs") is not JsonArray old) return;
+        if (be["prefabs"] is not JsonArray now) return;
+        var names = new HashSet<string>(now.OfType<JsonObject>().Select(p => Text(p, "name", "").Trim()), StringComparer.OrdinalIgnoreCase);
+        foreach (var p in old.OfType<JsonObject>())
+            if (names.Add(Text(p, "name", "").Trim())) now.Add(p.DeepClone());
+    }
+
     /// <summary>"images\hero.png" in a BuilderEngine folder is just "hero.png" there.</summary>
     static string StripImagesFolder(string path)
     {
@@ -370,7 +408,7 @@ public static partial class EasyLink
     // ---------------- Field lists ----------------
 
     /// <summary>EasyEngine keys mapped to BuilderEngine (or structural): everything else goes to <c>easy</c>.</summary>
-    static readonly string[] ProjectKeys = ["Name", "Scenes", BuilderKey];
+    static readonly string[] ProjectKeys = ["Name", "Scenes", "Prefabs", BuilderKey];
     static readonly string[] SceneKeys = ["Name", "Width", "Height", "BackgroundColor", "Layers", BuilderKey];
     static string[] ObjectKeys => _objectKeys ??=
         ["Id", "Name", "X", "Y", "Width", "Height", "Color", "SpritePath", "Locked", "KeepAspect", BuilderKey,
@@ -378,7 +416,7 @@ public static partial class EasyLink
     static string[]? _objectKeys;
 
     /// <summary>BuilderEngine keys mapped to EasyEngine (or structural): everything else goes to <c>Builder.extra</c>.</summary>
-    static readonly string[] BeProjectKeys = ["name", "scenes", EasyKey];
+    static readonly string[] BeProjectKeys = ["name", "scenes", "prefabs", EasyKey];
     static readonly string[] BeSceneKeys = ["id", "name", "width", "height", "background", "objects", EasyKey];
     static string[] BeObjectKeys => _beObjectKeys ??=
         ["id", "name", "x", "y", "width", "height", "color", "image", "locked", "keepAspect", "tags", "mechanisms", EasyKey,
