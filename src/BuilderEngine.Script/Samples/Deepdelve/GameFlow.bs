@@ -1,0 +1,35 @@
+mechanism GameFlow
+    # The title screen, the start and the end: Start (or Enter) tells everyone "begin"; crafting the Gem Crown
+    # tells everyone "won" and shows the win screen.
+    when start
+        visible = false
+        begun = false
+        show screen "Title"
+        hide hotbar
+
+    when key "enter"
+        if not begun: broadcast "begin"
+
+    when told "begin"
+        if begun: stop
+        begun = true
+        started_at = time
+        hide screen "Title"
+        show screen "HUD"
+        show hotbar 10
+        notify "Find a tree and start digging!"
+
+    when told "won"
+        mins = floor((time - started_at) / 60)
+        secs = floor((time - started_at) % 60)
+        pad = ""
+        if secs < 10: pad = "0"
+        sky = find("Sky")
+        stats = find("Win Stats")
+        if stats: caption stats "Crowned in " + text(mins) + ":" + pad + text(secs) + " on day " + text(sky.SkyCycle.day_num) + "." with "#F4E9DA", 16
+        show screen "Win"
+        play "win.wav"
+        flash "#FFF2C0"
+
+    when told "keep playing"
+        hide screen "Win"

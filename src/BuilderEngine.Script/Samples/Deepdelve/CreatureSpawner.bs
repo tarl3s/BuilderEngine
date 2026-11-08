@@ -1,0 +1,45 @@
+mechanism CreatureSpawner
+    # Brings creatures near the player, just off the screen: Gloops on the hills by day, Shamblers at night —
+    # one more each night. Creatures come out on the surface, so the deep caves are quiet (but dark).
+    param every: seconds = 6
+    param day_max: number = 3
+    param night_max: number = 4
+    param away: number = 380
+
+    when start
+        visible = false
+        on = false
+        night = false
+        nights = 0
+        player = find("player")
+
+    when told "begin": on = true
+
+    when told "night"
+        night = true
+        nights += 1
+        repeat 2
+            spawn_one "Shambler"
+
+    when told "day": night = false
+
+    when start
+        repeat forever
+            wait every
+            if on and player: try_spawn
+
+    to try_spawn
+        if night
+            if count("Shambler") < night_max + nights - 1: spawn_one "Shambler"
+        else
+            if count("Gloop") < day_max: spawn_one "Gloop"
+
+    to spawn_one kind
+        if not player: return
+        x = player.x + random_item([-1, 1]) * (away + random(0, 80))
+        x = max(40, min(map_width() - 56, x))
+        y = ground_y(x)
+        if kind == "Gloop"
+            make Gloop at x, y - 15 with 18, 14
+        else
+            make Shambler at x, y - 27 with 14, 26

@@ -1,0 +1,37 @@
+mechanism DeepHud
+    # Everything around the game: the clock, how deep you are, the goal and a tip about what to do next (the Miner
+    # shows its own health bar). Put it on any object (it isn't drawn).
+    when start
+        visible = false
+        player = find("player")
+        sky = find("Sky")
+        bench_placed = false
+        depth = 0
+        tip = ""
+
+    when told "begin"
+        show text "{sky.SkyCycle.clock}" at 640, 9 with "#F4E9DA", 15
+        show text "Depth {depth} m" at 16, 32 with "#CDBFAE", 13
+        show text "Crown: gems {count_item('gem')}/5" at 640, 30 with "#7FE8DA", 13
+        show text "{tip}" at 16, 52 with "#F2C46B", 13
+        show text "{selected_item()}" at 176, 380 with "#F4E9DA", 13
+
+    when tile placed "workbench"
+        bench_placed = true
+
+    when tick
+        if not player: stop
+        depth = max(0, round((player.y - player.Miner.home_y) / 16))
+        tip = next_tip()
+        if sky.SkyCycle.is_night and depth < 6: tip = "Night! Shamblers roam the hills. Wall yourself in or go underground."
+
+    to next_tip
+        if has("gem crown"): return "You made the Gem Crown! Keep exploring if you like."
+        if has("gem", 5): return "Five gems! Craft the Gem Crown at a workbench (C)."
+        if has("iron pick"): return "Gems glow deep down in the dark basalt. Dig for five of them."
+        if has("copper pick"): return "Pale iron ore needs the copper pick. Craft an iron pick (C)."
+        if has("wood pick"): return "Dig down for orange copper ore. Coal + planks make torches."
+        if bench_placed: return "Stand by the workbench and craft a wood pick (C): 10 planks."
+        if has("workbench"): return "Select the workbench (1-9) and place it with the right mouse button."
+        if has("wood") or has("planks"): return "Press C: turn wood into planks, then craft a workbench (8 planks)."
+        return "Hold the left mouse button on a tree trunk to chop wood."

@@ -1,0 +1,43 @@
+mechanism SkyCycle
+    # Day and night over the world: the sky light fades at dusk and comes back at dawn; caves stay dark, so bring
+    # torches. Everyone is told "night" and "day". 'clock' is the text the HUD shows ("Day 2  1:05").
+    param day: seconds = 110
+    param night: seconds = 70
+    param night_light: number = 0.1
+    param change: seconds = 6
+
+    when start
+        visible = false
+        darkness 0.93 with "#060A1C"
+        sunlight 1
+        day_num = 1
+        phase = "Day"
+        ends = time + day
+        started = false
+
+    when told "begin"
+        if started: stop
+        started = true
+        repeat forever
+            phase = "Day"
+            ends = time + day
+            wait day
+            phase = "Night"
+            ends = time + night
+            broadcast "night"
+            run sunlight night_light in change
+            wait night
+            day_num += 1
+            broadcast "day"
+            run sunlight 1 in change
+
+    when tick
+        left = 0
+        if started: left = max(0, ends - time)
+        if not started: left = day
+        mins = floor(left / 60)
+        secs = floor(left % 60)
+        pad = ""
+        if secs < 10: pad = "0"
+        clock = phase + " " + text(day_num) + "   " + text(mins) + ":" + pad + text(secs)
+        is_night = phase == "Night"

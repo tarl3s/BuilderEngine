@@ -1,0 +1,189 @@
+mechanism Miner
+    # The Deepdelve player. A / D (or the arrows) walk, Space / W jump. Hold the left mouse button on a block to dig
+    # it (harder blocks need a better pick) or on a creature to hit it (a sword hits harder). The right button places
+    # the selected block, or uses salve. Knocked out? You wake up at camp.
+    param speed: number = 130
+    param jump_height: number = 40
+    param reach: number = 88
+    param hp_max: number = 10
+    uses Body
+
+    when start
+        hp = hp_max
+        playing = false
+        knocked = false
+        hurt_until = 0
+        safe_until = 0
+        next_swing = 0
+        next_place = 0
+        next_hint = 0
+        next_regen = 0
+        last_hurt = -10
+        knockouts = 0
+        light 64 with "#FFE0B0" strength 0.55
+
+    when told "home"
+        home_x = self.x
+        home_y = self.y
+
+    when told "begin"
+        playing = true
+        show bar hp of hp_max at 16, 14 with "#E0525A"
+        show text "{hp} / {hp_max}" at 184, 9 with "#F4E9DA", 14
+
+    when told "defeated"
+        defeated += 1
+
+    # ---------------- Walking and jumping ----------------
+
+    when tick
+        if knocked or time < hurt_until: stop
+        dir = 0
+        if playing
+            if key("left") or key("a"): dir -= 1
+            if key("right") or key("d"): dir += 1
+        self.vx = dir * speed
+
+    when key "space": hop
+    when key "w": hop
+    when key "up": hop
+
+    to hop
+        if playing and not knocked: jump jump_height
+
+    # Let go of the jump key early for a small hop.
+    when tick
+        holding = key("space") or key("up") or key("w")
+        if held and not holding and self.vy < 0: self.vy *= 0.5
+        held = holding
+
+    # Health comes back slowly when nothing has hurt you for a while.
+    when tick
+        if hp < hp_max and time - last_hurt > 6 and time >= next_regen
+            hp += 1
+            next_regen = time + 3
+
+    # ---------------- Digging and fighting (left button) ----------------
+
+    when tick
+        if not playing or knocked or not mouse_down() or mouse_over_ui(): stop
+        foe = creature_at(mouse_x, mouse_y)
+        if foe
+            if time >= next_swing: swing foe
+            stop
+        if distance(self.x + self.width / 2, self.y + self.height / 2, mouse_x, mouse_y) > reach: stop
+        kind = tile_at(mouse_x, mouse_y)
+        if kind == "": stop
+        need = tier_needed(kind)
+        if need > pick_tier()
+            if time >= next_hint
+                notify "That needs a " + pick_name(need) + "."
+                next_hint = time + 2.5
+            stop
+        dig_tile mouse_x, mouse_y with dig_power()
+        if broken != ""
+            play "break.wav"
+            if drop != "": give drop, 1
+            mined += 1
+
+    to tier_needed kind
+        if kind == "gem": return 3
+        if kind == "iron": return 2
+        if kind == "slate" or kind == "basalt" or kind == "coal" or kind == "copper": return 1
+        return 0
+
+    to pick_tier
+        if has("iron pick"): return 3
+        if has("copper pick"): return 2
+        if has("wood pick"): return 1
+        return 0
+
+    to pick_name tier
+        return ["bare hand", "wood pick", "copper pick", "iron pick"][tier]
+
+    to dig_power
+        return [1, 1.5, 2.3, 3.3][pick_tier()]
+
+    # The creature under the mouse that is within reach (a little slack around it), or nothing.
+    to creature_at px, py
+        for each c in all("enemy")
+            if px > c.x - 6 and px < c.x + c.width + 6 and py > c.y - 6 and py < c.y + c.height + 6
+                if distance(self, c) <= reach: return c
+        return false
+
+    to swing foe
+        next_swing = time + 0.4
+        damage = 1
+        if has("copper sword"): damage = 3
+        side = 1
+        if foe.x + foe.width / 2 < self.x + self.width / 2: side = -1
+        if side < 0
+            face left
+        else
+            face right
+        tell foe "hit" [damage, side]
+        make Slash at foe.x + foe.width / 2 - 10, foe.y + foe.height / 2 - 10 with 20, 20
+        play "swing.wav"
+
+    # ---------------- Placing and using (right button) ----------------
+
+    when tick
+        if not playing or knocked or not mouse_down("right") or mouse_over_ui() or time < next_place: stop
+        item = selected_item()
+        if item == "salve"
+            next_place = time + 0.5
+            use_salve
+            stop
+        if item == "" or not is_tile(item): stop
+        if distance(self.x + self.width / 2, self.y + self.height / 2, mouse_x, mouse_y) > reach: stop
+        place_tile item at mouse_x, mouse_y
+        if placed
+            take item, 1
+            play "place.wav"
+            next_place = time + 0.15
+
+    to use_salve
+        if hp >= hp_max: return
+        take "salve", 1
+        if taken
+            hp = min(hp_max, hp + 5)
+            play "powerup.wav"
+            notify "+5 health"
+
+    # ---------------- Getting hurt ----------------
+
+    when told "hurt" what
+        if not playing or knocked or time < safe_until: stop
+        hp -= what[0]
+        last_hurt = time
+        safe_until = time + 0.8
+        hurt_until = time + 0.25
+        self.vx = what[1] * 190
+        self.vy = -230
+        play "hurt.wav"
+        camera shake 3 for 0.2
+        if hp <= 0
+            knock_out
+        else
+            repeat 4
+                self.opacity = 0.35
+                wait 0.08
+                self.opacity = 1
+                wait 0.08
+
+    to knock_out
+        hp = 0
+        knocked = true
+        knockouts += 1
+        self.vx = 0
+        notify "Knocked out... you wake up at camp."
+        fade out in 0.6
+        self.x = home_x
+        self.y = ground_y(home_x + self.width / 2) - self.height - 1
+        self.vy = 0
+        hp = hp_max
+        self.opacity = 1
+        wait 0.3
+        fade in in 0.6
+        knocked = false
+        safe_until = time + 2

@@ -1,0 +1,13 @@
+mechanism Note
+    # A text in a box on the screen (it can't be clicked). Set 'text' before it starts, or 'caption' it later.
+    param text: text = ""
+    param size: number = 13
+    param text_color: Color = "#E8DCCB"
+    param color: Color = "#00000000"
+    param screen: text = ""
+
+    when start
+        ui
+        color color
+        if text != "": caption text with text_color, size
+        if screen != "": join screen screen

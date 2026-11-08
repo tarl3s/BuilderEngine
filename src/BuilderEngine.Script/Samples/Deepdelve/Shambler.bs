@@ -1,0 +1,29 @@
+mechanism Shambler from Creature
+    # A slow, stubborn walker that rises from the ground at night and crumbles at sunrise. It climbs one or two
+    # blocks, so a wall three blocks high keeps it out.
+    param hp_max = 6
+    param speed = 46
+    param damage = 2
+    param loot = "iron"
+    param loot_chance = 2
+    param picture = "shambler1.png"
+
+    when start
+        light 28 with "#FF6048" strength 0.5
+
+    to think
+        dir = side_of(target)
+        self.vx = dir * speed
+        animate "shambler" at 4
+        if self.on_ground and blocked(dir): self.vy = -360
+
+    to blocked dir
+        ax = self.x - 3
+        if dir > 0: ax = self.x + self.width + 3
+        return tile_solid(ax, self.y + self.height - 4) or tile_solid(ax, self.y + self.height / 2)
+
+    when told "day"
+        stunned_until = time + 100
+        self.vx = 0
+        fade to 0 in 1.2
+        destroy self

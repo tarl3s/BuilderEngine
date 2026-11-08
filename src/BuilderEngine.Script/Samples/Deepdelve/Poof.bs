@@ -1,0 +1,10 @@
+mechanism Poof
+    # A puff of dust where a creature was defeated.
+    when start
+        look "poof.png"
+        layer 5
+        together
+            resize to 34, 34 in 0.3
+            move by -5, -5 in 0.3
+            fade to 0 in 0.3
+        destroy self

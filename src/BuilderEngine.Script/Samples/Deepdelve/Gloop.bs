@@ -1,0 +1,21 @@
+mechanism Gloop from Creature
+    # A bouncy blob that roams the hills by day: it hops towards you when you come near.
+    param hp_max = 3
+    param speed = 95
+    param damage = 1
+    param loot = "goo"
+    param picture = "gloop.png"
+
+    to think
+        if not self.on_ground
+            look "gloop_hop.png"
+            return
+        look "gloop.png"
+        self.vx = 0
+        if time < next_hop: return
+        next_hop = time + 0.9 + random(0, 8) / 10
+        if distance(self, target) < 320
+            self.vx = side_of(target) * speed
+        else
+            self.vx = random_item([-1, 1]) * speed * 0.5
+        self.vy = -300

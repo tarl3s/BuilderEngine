@@ -1,0 +1,129 @@
+mechanism Workshop
+    # Crafting. C (or the Workshop button) opens it: one button per recipe, bright when you have what it takes.
+    # Recipes marked [bench] need a workbench within a few blocks. What you make goes to the first hotbar slot.
+    # Make this object as big as the panel should be (it is drawn on the screen).
+    param ready_color: Color = "#E8913A"
+    param missing_color: Color = "#3B312A"
+    param bench_reach: number = 5
+
+    when start
+        ui
+        color "#F21A130E"
+        hide
+        open = false
+        buttons = []
+        bench_only = ["wood pick", "copper sword", "copper pick", "iron pick", "gem crown"]
+        player = find("player")
+        recipes_and_items
+
+    to recipes_and_items
+        recipe "planks" from "wood", 1 as 4
+        recipe "workbench" from "planks", 8
+        recipe "torch" from "planks", 1, "coal", 1 as 4
+        recipe "platform" from "planks", 1 as 2
+        recipe "salve" from "goo", 2
+        recipe "wood pick" from "planks", 10
+        recipe "copper sword" from "planks", 2, "copper", 6
+        recipe "copper pick" from "planks", 3, "copper", 8
+        recipe "iron pick" from "planks", 3, "iron", 9, "coal", 3
+        recipe "gem crown" from "gem", 5, "iron", 4, "copper", 6
+        item "wood" with "#8A5A32", "wood.png"
+        item "goo" with "#58C9A8", "goo.png"
+        item "salve" with "#E06A7A", "salve.png"
+        item "wood pick" with "#B8844C", "pick_wood.png"
+        item "copper pick" with "#C8743A", "pick_copper.png"
+        item "iron pick" with "#C9C3BA", "pick_iron.png"
+        item "copper sword" with "#C8743A", "sword_copper.png"
+        item "gem crown" with "#59E0D0", "crown.png"
+
+    when key "c": toggle
+    when told "toggle workshop": toggle
+
+    to toggle
+        if open
+            close_menu
+        else
+            open_menu
+
+    when told "craft" what
+        if contains(bench_only, what) and not bench_near()
+            notify "You need a workbench nearby for that."
+        else
+            craft what
+            if crafted
+                play "craft.wav"
+                notify "Made " + what
+                move_item what to 1
+                select_slot 1
+                if what == "gem crown": broadcast "won"
+        if open
+            close_menu
+            open_menu
+
+    # Is there a workbench within a few blocks of the player?
+    to bench_near
+        if not player: return false
+        cx = player.x + player.width / 2
+        cy = player.y + player.height / 2
+        for each dx in range(0 - bench_reach, bench_reach)
+            for each dy in range(0 - bench_reach, bench_reach)
+                if tile_at(cx + dx * 16, cy + dy * 16) == "workbench": return true
+        return false
+
+    to open_menu
+        open = true
+        show
+        near = bench_near()
+        show text "WORKSHOP" at self.x + 14, self.y + 10 with "#E8913A", 18
+        if near
+            show text "workbench nearby" at self.x + self.width - 132, self.y + 15 with "#9ED36A", 12
+        else
+            show text "no workbench near" at self.x + self.width - 132, self.y + 15 with "#8A7A6A", 12
+        top = self.y + 44
+        column = (self.width - 32) / 2
+        i = 0
+        for each r in recipes()
+            bx = self.x + 12 + (i % 2) * (column + 8)
+            y = top + floor(i / 2) * 31
+            i += 1
+            needs_bench = contains(bench_only, r)
+            label = recipe_text(r)
+            if needs_bench: label = label + "  [bench]"
+            make Button at bx, y with column, 27
+            made.Button.text = label
+            made.Button.text_size = 12
+            made.Button.target = self
+            made.Button.message = "craft"
+            made.Button.value = r
+            if can_craft(r) and (near or not needs_bench)
+                made.Button.color = ready_color
+                made.Button.hover_color = "#FFB060"
+                made.Button.text_color = "#1A120B"
+            else
+                made.Button.color = missing_color
+                made.Button.hover_color = "#4A3E35"
+                made.Button.text_color = "#A89A8C"
+            add made to buttons
+        y = top + floor((i + 1) / 2) * 31
+        make Note at self.x + 12, y + 2 with self.width - 24, self.y + self.height - y - 8
+        made.Note.text = "Bag: " + bag_text()
+        made.Note.size = 12
+        made.Note.text_color = "#CDBFAE"
+        add made to buttons
+
+    to bag_text
+        parts = []
+        for each name in items()
+            add name + " " + text(count_item(name)) to parts
+        if length(parts) == 0: return "empty"
+        return join(parts, ", ")
+
+    to close_menu
+        open = false
+        hide
+        hide text "WORKSHOP"
+        hide text "workbench nearby"
+        hide text "no workbench near"
+        for each b in buttons
+            destroy b
+        buttons = []

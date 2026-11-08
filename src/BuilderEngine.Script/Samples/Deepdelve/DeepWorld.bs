@@ -1,0 +1,88 @@
+mechanism DeepWorld
+    # Deepdelve's world, made when the game starts (side view): rolling hills of turf and soil over slate, winding
+    # caves, ore veins (coal and copper near the top, iron lower, glowing gems deep in the basalt), trees on the hills
+    # and dark walls behind everything you dig. The player is put on the ground in the middle: that's the camp.
+    param columns: number = 180
+    param rows: number = 96
+    param cell: number = 16
+    param seed: number = 7
+    param surface: number = 26
+    param hills: number = 6
+    param trees: number = 18
+    param basalt_depth: number = 34
+
+    when start
+        visible = false
+        if seed != 0: random_seed seed
+        tile_kinds
+        make_map columns, rows with cell
+        make_map columns, rows with cell as "Back" behind
+        deep = surface + basalt_depth
+        for each c in range(0, columns - 1)
+            top = round(surface + (noise(c * 0.045, 0.5) - 0.5) * 2 * hills)
+            soil_end = top + 3 + round(noise(c * 0.2, 3) * 3)
+            basalt = deep + round((noise(c * 0.07, 9) - 0.5) * 6)
+            x = c * cell + 1
+            set_tile x, top * cell + 1 to "turf"
+            fill_tiles "soil" from x, (top + 1) * cell + 1 to x, soil_end * cell + 1
+            fill_tiles "slate" from x, (soil_end + 1) * cell + 1 to x, basalt * cell + 1
+            fill_tiles "basalt" from x, (basalt + 1) * cell + 1 to x, (rows - 2) * cell + 1
+            set_tile x, (rows - 1) * cell + 1 to "deepstone"
+            fill_tiles "soil wall" from x, (top + 1) * cell + 1 to x, soil_end * cell + 1 in "Back"
+            fill_tiles "slate wall" from x, (soil_end + 1) * cell + 1 to x, (rows - 1) * cell + 1 in "Back"
+        # Caves (not right under the grass), then the ores.
+        noise_tiles "none" from "slate" with 0.085, 0.63 below cell * (surface + 9)
+        noise_tiles "none" from "basalt" with 0.1, 0.62
+        noise_tiles "coal" from "slate" with 0.3, 0.74
+        noise_tiles "copper" from "slate" with 0.28, 0.76 below cell * (surface + 5)
+        noise_tiles "iron" from "slate" with 0.3, 0.79 below cell * (surface + 20)
+        noise_tiles "iron" from "basalt" with 0.3, 0.78
+        noise_tiles "gem" from "basalt" with 0.33, 0.8
+        # Walls of the world: deepstone on both sides.
+        fill_tiles "deepstone" from 0, 0 to cell - 1, rows * cell - 1
+        fill_tiles "deepstone" from (columns - 1) * cell, 0 to columns * cell - 1, rows * cell - 1
+        plant_trees
+        p = find("player")
+        if p
+            p.x = round(columns / 2) * cell + 2
+            p.y = ground_y(p.x + p.width / 2) - p.height - 1
+            tell p "home"
+        emit made
+
+    to tile_kinds
+        tile_kind "turf" with "#5E9E3A" picture "turf.png" hardness 0.3 drop "soil"
+        tile_kind "soil" with "#7A5232" picture "soil.png" hardness 0.35
+        tile_kind "slate" with "#5C6170" picture "slate.png" hardness 0.75
+        tile_kind "basalt" with "#34303E" picture "basalt.png" hardness 1.1
+        tile_kind "coal" with "#2B2A30" picture "coal.png" hardness 0.8
+        tile_kind "copper" with "#C8743A" picture "copper.png" hardness 1
+        tile_kind "iron" with "#C9B9A6" picture "iron.png" hardness 1.3
+        tile_kind "gem" with "#59E0D0" picture "gem.png" hardness 1.6 light 3
+        tile_kind "deepstone" with "#121018" picture "deepstone.png" unbreakable
+        tile_kind "trunk" with "#7B5230" picture "trunk.png" background hardness 0.6 drop "wood"
+        tile_kind "leaves" with "#3F7F3A" picture "leaves.png" background hardness 0.1 drop "none"
+        tile_kind "planks" with "#B8844C" picture "planks.png" hardness 0.5
+        tile_kind "platform" with "#B8844C" picture "platform.png" oneway hardness 0.2
+        tile_kind "torch" with "#FFB547" picture "torch.png" background hardness 0 light 10
+        tile_kind "workbench" with "#9C6B3E" picture "workbench.png" background hardness 0.5
+        tile_kind "soil wall" with "#3A2718" picture "soilwall.png" background
+        tile_kind "slate wall" with "#24262E" picture "slatewall.png" background
+
+    # A tree every few columns (not at the camp): a trunk 4-7 blocks tall and a round crown of leaves.
+    to plant_trees
+        last = -10
+        camp = round(columns / 2)
+        for each c in range(3, columns - 4)
+            if c - last >= 4 and abs(c - camp) > 3 and random(1, 100) <= trees
+                last = c
+                x = c * cell + 1
+                ground = ground_y(x)
+                if tile_at(x, ground + 1) == "turf"
+                    height = random(4, 7)
+                    for each k in range(1, height)
+                        set_tile x, ground - k * cell + 1 to "trunk"
+                    crown = ground - height * cell
+                    for each dx in range(-2, 2)
+                        for each dy in range(-2, 1)
+                            if abs(dx) + abs(dy) < 4 and tile_at(x + dx * cell, crown + dy * cell + 1) == ""
+                                set_tile x + dx * cell, crown + dy * cell + 1 to "leaves"

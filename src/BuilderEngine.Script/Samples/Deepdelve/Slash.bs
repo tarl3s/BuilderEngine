@@ -1,0 +1,7 @@
+mechanism Slash
+    # The quick swing mark where a hit lands.
+    when start
+        look "slash.png"
+        layer 5
+        fade to 0 in 0.18
+        destroy self

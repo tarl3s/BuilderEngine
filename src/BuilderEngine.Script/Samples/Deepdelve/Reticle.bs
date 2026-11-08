@@ -1,0 +1,13 @@
+mechanism Reticle
+    # Marks the block under the mouse: bright when the player can reach it, faint when it is too far.
+    when start
+        player = find("player")
+        look "reticle.png"
+        layer 6
+
+    when tick
+        self.x = tile_x(mouse_x) - self.width / 2
+        self.y = tile_y(mouse_y) - self.height / 2
+        self.opacity = 0.25
+        if player and distance(player.x + player.width / 2, player.y + player.height / 2, mouse_x, mouse_y) <= player.Miner.reach
+            self.opacity = 0.9

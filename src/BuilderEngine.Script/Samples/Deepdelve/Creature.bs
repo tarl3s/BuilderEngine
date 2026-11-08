@@ -1,0 +1,65 @@
+mechanism Creature
+    # What every Deepdelve creature has: health, a body, a hurtful touch (it knocks the player back), being hit
+    # (it blinks and is knocked back) and what it leaves behind. Its variants (Gloop, Shambler) say how it moves by
+    # replacing the 'think' command.
+    param hp_max: number = 3
+    param speed: number = 60
+    param damage: number = 1
+    param loot: text = ""
+    param loot_chance: number = 1
+    param picture: Image = ""
+    param wander: number = 900
+    uses Body
+
+    when start
+        tag self "enemy"
+        hp = hp_max
+        stunned_until = 0
+        if picture != "": look picture
+        target = find("player")
+
+    when tick
+        if not target: stop
+        # Too far from the player: it wanders off for good.
+        if distance(self, target) > wander
+            destroy self
+            stop
+        if time < stunned_until: stop
+        think
+        if self.vx < 0: face left
+        if self.vx > 0: face right
+        if touching(target): tell target "hurt" [damage, side_of(target)]
+
+    to think
+        self.vx = 0
+
+    # -1 when the object is to the left of this one, 1 when it is to the right.
+    to side_of o
+        if o.x + o.width / 2 < self.x + self.width / 2: return -1
+        return 1
+
+    to touching o
+        return o.x < self.x + self.width and self.x < o.x + o.width and o.y < self.y + self.height and self.y < o.y + o.height
+
+    when told "hit" what
+        hp -= what[0]
+        stunned_until = time + 0.3
+        self.vx = what[1] * 170
+        self.vy = -200
+        play "hit.wav"
+        if hp <= 0
+            die
+        else
+            repeat 3
+                self.opacity = 0.3
+                wait 0.06
+                self.opacity = 1
+                wait 0.06
+
+    to die
+        if loot != "" and random(1, loot_chance) == 1
+            give loot, 1
+            notify "+1 " + loot
+        make Poof at self.x + self.width / 2 - 12, self.y + self.height / 2 - 12 with 24, 24
+        tell target "defeated"
+        destroy self

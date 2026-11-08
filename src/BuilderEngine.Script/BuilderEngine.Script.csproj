@@ -11,4 +11,8 @@
   <ItemGroup>
     <EmbeddedResource Include="StarterKit\*.bs" LogicalName="StarterKit.%(Filename).bs" />
   </ItemGroup>
+  <!-- Sample games' mechanisms (Samples/<Game>/*.bs), read back by each sample builder in Samples/*.cs. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Samples\**\*.bs" LogicalName="Samples.%(RecursiveDir)%(Filename).bs" />
+  </ItemGroup>
 </Project>
