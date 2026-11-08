@@ -111,8 +111,13 @@ public sealed partial class World
             if (p is string s) { sb.Append(s); continue; }
             object? v;
             try { v = Eval((Expr)p, ctx); }
-            catch (ScriptError) { v = "?"; }
-            sb.Append(v is double d ? d.ToString("0.##", CultureInfo.InvariantCulture) : ToText(v));
+            catch (ScriptError e)
+            {
+                // The text still shows (with "?"), and the console says why once.
+                WarnOnce($"{inst.Def.Name}: “{{{Printer.Print((Expr)p)}}}” in a text can't be shown — {e.Message}");
+                v = "?";
+            }
+            sb.Append(v is double d ? ShortNumber(d) : ToText(v));
         }
         return sb.ToString();
     }
@@ -120,6 +125,7 @@ public sealed partial class World
     List<object> TemplateParts(string template)
     {
         if (_templates.TryGetValue(template, out var parts)) return parts;
+        if (_templates.Count >= 2000) _templates.Clear(); // texts built while playing ("HP " + hp + " {x}") don't pile up
         parts = [];
         int i = 0;
         while (i < template.Length)
@@ -142,7 +148,7 @@ public sealed partial class World
     internal void WarnOnce(string msg)
     {
         if (!_warned.Add(msg)) return;
-        Output.Add("⚠ " + msg);
+        AddOutput("⚠ " + msg);
         RaisePrinted("⚠ " + msg);
     }
 

@@ -56,7 +56,7 @@ public sealed partial class World
     /// <summary>Prints a line like the <c>print</c> command (plugins use it).</summary>
     internal void PrintLine(string text)
     {
-        Output.Add(text);
+        AddOutput(text);
         Printed?.Invoke(text);
     }
 

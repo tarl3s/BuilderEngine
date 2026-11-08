@@ -33,31 +33,16 @@ public sealed class Record : Dictionary<string, object?>
         return sb.Append('}').ToString();
     }
 
-    static string Key(string k) => IsWord(k) ? k : Printer.Quote(k);
+    internal static string Key(string k) => IsWord(k) ? k : Printer.Quote(k);
 
     static bool IsWord(string k) =>
         k.Length > 0 && (char.IsLetter(k[0]) || k[0] == '_') && k.All(ch => char.IsLetterOrDigit(ch) || ch == '_') && !Parser.Keywords.Contains(k);
 
-    public override string ToString()
-    {
-        var sb = new StringBuilder("{");
-        bool first = true;
-        foreach (var (k, v) in this)
-        {
-            if (!first) sb.Append(", ");
-            first = false;
-            sb.Append(Key(k)).Append(": ").Append(v is string s ? Printer.Quote(s) : World.ToText(v));
-        }
-        return sb.Append('}').ToString();
-    }
+    /// <summary><c>{name: "Imp", cost: 1}</c> (a record or list inside itself shows as <c>{…}</c>: see <see cref="World.ToText"/>).</summary>
+    public override string ToString() => World.ToText(this);
 
     /// <summary>A new record with the same fields (lists and records inside are copied too).</summary>
-    public Record Copy()
-    {
-        var r = new Record();
-        foreach (var (k, v) in this) r[k] = World.CopyValue(v);
-        return r;
-    }
+    public Record Copy() => (Record)World.CopyValue(this)!;
 }
 
 public sealed partial class Parser
@@ -137,11 +122,30 @@ public sealed partial class World
         return string.Compare(ToText(a), ToText(b), StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>A copy of a list or record (and of the lists and records inside it); other values are themselves.</summary>
-    internal static object? CopyValue(object? v) => v switch
+    /// <summary>
+    /// A copy of a list or record (and of the lists and records inside it); other values are themselves. A list or record
+    /// inside itself stays that way in the copy (the copy holds its own copy), instead of copying forever.
+    /// </summary>
+    internal static object? CopyValue(object? v) => v is List<object?> or Record ? CopyNested(v, []) : v;
+
+    static object? CopyNested(object? v, List<(object Original, object Copy)> path)
     {
-        Record r => r.Copy(),
-        List<object?> l => l.Select(CopyValue).ToList(),
-        _ => v
-    };
+        if (v is not (List<object?> or Record)) return v;
+        foreach (var (original, copy) in path)
+            if (ReferenceEquals(original, v)) return copy;
+        CheckStack(0); // thousands of lists nested inside each other
+        if (v is List<object?> l)
+        {
+            var list = new List<object?>(l.Count);
+            path.Add((l, list));
+            foreach (var x in l) list.Add(CopyNested(x, path));
+            path.RemoveAt(path.Count - 1);
+            return list;
+        }
+        var r = new Record();
+        path.Add((v, r));
+        foreach (var (k, x) in (Record)v) r[k] = CopyNested(x, path);
+        path.RemoveAt(path.Count - 1);
+        return r;
+    }
 }

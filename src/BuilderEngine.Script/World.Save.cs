@@ -81,7 +81,12 @@ public sealed partial class World
     {
         if (slot == DefaultSlot) _store = new();
         if (SaveFolder == null) { MemorySaves.Remove(slot); return; }
-        try { File.Delete(SlotPath(slot)); } catch (IOException) { }
+        try { File.Delete(SlotPath(slot)); }
+        catch (DirectoryNotFoundException) { } // no saves folder yet: nothing to clear
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            throw new ScriptError($"The save “{slot}” couldn't be cleared: {e.Message}", 0);
+        }
     }
 
     public void SaveValue(string key, object? value)
@@ -117,15 +122,37 @@ public sealed partial class World
         return o;
     }
 
-    static JsonNode? ToJson(object? v) => v switch
+    static JsonNode? ToJson(object? v) => ToJson(v, []);
+
+    /// <summary>
+    /// A value as save JSON (null = it can't be saved: an object, a mechanism). A list or record inside itself, or nested
+    /// deeper than a save file can hold, is an error instead of a save that never ends.
+    /// </summary>
+    static JsonNode? ToJson(object? v, List<object> path)
     {
-        double d when double.IsFinite(d) => JsonValue.Create(d),
-        bool b => JsonValue.Create(b),
-        string s => JsonValue.Create(s),
-        List<object?> l => new JsonArray(l.Select(x => ToJson(x) ?? JsonValue.Create("")).ToArray()), // lists and records (World.Records.cs)
-        Record r => new JsonObject(r.Select(kv => KeyValuePair.Create(kv.Key, ToJson(kv.Value)))),
-        _ => null
-    };
+        switch (v)
+        {
+            case double d when double.IsFinite(d): return JsonValue.Create(d);
+            case bool b: return JsonValue.Create(b);
+            case string s: return JsonValue.Create(s);
+            case List<object?> or Record:
+            {
+                if (path.Exists(p => ReferenceEquals(p, v)))
+                    throw new ScriptError("A list or record that contains itself can't be saved (it would never end).", 0);
+                if (path.Count >= SaveDepth) throw new ScriptError($"Lists and records nested more than {SaveDepth} deep can't be saved.", 0);
+                path.Add(v);
+                JsonNode node = v is List<object?> l
+                    ? new JsonArray(l.Select(x => ToJson(x, path) ?? JsonValue.Create("")).ToArray()) // lists and records (World.Records.cs)
+                    : new JsonObject(((Record)v).Select(kv => KeyValuePair.Create(kv.Key, ToJson(kv.Value, path))));
+                path.RemoveAt(path.Count - 1);
+                return node;
+            }
+            default: return null;
+        }
+    }
+
+    /// <summary>System.Text.Json writes at most 64 levels; the save's own levels (slot → globals → value) come first.</summary>
+    const int SaveDepth = 60;
 
     /// <summary>A saved JSON value as a script value: numbers, yes/no, texts, lists and records.</summary>
     static object? FromSaveJson(JsonNode? n) => n switch
@@ -150,20 +177,37 @@ public sealed partial class World
         {
             string p = SlotPath(slot);
             try { text = File.Exists(p) ? File.ReadAllText(p) : null; }
-            catch (IOException) { text = null; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                WarnOnce($"The save “{slot}” couldn't be read ({e.Message}): playing without it.");
+                text = null;
+            }
         }
         if (text == null) return null;
         try { return Project.Parse(text) as JsonObject; }
-        catch (JsonException) { return null; }
+        catch (JsonException e)
+        {
+            WarnOnce($"The save “{slot}” is damaged ({e.Message}): playing without it. Saving again replaces it.");
+            return null;
+        }
     }
 
     void WriteSlot(string slot, JsonObject data)
     {
         string text = data.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
         if (SaveFolder == null) { MemorySaves[slot] = text; return; }
-        Directory.CreateDirectory(SaveFolder);
         string p = SlotPath(slot), tmp = p + ".tmp";
-        File.WriteAllText(tmp, text, new UTF8Encoding(false));
-        File.Move(tmp, p, overwrite: true);
+        // A disk problem (full, read-only, a file locked by a sync app) is the script's error, not a crash of the whole
+        // game: the line reports it and the game goes on. The old save stays as it was (the new one is written aside first).
+        try
+        {
+            Directory.CreateDirectory(SaveFolder);
+            File.WriteAllText(tmp, text, new UTF8Encoding(false));
+            File.Move(tmp, p, overwrite: true);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            throw new ScriptError($"The game couldn't be saved to “{slot}”: {e.Message}", 0);
+        }
     }
 }

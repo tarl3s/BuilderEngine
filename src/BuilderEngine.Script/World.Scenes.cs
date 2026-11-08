@@ -60,6 +60,7 @@ public sealed partial class World
         w.SaveFolder = SaveFolder;
         w._store = _store;
         w.SceneNames = SceneNames;
+        w.MaxLinesWithoutWait = MaxLinesWithoutWait;
         foreach (var (k, v) in Prefabs) w.Prefabs[k] = v; // spawn "Slime" (World.Prefabs.cs)
         w.Printed = Printed;
         w.SoundPlayed = SoundPlayed;

@@ -210,6 +210,7 @@ public sealed partial class World
                 : $"'{p.Name}' needs {p.Params.Count} value(s) ({ProcUsage(p)}), but got {args.Count}.", line);
         if (caller.Depth >= MaxCommandDepth)
             throw new ScriptError($"'{p.Name}' was called more than {MaxCommandDepth} times inside itself. Make sure it stops calling itself (an 'if' around the call).", line);
+        CheckStack(line); // commands inside values inside commands… (each level's own limit isn't reached, the stack is)
         var owner = caller.Inst.Owner;
         string mech = proc.Mech.Name;
         bool Same(MechanismInstance m) => string.Equals(m.Def.Name, mech, StringComparison.OrdinalIgnoreCase);
@@ -221,13 +222,13 @@ public sealed partial class World
             if (!owner.Helpers.TryGetValue(mech, out inst))
                 owner.Helpers[mech] = inst = Instantiate(TryDef(proc.Mech.Name) ?? proc.Mech, owner, null, null);
         }
-        var locals = new Dictionary<string, object?>();
-        for (int i = 0; i < p.Params.Count; i++) locals[p.Params[i]] = args[i];
-        return new Ctx(this, inst)
+        var pctx = new Ctx(this, inst)
         {
-            Locals = locals, Other = caller.Other, InProc = true, Depth = caller.Depth + 1,
+            Other = caller.Other, InProc = true, Depth = caller.Depth + 1,
             Source = p.From ?? proc.Mech.Name, State = caller.State, NoBreak = caller.NoBreak
         };
+        for (int i = 0; i < p.Params.Count; i++) pctx.Locals[p.Params[i]] = args[i]; // its inputs are locals
+        return pctx;
     }
 
     /// <summary>A user command used as a value (<c>bonus(3)</c>): runs it right away and gives what it returns.</summary>
@@ -256,11 +257,12 @@ public sealed partial class World
         {
             var fargs = c.Args.Select(x => Eval(x, ctx)).ToList();
             CallingInst = ctx.Inst; // who calls it (functions about "this object": mouse_over(), on_screen())
-            return fn(fargs);
+            try { return fn(fargs); }
+            catch (ScriptError e) when (e.Line == 0) { throw new ScriptError(e.Message, c.Line); } // functions don't know their line
         }
         switch (c.Name)
         {
-            case "key": Need(1, "key(\"left\")"); return KeysDown.Contains(ToText(A(0)));
+            case "key": Need(1, "key(\"left\")"); return Box(KeysDown.Contains(ToText(A(0))));
             case "random": Need(2, "random(1, 6)"); { double a = N(0), b = N(1); return Math.Floor(a + Rng.NextDouble() * (b - a + 1)); }
             case "abs": Need(1, "abs(x)"); return Math.Abs(N(0));
             case "round": Need(1, "round(x)"); return Math.Round(N(0));

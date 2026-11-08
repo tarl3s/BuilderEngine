@@ -56,6 +56,8 @@ public sealed partial class GameObject
     MechanismInstance[]? _flat;
     /// <summary>Every mechanism on the object (also the ones used inside others), made once.</summary>
     internal MechanismInstance[] Flat => _flat ??= AllMechanisms().ToArray();
+    /// <summary>The flat list once it has been made (null while the object is still being built).</summary>
+    internal MechanismInstance[]? FlatIfMade => _flat;
     /// <summary>Where it is in the world's list during this step (draw order, touch order).</summary>
     internal int StepIndex;
     internal int GridStamp;

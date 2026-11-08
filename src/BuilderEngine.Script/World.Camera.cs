@@ -151,7 +151,8 @@ public sealed partial class World
         Camera.Placed = false;
     }
 
-    static readonly Random ShakeRng = new();
+    /// <summary>Random.Shared: worlds also run on other threads (the AI check), and a shared Random isn't thread-safe.</summary>
+    static Random ShakeRng => Random.Shared;
 
     void UpdateCamera(double realDt)
     {

@@ -246,7 +246,10 @@ public sealed class Debugger : IDebugHooks
     // ---------------- Values ----------------
 
     /// <summary>A value as the panel shows it: 3.5, "text", true, an object's name, [1, 2, 3], nothing.</summary>
-    public static string Show(object? v, int max = 60)
+    public static string Show(object? v, int max = 60) => Show(v, max, 0);
+
+    /// <summary>Lists inside lists are shown a few levels deep (a list inside itself would never end).</summary>
+    static string Show(object? v, int max, int depth)
     {
         string s = v switch
         {
@@ -256,8 +259,9 @@ public sealed class Debugger : IDebugHooks
             string t => Printer.Quote(t),
             GameObject g => g.Destroyed ? $"{g.Name} (gone)" : g.Name,
             MechanismInstance m => m.Def.Name,
-            List<object?> l => "[" + string.Join(", ", l.Select(x => Show(x, max))) + "]",
-            _ => v.ToString() ?? "?"
+            List<object?> when depth >= 4 => "[…]",
+            List<object?> l => "[" + string.Join(", ", l.Select(x => Show(x, max, depth + 1))) + "]",
+            _ => v.ToString() ?? "?" // a record: World.ToText, which stops at a record inside itself
         };
         return s.Length > max ? s[..(max - 1)] + "…" : s;
     }
