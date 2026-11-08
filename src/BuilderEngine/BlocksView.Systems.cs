@@ -50,7 +50,7 @@ sealed partial class BlocksView
         add.PointerPressed += (_, e) =>
         {
             e.Handled = true;
-            if (_stale) return;
+            if (Locked) return;
             string name = "Coin";
             for (int n = 2; list.Any(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)); n++) name = "Coin" + n;
             var u = new UsesDef(name, null, new Dictionary<string, Expr>(), 0);

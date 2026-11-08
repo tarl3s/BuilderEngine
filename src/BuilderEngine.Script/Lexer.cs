@@ -25,16 +25,27 @@ public sealed class ScriptError(string message, int line) : Exception(message)
     public override string ToString() => Line > 0 ? $"Line {Line}: {Message}" : Message;
 }
 
+/// <summary>
+/// A <c># comment</c> in the source: its line, its text from the '#' on, and whether code comes before it on that line
+/// (<c>x = 1  # note</c>). The parser hangs comments on the code next to them so printing the code keeps them.
+/// </summary>
+public readonly record struct Comment(int Line, string Text, bool Trailing);
+
 /// <summary>Turns source text into tokens; indentation becomes Indent/Dedent tokens (like Python).</summary>
 public static class Lexer
 {
     static readonly string[] Ops = ["+=", "-=", "*=", "/=", "==", "!=", "<>", "<=", ">=", "+", "-", "*", "/", "%", "=", "<", ">", "(", ")", "[", "]", "{", "}", ",", ".", ":"];
 
-    public static List<Token> Tokenize(string source)
+    public static List<Token> Tokenize(string source) => Tokenize(source, null);
+
+    /// <summary>Tokenizes, and adds every comment (in source order) to <paramref name="comments"/> when it is given.</summary>
+    public static List<Token> Tokenize(string source, List<Comment>? comments)
     {
         var tokens = new List<Token>();
         var indents = new Stack<int>();
         indents.Push(0);
+        // A byte order mark at the start (text saved by some editors or pasted from them) is not part of the code.
+        if (source.Length > 0 && source[0] == '﻿') source = source[1..];
         var lines = source.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
         int depth = 0; // open parentheses / brackets: newlines inside are ignored
 
@@ -48,7 +59,12 @@ public static class Lexer
                 col += line[i] == '\t' ? 4 : 1;
                 i++;
             }
-            if (i >= line.Length || line[i] == '#') continue; // blank or comment line
+            if (i >= line.Length) continue; // blank line
+            if (line[i] == '#') // comment line
+            {
+                comments?.Add(new Comment(lineNo, line[i..].TrimEnd(), Trailing: false));
+                continue;
+            }
 
             if (depth == 0)
             {
@@ -73,15 +89,32 @@ public static class Lexer
             {
                 char c = line[i];
                 if (c == ' ' || c == '\t') { i++; continue; }
-                if (c == '#') break;
+                if (c == '#')
+                {
+                    comments?.Add(new Comment(lineNo, line[i..].TrimEnd(), Trailing: true));
+                    break;
+                }
 
                 if (char.IsDigit(c) || (c == '.' && i + 1 < line.Length && char.IsDigit(line[i + 1])))
                 {
                     int s = i;
                     while (i < line.Length && (char.IsDigit(line[i]) || line[i] == '.')) i++;
+                    // An exponent: 1e3, 2.5E-4, 1e+308. Only an 'e' with digits right after it (a sign may come first),
+                    // so '3times' and 'x = 2' followed by a name still read as before.
+                    if (i + 1 < line.Length && line[i] is 'e' or 'E')
+                    {
+                        int d = line[i + 1] is '+' or '-' ? i + 2 : i + 1;
+                        if (d < line.Length && char.IsAsciiDigit(line[d]))
+                        {
+                            i = d;
+                            while (i < line.Length && char.IsAsciiDigit(line[i])) i++;
+                        }
+                    }
                     string text = line[s..i];
                     if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var n))
                         throw new ScriptError($"'{text}' is not a valid number.", lineNo);
+                    // 400 digits parse as infinity, which can't be written back as a number.
+                    if (double.IsInfinity(n)) throw new ScriptError($"The number '{text[..Math.Min(text.Length, 12)]}...' is too big.", lineNo);
                     tokens.Add(new Token(Tok.Number, text, lineNo, n));
                     continue;
                 }
@@ -111,7 +144,12 @@ public static class Lexer
                 string? op = null;
                 foreach (var o in Ops)
                     if (string.CompareOrdinal(line, i, o, 0, o.Length) == 0) { op = o; break; }
-                if (op == null) throw new ScriptError($"I don't understand the symbol '{c}'.", lineNo);
+                if (op == null)
+                {
+                    // An emoji is two chars (a surrogate pair): show the whole symbol, not half of it.
+                    string symbol = char.IsHighSurrogate(c) && i + 1 < line.Length && char.IsLowSurrogate(line[i + 1]) ? line.Substring(i, 2) : c.ToString();
+                    throw new ScriptError($"I don't understand the symbol '{symbol}'.", lineNo);
+                }
                 if (op is "(" or "[" or "{") depth++;
                 if (op is ")" or "]" or "}") depth = Math.Max(0, depth - 1);
                 tokens.Add(new Token(Tok.Op, op, lineNo));

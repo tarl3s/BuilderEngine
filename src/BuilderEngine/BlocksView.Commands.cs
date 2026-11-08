@@ -75,7 +75,7 @@ sealed partial class BlocksView
 
     void AddProc()
     {
-        if (_stale || _defs.Count == 0) return;
+        if (Locked || _defs.Count == 0) return;
         var m = _defs[MechIndex()];
         var p = BlockEdits.NewProc(m);
         m.Procs.Add(p);
@@ -281,7 +281,11 @@ sealed partial class BlocksView
     /// </summary>
     WrapPanel CommandParts(List<Stmt> list, int j, CommandStmt c, BlockLook look)
     {
-        var parts = Parts(Word(c.Name, look.Fg), ListField(c.Args, l => list[j] = ((CommandStmt)list[j]) with { Args = l }));
+        var parts = Parts(Word(c.Name, look.Fg), ListField(c.Args, l =>
+        {
+            if (BlockEdits.CheckCommandValues(c.Name, l) is { } err) throw Bad(err);
+            list[j] = ((CommandStmt)list[j]) with { Args = l };
+        }));
         if (c.Named == null) return parts;
         foreach (var (connector, values) in c.Named)
         {

@@ -54,7 +54,7 @@ sealed partial class BlocksView
         {
             foreach (var s in body)
             {
-                if (s.Line == line) return s;
+                if (LineOf(s) == line) return s;
                 foreach (var inner in BlockEdits.Bodies(s))
                     if (Find(inner) is { } found) return found;
             }
@@ -66,7 +66,7 @@ sealed partial class BlocksView
     Control DebugDecorate(Stmt s, Control block)
     {
         bool highlighted = ReferenceEquals(s, _debugStmt);
-        bool breakpoint = BreakpointAt?.Invoke(s.Line) == true;
+        bool breakpoint = BreakpointAt?.Invoke(LineOf(s)) == true;
         if (!highlighted && !breakpoint) return block;
         var margin = block.Margin;
         block.Margin = default;
@@ -86,7 +86,7 @@ sealed partial class BlocksView
                 Width = 10, Height = 10, Fill = BreakDot, Stroke = Palette.Bg0, StrokeThickness = 1.5,
                 HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(-5, 7, 0, 0), IsHitTestVisible = false
             };
-            ToolTip.SetTip(grid, BlockText($"The game pauses here (line {s.Line}) while playing"));
+            ToolTip.SetTip(grid, BlockText($"The game pauses here (line {LineOf(s)}) while playing"));
             grid.Children.Add(dot);
             result = grid;
         }
@@ -94,10 +94,35 @@ sealed partial class BlocksView
         return result;
     }
 
+    /// <summary>
+    /// Dev check (--snap): the line each block says it is on holds that block's first word (a one-line 'run x' or
+    /// 'if c: x' holds two blocks).
+    /// </summary>
+    internal bool DebugLinesMatchCode()
+    {
+        var code = _shown.Replace("\r\n", "\n").Split('\n');
+        foreach (var m in _defs)
+            for (int k = 0; BlockEdits.TopBody(m, k) is { } top; k++)
+                if (!Match(top)) return false;
+        return true;
+
+        bool Match(List<Stmt> body)
+        {
+            foreach (var s in body)
+            {
+                int line = LineOf(s);
+                string head = Printer.Print(s, 0).Split('\n').First(l => !l.TrimStart().StartsWith('#')).Trim();
+                if (line <= 0 || line > code.Length || !code[line - 1].Contains(head.Split(' ')[0], StringComparison.Ordinal)) return false;
+                if (BlockEdits.Bodies(s).Any(b => !Match(b))) return false;
+            }
+            return true;
+        }
+    }
+
     /// <summary>The ⋯ tool of a statement's row: a menu with "Pause here" (a breakpoint on its line).</summary>
     void AddMoreTool(StackPanel tools, BlockLook look, Stmt s)
     {
-        if (ToggleBreakpoint == null || s.Line <= 0) return;
+        if (ToggleBreakpoint == null || LineOf(s) <= 0) return;
         var b = new Button
         {
             Content = "⋯", FontSize = 12, Padding = new Thickness(6, 0), Height = 22, MinHeight = 0,
@@ -106,9 +131,17 @@ sealed partial class BlocksView
         };
         ToolTip.SetTip(b, BlockText("More"));
         var menu = new MenuFlyout();
-        bool on = BreakpointAt?.Invoke(s.Line) == true;
-        var pause = new MenuItem { Header = BlockText(on ? $"Don't pause here (line {s.Line})" : $"Pause here (line {s.Line})") };
-        pause.Click += (_, _) => ToggleBreakpoint(s.Line);
+        var pause = new MenuItem();
+        // The line is read when the menu opens: a block edit since this row was drawn may have moved it.
+        void Label()
+        {
+            int line = LineOf(s);
+            bool on = BreakpointAt?.Invoke(line) == true;
+            pause.Header = BlockText(on ? $"Don't pause here (line {line})" : $"Pause here (line {line})");
+        }
+        Label();
+        menu.Opening += (_, _) => Label();
+        pause.Click += (_, _) => ToggleBreakpoint(LineOf(s));
         menu.Items.Add(pause);
         b.Flyout = menu;
         tools.Children.Add(b);

@@ -106,6 +106,17 @@ public static class BlockEdits
         return MoveItem(from, index, to, toIndex);
     }
 
+    /// <summary>True when the statement is a 'return' or has one inside it, at any depth.</summary>
+    public static bool HasReturn(Stmt s) => s is ReturnStmt || Bodies(s).Any(b => b.Any(HasReturn));
+
+    /// <summary>
+    /// Whether <paramref name="s"/> may be dropped into <paramref name="target"/> (a body of mechanism <paramref name="m"/>):
+    /// never inside itself, and a block with a 'return' in it only inside a 'to' command — elsewhere the printed code
+    /// would not parse ("'return' only works inside a command made with 'to'").
+    /// </summary>
+    public static bool CanPlace(MechanismDef m, Stmt s, List<Stmt> target) =>
+        !Contains(s, target) && (!HasReturn(s) || InProc(m, target));
+
     /// <summary>
     /// Where a drop lands in a column of blocks: the number of blocks whose middle is above <paramref name="y"/>
     /// (rows are top/bottom pairs, top to bottom). 0 = before the first block, rows.Count = after the last.
@@ -173,6 +184,33 @@ public static class BlockEdits
         return list;
     }
 
+    /// <summary>
+    /// After an edit the blocks keep their statements, but the printed code puts them on other lines (and new blocks have
+    /// line 0). This reads the printed code and gives each shown statement the line it is on now, so a breakpoint set
+    /// from a block ("Pause here") and the debugger's highlight use the code's real lines. Null when the printed code
+    /// doesn't parse: the code view reports that error, and the blocks keep their old lines.
+    /// </summary>
+    public static Dictionary<Stmt, int>? LinesAfterPrint(IReadOnlyList<MechanismDef> shown, string printed)
+    {
+        List<MechanismDef> now;
+        try { now = Parser.Parse(printed); }
+        catch (ScriptError) { return null; }
+        var lines = new Dictionary<Stmt, int>(ReferenceEqualityComparer.Instance);
+        for (int mi = 0; mi < shown.Count && mi < now.Count; mi++)
+            for (int k = 0; TopBody(shown[mi], k) is { } a && TopBody(now[mi], k) is { } b; k++) Pair(a, b);
+        return lines;
+
+        void Pair(List<Stmt> a, List<Stmt> b)
+        {
+            // Printing gives back the same tree, so the lists line up one to one; stop at any difference.
+            for (int i = 0; i < a.Count && i < b.Count && a[i].GetType() == b[i].GetType(); i++)
+            {
+                lines[a[i]] = b[i].Line;
+                foreach (var (x, y) in Bodies(a[i]).Zip(Bodies(b[i]))) Pair(x, y);
+            }
+        }
+    }
+
     // ---------------- Deep copies ----------------
 
     public static Stmt Clone(Stmt s) => s switch
@@ -186,7 +224,9 @@ public static class BlockEdits
         EmitStmt e => e with { Args = [.. e.Args] },
         TellStmt t => t with { Args = [.. t.Args] },
         CommandStmt c => c with { Args = [.. c.Args], Named = c.Named?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()) },
-        _ => s // the rest hold only immutable values
+        // The rest hold only immutable values, but a copy is still a new block: the view tells blocks apart by
+        // reference (the line each one is on, the one to scroll to, the debugger's highlight).
+        _ => s with { }
     };
 
     public static List<Stmt> CloneList(List<Stmt> list) => list.Select(Clone).ToList();
@@ -276,6 +316,7 @@ public static class BlockEdits
             RepeatStmt r when r.Count != null => r with { Count = R(r.Count) },
             WaitStmt w => w with { Seconds = R(w.Seconds) },
             WaitUntilStmt u => u with { Cond = R(u.Cond) },
+            WaitKeyStmt k => k with { Key = R(k.Key) },
             WhileStmt w => w with { Cond = R(w.Cond) },
             ForEachStmt f => f with { List = R(f.List) },
             ReturnStmt r when r.Value != null => r with { Value = R(r.Value) },
@@ -448,6 +489,15 @@ public static class BlockEdits
         if (Keywords.Contains(parts[0])) return $"'{parts[0]}' is a Builder Script word; pick another name.";
         return null;
     }
+
+    /// <summary>
+    /// Null when a command block may have these values; else why not. A 'stop' command is 'stop sound "x"' / 'stop sounds'
+    /// (World.Audio.cs): without that first word the code reads a plain 'stop' with values left over, which doesn't parse.
+    /// </summary>
+    public static string? CheckCommandValues(string command, List<Expr> values) =>
+        command == "stop" && values is not [NameExpr { Path: ["sound" or "sounds"] }, ..]
+            ? "This block stops sounds: its values start with 'sound' (stop sound \"rain.wav\") or are just 'sounds'."
+            : null;
 
     /// <summary>Reads an event from its kind and the text after the event word (<c>"damage" amount</c>).</summary>
     public static EventSpec ParseEvent(EventKind kind, string tail)
