@@ -39,6 +39,14 @@ public sealed class App : Application
         }
         catch { /* no icon is fine */ }
 
+        // Avalonia shows a window a moment before its first frame is drawn: an empty black box that looks like a command
+        // prompt flashing. The big windows start see-through and appear once that first frame is ready.
+        Avalonia.Controls.Window.WindowOpenedEvent.AddClassHandler<Avalonia.Controls.Window>((w, _) =>
+        {
+            if (w is not (LauncherWindow or MainWindow) || w.Opacity > 0) return;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => w.Opacity = 1, Avalonia.Threading.DispatcherPriority.Background);
+        });
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Dev and test runs (--project, --snap) go straight to the editor; a normal start shows the start screen.

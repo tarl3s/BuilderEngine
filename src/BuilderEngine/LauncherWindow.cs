@@ -34,6 +34,8 @@ public sealed class LauncherWindow : Window
     public LauncherWindow()
     {
         Title = "BuilderEngine";
+        Opacity = 0; // shown once the first frame is drawn (Program.cs), so no empty black box flashes first
+        Avalonia.Threading.DispatcherTimer.RunOnce(() => Opacity = 1, TimeSpan.FromMilliseconds(1500)); // never stays hidden
         Width = 1000; Height = 720;
         MinWidth = 760; MinHeight = 520;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
