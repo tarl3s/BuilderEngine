@@ -1,0 +1,44 @@
+# Starter kit: physics. These mechanisms switch physics on with a few commands:
+#   body gravity, max_fall   this object falls (pixels per second per second) and stops at solid things
+#   solid                    bodies stand on this object and can't go through it ('solid false' turns it off)
+#   oneway                   like solid, but only from above: jump up through it, land on top
+#   jump height              jump about that many pixels high (pressed a moment early or late still works)
+#   push vx, vy              add speed, e.g. a spring or a hit that knocks you back
+# Every object has a speed: self.vx and self.vy (pixels per second, + is right/down). A body also has
+# self.on_ground (true while it stands on something). Standing on or bumping into a solid touches it,
+# so 'when touched by' works for landing on things.
+
+mechanism Body
+    param gravity: number = 1500
+    param max_fall: number = 1000
+
+    when start
+        body gravity, max_fall
+
+mechanism Solid
+    when start
+        solid
+
+mechanism OneWay
+    when start
+        oneway
+
+mechanism Platformer
+    param speed: number = 220
+    param jump_height: number = 110
+    uses Body
+
+    when tick
+        self.vx = 0
+        if key("left") or key("a"): self.vx -= speed
+        if key("right") or key("d"): self.vx += speed
+
+    when key "space": jump jump_height
+    when key "up": jump jump_height
+    when key "w": jump jump_height
+
+    # Let go of the jump key early for a small hop.
+    when tick
+        holding = key("space") or key("up") or key("w")
+        if held and not holding and self.vy < 0: self.vy *= 0.45
+        held = holding

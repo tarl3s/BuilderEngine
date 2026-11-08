@@ -3,7 +3,7 @@ using System.Globalization;
 namespace BuilderEngine.Script;
 
 /// <summary>A thing in the game world. It has no behavior of its own: its mechanisms give it one.</summary>
-public sealed class GameObject
+public sealed partial class GameObject
 {
     public int Id { get; internal set; }
     public string Name { get; set; } = "Object";
@@ -173,14 +173,17 @@ public sealed partial class World
                 foreach (var w in m.Def.Whens)
                     if (w.Event.Kind == EventKind.Tick && !_running.Any(c => c.Inst == m && c.When == w)) StartWhen(m, w, null);
 
-        // 3. Touches: fire once when two objects start overlapping.
+        // 2b. Physics: objects move by their speed; bodies fall and stop at solids (World.Physics.cs).
+        StepPhysics(dt);
+
+        // 3. Touches: fire once when two objects start overlapping (or, with a solid, start resting against it).
         var live = _objects.Where(o => !o.Destroyed).ToArray();
         for (int i = 0; i < live.Length; i++)
             for (int j = i + 1; j < live.Length; j++)
             {
                 var a = live[i]; var b = live[j];
                 var key = (Math.Min(a.Id, b.Id), Math.Max(a.Id, b.Id));
-                if (a.Overlaps(b))
+                if (a.InContact(b))
                 {
                     if (_touching.Add(key)) { FireTouch(a, b); FireTouch(b, a); }
                 }
@@ -370,9 +373,9 @@ public sealed partial class World
         {
             case GameObject g:
             {
-                double cur = member switch { "x" => g.X, "y" => g.Y, "width" => g.Width, "height" => g.Height, _ => throw new ScriptError($"Objects have x, y, width and height — not '{member}'.", a.Line) };
+                double cur = member switch { "x" => g.X, "y" => g.Y, "width" => g.Width, "height" => g.Height, "vx" => g.Vx, "vy" => g.Vy, _ => throw new ScriptError($"Objects have x, y, width, height, vx and vy you can change — not '{member}'.", a.Line) };
                 double nv = ToNumber(Combine(a.Op, cur, value, a.Line), a.Line);
-                switch (member) { case "x": g.X = nv; break; case "y": g.Y = nv; break; case "width": g.Width = nv; break; default: g.Height = nv; break; }
+                switch (member) { case "x": g.X = nv; break; case "y": g.Y = nv; break; case "width": g.Width = nv; break; case "vx": g.Vx = nv; break; case "vy": g.Vy = nv; break; default: g.Height = nv; break; }
                 break;
             }
             case MechanismInstance m:
@@ -474,6 +477,7 @@ public sealed partial class World
                 GameObject g => m switch
                 {
                     "x" => g.X, "y" => g.Y, "width" => g.Width, "height" => g.Height, "name" => g.Name,
+                    "vx" => g.Vx, "vy" => g.Vy, "on_ground" => g.OnGround,
                     _ => (object?)g.AllMechanisms().FirstOrDefault(x => string.Equals(x.Def.Name, m, StringComparison.OrdinalIgnoreCase))
                          ?? throw new ScriptError($"'{g.Name}' has no '{m}'.", line)
                 },
@@ -562,11 +566,12 @@ public sealed partial class World
                 return;
             }
         }
+        if (RunPhysicsCommand(c.Name, ctx.Inst.Owner, args, c.Line)) return;
         if (Commands.TryGetValue(c.Name, out var cmd)) { cmd(new CommandContext(this, ctx.Inst, args, c.Line)); return; }
         throw new ScriptError($"There's no command called '{c.Name}'.{Suggest(c.Name, BuiltInCommands.Concat(Commands.Keys))}", c.Line);
     }
 
-    public static readonly string[] BuiltInCommands = ["print", "destroy", "spawn", "play", "move", "goto"];
+    public static readonly string[] BuiltInCommands = ["print", "destroy", "spawn", "play", "move", "goto", "body", "solid", "oneway", "jump", "push"];
 
     // ---------------- Values ----------------
 

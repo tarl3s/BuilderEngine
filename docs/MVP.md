@@ -59,3 +59,28 @@ mechanism Coin
 | `emit` | tell everyone something happened (`emit died`) |
 | `tell` | send a message to another object (`tell other "damage" 1`) |
 | `stop` | end this `when` right now |
+
+### Physics
+
+Physics is a set of starter-kit mechanisms (`StarterKit/Physics.bs`) — open them to see how they work.
+
+| Mechanism | What it does |
+|---|---|
+| `Body` | falls with `gravity` (px/s²) up to `max_fall` (px/s) and stops at solid things |
+| `Solid` | bodies stand on it and can't go through it (ground, walls, crates) |
+| `OneWay` | solid only from above: jump up through it, land on top |
+| `Platformer` | left/right (arrows or A/D) at `speed`, jump `jump_height` px with space/up/W; uses `Body` |
+
+A crate is `Body` + `Solid`; a walking enemy is `Patrol` + `Body`; a moving platform is `Solid` + something that moves it.
+
+| In a script | Meaning |
+|---|---|
+| `body 1500, 1000` | turn on gravity and collisions (gravity, max fall speed) |
+| `solid` / `solid false` / `oneway` | make this object solid / not solid / a one-way platform |
+| `jump 100` | jump about 100 px high if standing (a little early or late still counts) |
+| `push 300, -200` | add speed (a spring, a knockback) |
+| `self.vx`, `self.vy` | speed in px/s (+ is right/down); every object moves by it, only bodies stop at solids |
+| `self.on_ground` | true while the body stands on something |
+
+Landing on or bumping into a solid counts as touching it, so `when touched by "ground"` fires when you land.
+Changing `self.x` / `self.y` directly moves an object without collisions (a teleport).

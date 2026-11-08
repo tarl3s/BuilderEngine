@@ -559,6 +559,233 @@ Test("scene clone is deep (undo snapshots)", () =>
     Eq("PlayerMove", d.Mechanisms[0].Name);
 });
 
+Console.WriteLine("Physics");
+GameObject Box(World w, string name, double x, double y, double width, double height, string[] mechs, params string[] tags)
+{
+    var o = w.Spawn(name, x, y, mechs, null, tags);
+    o.Width = width; o.Height = height;
+    return o;
+}
+GameObject Floor(World w, double y = 400, double thick = 50) => Box(w, "Ground", 0, y, 800, thick, ["Solid"], "ground");
+void Near(double expected, double actual, double tol, string what) =>
+    Eq(true, Math.Abs(expected - actual) <= tol, $"{what}: {actual} (expected {expected} ± {tol})");
+Test("a body falls and lands on the ground", () =>
+{
+    var w = NewWorld("");
+    Floor(w);
+    var b = Box(w, "B", 100, 100, 32, 32, ["Body"]);
+    w.Step(1.0 / 60);
+    Eq(false, b.OnGround, "in the air");
+    Run(w, 2);
+    Near(400, b.Y + b.Height, 0.01, "feet on the ground");
+    Eq(true, b.OnGround, "on_ground");
+    Eq(0.0, b.Vy, "vy");
+});
+Test("scripts read self.on_ground and self.vy", () =>
+{
+    var w = NewWorld("mechanism Probe\n    uses Body\n    when tick\n        down = self.on_ground\n        fall = self.vy\n");
+    Floor(w);
+    var b = Box(w, "B", 100, 300, 32, 32, ["Probe"]);
+    Run(w, 0.1);
+    Eq(false, b.Mechanisms[0].Vars["down"]);
+    Eq(true, (double)b.Mechanisms[0].Vars["fall"]! > 0, "falling");
+    Run(w, 1);
+    Eq(true, b.Mechanisms[0].Vars["down"]);
+});
+Test("a body can't walk through a wall", () =>
+{
+    var w = NewWorld("mechanism Runner\n    uses Body\n    when tick\n        self.vx = 300\n");
+    Floor(w);
+    Box(w, "Wall", 200, 300, 16, 100, ["Solid"]);
+    var b = Box(w, "B", 100, 368, 32, 32, ["Runner"]);
+    Run(w, 2);
+    Near(200, b.X + b.Width, 0.01, "stopped at the wall");
+    Near(400, b.Y + b.Height, 0.01, "still on the ground");
+    Eq(true, b.OnGround);
+});
+Test("platformer: jump reaches its height and lands", () =>
+{
+    var w = NewWorld("");
+    Floor(w);
+    var p = Box(w, "P", 100, 352, 32, 48, ["Platformer"], "player");
+    Run(w, 0.2);
+    Eq(true, p.OnGround, "starts on the ground");
+    w.KeysDown.Add("space"); w.PressKey("space");
+    double top = p.Y;
+    for (int i = 0; i < 90; i++) { w.Step(1.0 / 60); top = Math.Min(top, p.Y); }
+    Near(110, 352 - top, 4, "jump height");
+    Eq(true, p.OnGround, "landed");
+    Near(400, p.Y + p.Height, 0.01, "back on the ground");
+});
+Test("platformer: letting go early makes a small hop", () =>
+{
+    var w = NewWorld("");
+    Floor(w);
+    var p = Box(w, "P", 100, 352, 32, 48, ["Platformer"], "player");
+    Run(w, 0.2);
+    w.KeysDown.Add("space"); w.PressKey("space");
+    w.Step(1.0 / 60); w.Step(1.0 / 60);
+    w.KeysDown.Remove("space");
+    double top = p.Y;
+    for (int i = 0; i < 90; i++) { w.Step(1.0 / 60); top = Math.Min(top, p.Y); }
+    Eq(true, 352 - top is > 5 and < 60, $"hop height {352 - top}");
+});
+Test("platformer: walks with the arrow keys", () =>
+{
+    var w = NewWorld("");
+    Floor(w);
+    var p = Box(w, "P", 100, 352, 32, 48, ["Platformer"], "player");
+    w.KeysDown.Add("right");
+    Run(w, 1);
+    Near(320, p.X, 8, "x after 1 s at 220 px/s");
+    w.KeysDown.Clear(); w.KeysDown.Add("a");
+    Run(w, 0.5);
+    Near(210, p.X, 8, "back left");
+});
+Test("no tunnelling: a very fast fall stops on a thin floor", () =>
+{
+    var w = NewWorld("mechanism Rock\n    when start\n        body 50000, 20000\n");
+    Floor(w, 400, 2);
+    var b = Box(w, "B", 100, -3000, 16, 16, ["Rock"]);
+    Run(w, 1);
+    Near(400, b.Y + b.Height, 0.01, "landed on the 2 px floor");
+    var w2 = NewWorld("mechanism Bullet\n    uses Body gravity: 0\n    when start\n        self.vx = 30000\n");
+    Box(w2, "Wall", 500, 0, 2, 800, ["Solid"]);
+    var s = Box(w2, "S", 0, 100, 8, 8, ["Bullet"]);
+    Run(w2, 0.5);
+    Near(500, s.X + s.Width, 0.01, "stopped by the 2 px wall");
+});
+Test("two bodies stack (in either spawn order)", () =>
+{
+    foreach (bool upperFirst in new[] { false, true })
+    {
+        var w = NewWorld("mechanism Crate\n    uses Body\n    uses Solid\n");
+        Floor(w);
+        GameObject lower, upper;
+        if (upperFirst) { upper = Box(w, "Up", 105, 100, 32, 32, ["Crate"]); lower = Box(w, "Low", 100, 250, 32, 32, ["Crate"]); }
+        else { lower = Box(w, "Low", 100, 250, 32, 32, ["Crate"]); upper = Box(w, "Up", 105, 100, 32, 32, ["Crate"]); }
+        Run(w, 2);
+        Near(400, lower.Y + lower.Height, 0.01, "lower on the ground");
+        Near(lower.Y, upper.Y + upper.Height, 0.01, "upper on the lower");
+        Eq(true, upper.OnGround && lower.OnGround, "both on something");
+        Eq(lower, upper.Ground, "upper stands on the lower");
+    }
+});
+Test("touched by fires when a body lands on something (once)", () =>
+{
+    var w = NewWorld("mechanism Lander\n    uses Body\n    when touched by \"ground\"\n        landed += 1\nmechanism Pad\n    when start\n        solid\n    when touched by other\n        hits += 1\n");
+    var pad = Box(w, "Pad", 0, 400, 800, 50, ["Pad"], "ground");
+    var b = Box(w, "B", 100, 200, 32, 32, ["Lander"]);
+    Run(w, 0.3);
+    Eq(null, b.Mechanisms[0].Vars.GetValueOrDefault("landed"), "not yet");
+    Run(w, 2);
+    Eq(1.0, b.Mechanisms[0].Vars["landed"], "landed once");
+    Eq(1.0, pad.Mechanisms[0].Vars["hits"], "the ground saw it too");
+});
+Test("objects without a Body aren't affected by physics", () =>
+{
+    var w = NewWorld("");
+    Floor(w);
+    var plain = Box(w, "Plain", 100, 100, 32, 32, []);
+    var coin = Box(w, "Coin", 200, 380, 16, 16, ["Coin"]);
+    Run(w, 1);
+    Eq(100.0, plain.Y); Eq(380.0, coin.Y, "a coin overlapping the ground stays put");
+    Eq(false, plain.OnGround);
+});
+Test("an object without a Body still moves by its speed (no collisions)", () =>
+{
+    var w = NewWorld("mechanism Shot\n    when start\n        self.vx = 120\n");
+    Box(w, "Wall", 50, 0, 10, 400, ["Solid"]);
+    var s = Box(w, "S", 0, 100, 8, 8, ["Shot"]);
+    Run(w, 1);
+    Near(120, s.X, 2.5, "flew through");
+});
+Test("patrol still works, alone and with a Body on the ground", () =>
+{
+    var w = NewWorld("");
+    Floor(w);
+    var alone = Box(w, "A", 0, 100, 32, 32, ["Patrol"]);
+    var walker = Box(w, "W", 300, 360, 40, 32, ["Patrol", "Body"]);
+    double maxA = 0, maxW = 0;
+    for (int i = 0; i < 60 * 4; i++) { w.Step(1.0 / 60); maxA = Math.Max(maxA, alone.X); maxW = Math.Max(maxW, walker.X); }
+    Eq(100.0, alone.Y, "no gravity without a Body");
+    Eq(true, maxA > 90 && maxA < 110 && alone.X < maxA, $"alone: max x {maxA}");
+    Eq(true, maxW > 390 && maxW < 410 && walker.X < maxW, $"walker: max x {maxW}");
+    Near(400, walker.Y + walker.Height, 0.01, "walker on the ground");
+});
+Test("one-way platform: jump up through it, land on top", () =>
+{
+    var w = NewWorld("mechanism Up\n    uses Body\n    when start\n        push 0, -900\n");
+    Floor(w);
+    Box(w, "Ledge", 0, 300, 800, 10, ["OneWay"]);
+    var b = Box(w, "B", 100, 368, 32, 32, ["Up"]);
+    Run(w, 2);
+    Near(300, b.Y + b.Height, 0.01, "standing on the ledge");
+    Eq(true, b.OnGround);
+});
+Test("a moving solid carries what stands on it", () =>
+{
+    var w = NewWorld("mechanism Lift\n    uses Solid\n    when tick\n        self.x += 60 * dt\n");
+    var lift = Box(w, "Lift", 100, 300, 100, 16, ["Lift"]);
+    var b = Box(w, "B", 130, 268, 32, 32, ["Body"]);
+    Run(w, 0.5);
+    double startB = b.X, startL = lift.X;
+    Run(w, 1);
+    Near(lift.X - startL, b.X - startB, 1.5, "rider moved with the lift");
+    Near(300, b.Y + b.Height, 0.01, "still on the lift");
+});
+Test("coyote time and jump buffer", () =>
+{
+    // Coyote: jump just after walking off a ledge.
+    var w = NewWorld("mechanism J\n    uses Body\n    when told \"jump\"\n        jump 80\n");
+    Box(w, "Ledge", 0, 400, 100, 20, ["Solid"]);
+    var b = Box(w, "B", 60, 368, 32, 32, ["J"]);
+    Run(w, 0.2);
+    Eq(true, b.OnGround);
+    b.X = 101; // just off the edge
+    w.Step(1.0 / 60); w.Step(1.0 / 60);
+    Eq(false, b.OnGround, "off the ledge");
+    w.Tell(b, "jump", []);
+    Eq(true, b.Vy < -300, $"still jumped (vy {b.Vy})");
+    // Buffer: pressed just before landing, jumps when it lands.
+    var w2 = NewWorld("mechanism J\n    uses Body\n    when told \"jump\"\n        jump 80\n");
+    Floor(w2);
+    var c = Box(w2, "C", 100, 300, 32, 32, ["J"]);
+    while (c.Y + c.Height < 392) w2.Step(1.0 / 60);
+    w2.Tell(c, "jump", []);
+    double top = c.Y;
+    for (int i = 0; i < 20; i++) { w2.Step(1.0 / 60); top = Math.Min(top, c.Y); }
+    Eq(true, 368 - top > 40, $"buffered jump went up {368 - top} px");
+});
+Test("jump without a Body is a friendly error", () =>
+{
+    var w = NewWorld("mechanism Hop\n    when start\n        jump 50\n");
+    w.Spawn("o", 0, 0, ["Hop"]); w.Step(1.0 / 60);
+    Eq(true, w.Errors.Count == 1 && w.Errors[0].Contains("needs a Body"), string.Join(" | ", w.Errors));
+});
+Test("physics demo: player lands, walks, collects a coin; crate lands", () =>
+{
+    var p = Project.CreateDemo();
+    PhysicsDemo.Apply(p.Scenes[0]);
+    PhysicsDemo.Apply(p.Scenes[0]); // twice changes nothing
+    var s = p.Scenes[0];
+    Eq(false, s.Objects.First(o => o.Name == "Player").Has("PlayerMove"));
+    Eq(1, s.Objects.Count(o => o.Name == "Crate"));
+    var w = NewWorld(""); w.Globals["score"] = 0.0;
+    var map = w.LoadScene(s);
+    Eq(0, w.Errors.Count, string.Join(" | ", w.Errors));
+    Run(w, 1);
+    var player = w.FindObject("Player")!;
+    Near(400, player.Y + player.Height, 0.01, "player on the ground");
+    var crate = map.First(kv => kv.Value.Name == "Crate").Key;
+    Near(400, crate.Y + crate.Height, 0.01, "crate on the ground");
+    var slime = map.First(kv => kv.Value.Name == "Slime").Key;
+    Near(400, slime.Y + slime.Height, 0.01, "slime on the ground");
+    w.KeysDown.Add("right");
+    Run(w, 0.7); // coin 1 at x 220, coin 2 at 300
+    Eq(1.0, w.Globals["score"], "coin 1 collected");
+});
+
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;
