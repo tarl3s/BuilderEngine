@@ -49,6 +49,8 @@ public sealed partial class MainWindow
                 await Task.Delay(600);
                 Snap(dir, "7_blocks_health");
                 ShowTab(scene: true);
+                await Task.Delay(300);
+                await SnapProjectFeatures(dir);
             }
             catch (Exception e) { File.WriteAllText(Path.Combine(dir, "error.txt"), e.ToString()); }
             Close();

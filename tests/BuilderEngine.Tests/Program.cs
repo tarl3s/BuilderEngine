@@ -559,6 +559,8 @@ Test("scene clone is deep (undo snapshots)", () =>
     Eq("PlayerMove", d.Mechanisms[0].Name);
 });
 
+ProjectTests.Run(Test); // scenes, sounds, My Library, settings (ProjectTests.cs)
+
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;

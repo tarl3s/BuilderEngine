@@ -51,7 +51,17 @@ public sealed partial class MainWindow
     {
         var s = _scene;
         _inspectorRoot.Children.Add(Label("SCENE"));
-        _inspectorRoot.Children.Add(Field("Name", TextField(s.Name, null, v => { Checkpoint("scene-name"); s.Name = v; })));
+        _inspectorRoot.Children.Add(Field("Name", TextField(s.Name, null, v =>
+        {
+            Checkpoint("scene-name");
+            string old = s.Name;
+            s.Name = v;
+            RetargetDoors(old, v);
+            RefreshScenes();
+            if (_project.Scenes.Count(x => string.Equals(x.Name.Trim(), v.Trim(), StringComparison.OrdinalIgnoreCase)) > 1)
+                SetStatus(false, $"Another scene is already called “{v.Trim()}”: goto_scene would pick the first one.");
+        })));
+        _inspectorRoot.Children.Add(SceneFlowNote());
 
         var size = new Grid { ColumnDefinitions = new ColumnDefinitions("*,8,*") };
         var w = Num(s.Width, 16, 64, v => { Checkpoint("scene-w"); s.Width = v; _canvas.InvalidateVisual(); });
@@ -321,6 +331,61 @@ public sealed partial class MainWindow
                 field = c;
                 break;
             }
+            case "scene":
+            {
+                var combo = new ComboBox
+                {
+                    HorizontalAlignment = HorizontalAlignment.Stretch, Background = Palette.Bg2, Foreground = Palette.Text, BorderBrush = Palette.Border,
+                    FontSize = 13, MinWidth = 0
+                };
+                void Fill(string v)
+                {
+                    var names = _project.Scenes.Select(s => s.Name).ToList();
+                    string? match = names.FirstOrDefault(n => string.Equals(n.Trim(), v.Trim(), StringComparison.OrdinalIgnoreCase));
+                    var items = new List<string>();
+                    if (match == null && v.Length > 0) items.Add($"{v}  (missing)");
+                    items.AddRange(names);
+                    _inspectorSync = true;
+                    combo.ItemsSource = items;
+                    combo.SelectedItem = match ?? (items.Count > 0 ? items[0] : null);
+                    _inspectorSync = false;
+                }
+                Fill(World.ToText(current));
+                combo.SelectionChanged += (_, _) =>
+                {
+                    if (_inspectorSync || combo.SelectedItem is not string s || s.EndsWith("  (missing)")) return;
+                    Checkpoint();
+                    m.Params[p.Name] = s;
+                    reset.IsVisible = true;
+                };
+                reset.Click += (_, _) =>
+                {
+                    Checkpoint();
+                    m.Params.Remove(p.Name);
+                    Fill(World.ToText(def));
+                };
+                showOverridden = _ => { };
+                field = combo;
+                break;
+            }
+            case "sound":
+            {
+                var (box, setValue) = SoundPicker(World.ToText(current), v =>
+                {
+                    Checkpoint();
+                    m.Params[p.Name] = v;
+                    reset.IsVisible = true;
+                });
+                reset.Click += (_, _) =>
+                {
+                    Checkpoint();
+                    m.Params.Remove(p.Name);
+                    setValue(World.ToText(def));
+                };
+                showOverridden = _ => { };
+                field = box;
+                break;
+            }
             default:
             {
                 var t = TextField(overridden ? World.ToText(current) : "", FormatValue(def), v =>
@@ -455,6 +520,67 @@ public sealed partial class MainWindow
             set((double)v);
         };
         return n;
+    }
+
+    /// <summary>The last entry of a sound dropdown: picks files to import.</summary>
+    sealed class ImportSoundEntry
+    {
+        public override string ToString() => "Import sound…";
+    }
+
+    /// <summary>
+    /// A dropdown of the project's sounds (+ "Import sound…") with a ▶ to listen. A name that isn't in the sounds folder
+    /// is still shown, marked missing. Returns the control and a way to show another value without calling <paramref name="set"/>.
+    /// </summary>
+    (Control Box, Action<string> Show) SoundPicker(string value, Action<string> set)
+    {
+        var combo = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch, Background = Palette.Bg2, Foreground = Palette.Text, BorderBrush = Palette.Border,
+            FontSize = 13, MinWidth = 0
+        };
+        string current = value;
+        void Fill(string v)
+        {
+            current = v;
+            var sounds = ProjectSounds();
+            var items = new List<object>();
+            string? match = sounds.FirstOrDefault(s => string.Equals(s, v, StringComparison.OrdinalIgnoreCase))
+                ?? (Sounds.Resolve(_projectDir, v) is { } path ? Path.GetFileName(path) : null);
+            if (match == null && v.Length > 0) items.Add($"{v}  (missing)");
+            items.AddRange(sounds);
+            items.Add(new ImportSoundEntry());
+            _inspectorSync = true;
+            combo.ItemsSource = items;
+            combo.SelectedItem = match != null ? items.FirstOrDefault(i => Equals(i, match)) : v.Length > 0 ? items[0] : null;
+            _inspectorSync = false;
+        }
+        Fill(value);
+        combo.SelectionChanged += async (_, _) =>
+        {
+            if (_inspectorSync) return;
+            switch (combo.SelectedItem)
+            {
+                case ImportSoundEntry:
+                {
+                    string before = current;
+                    Fill(before);
+                    if (await ImportSoundsAsync() is { } imported) { set(imported); RebuildInspector(); }
+                    break;
+                }
+                case string s when !s.EndsWith("  (missing)"):
+                    current = s;
+                    set(s);
+                    break;
+            }
+        };
+        var play = PreviewButton(() => current);
+        play.Margin = new Thickness(4, 0, 0, 0);
+        var row = new DockPanel();
+        DockPanel.SetDock(play, Dock.Right);
+        row.Children.Add(play);
+        row.Children.Add(combo);
+        return (row, Fill);
     }
 
     TextBox TextField(string value, string? placeholder, Action<string> set)
