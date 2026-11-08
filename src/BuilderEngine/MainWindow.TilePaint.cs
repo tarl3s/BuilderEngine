@@ -17,8 +17,12 @@ public sealed partial class MainWindow
     TileOverlay? _tileOverlay;
     /// <summary>The kind painted (1 = the scene's first kind).</summary>
     int _tileKind = 1;
+    /// <summary>The tile layer painted (a scene can have several: an EasyEngine project has one per Tilemap object).</summary>
+    int _tileLayer;
     string _tileMode = "brush";
     Scene? _tileScene;
+
+    TileLayer? PaintLayer => _scene.TileLayers is { Count: > 0 } ls ? ls[Math.Clamp(_tileLayer, 0, ls.Count - 1)] : null;
 
     static readonly (string Name, string Color, bool Solid)[] StarterTiles =
     [
@@ -53,6 +57,24 @@ public sealed partial class MainWindow
         }
         var kinds = s.TileKinds ??= [];
         if (_tileKind > kinds.Count) _tileKind = Math.Max(1, kinds.Count);
+        _tileLayer = Math.Clamp(_tileLayer, 0, s.TileLayers.Count - 1);
+        if (s.TileLayers.Count > 1)
+        {
+            var pick = new ComboBox
+            {
+                ItemsSource = s.TileLayers.Select(l => l.Name.Length > 0 ? l.Name : "Tiles").ToList(), SelectedIndex = _tileLayer,
+                Background = Palette.Bg2, Foreground = Palette.Text, BorderBrush = Palette.Border, FontSize = 12, MinWidth = 110,
+            };
+            ToolTip.SetTip(pick, "The tile layer you paint (each EasyEngine tilemap is one).");
+            pick.SelectionChanged += (_, _) =>
+            {
+                if (pick.SelectedIndex < 0 || pick.SelectedIndex == _tileLayer) return;
+                _tileLayer = pick.SelectedIndex;
+                Dispatcher.UIThread.Post(RefreshTileBar);
+                _canvas.InvalidateVisual();
+            };
+            _tileRow.Children.Add(pick);
+        }
         foreach (var (mode, text, tip) in new[] { ("brush", "🖌 Brush", "Click or drag to paint the selected tile (right button erases)."), ("erase", "⌫ Erase", "Click or drag to empty cells."), ("fill", "▦ Fill", "Fill the connected area of the same tile.") })
         {
             var b = ToolButton(text, tip, _tileOverlay != null && _tileMode == mode);
@@ -69,6 +91,7 @@ public sealed partial class MainWindow
                 Background = SceneCanvas.BrushOf(k.Color, Palette.Accent),
                 BorderBrush = id == _tileKind ? Palette.Accent : Palette.Border, BorderThickness = new Thickness(id == _tileKind ? 2.5 : 1),
             };
+            if (k.Image.Length > 0 && _canvas?.Images?.Get(k.Image) is { } pic) sw.Background = new ImageBrush(pic) { Stretch = Stretch.Fill };
             ToolTip.SetTip(sw, $"{k.Name}{(k.Solid ? "" : " (background)")}{(k.Breakable ? "" : " — can't be broken")}");
             sw.Click += (_, _) => { _tileKind = id; if (_tileOverlay == null || _tileMode == "erase") SetTileMode("brush"); else RefreshTileBar(); };
             _tileRow.Children.Add(sw);
@@ -76,10 +99,26 @@ public sealed partial class MainWindow
         var add = ToolButton("＋ Kind", "Add a kind of tile (a name and a colour; edit pictures, hardness and drops in scripts with tile_kind).", false);
         add.Click += async (_, _) => await AddTileKind();
         _tileRow.Children.Add(add);
-        var l = s.TileLayers[0];
-        var size = ToolButton($"{l.Columns} × {l.Rows}", "The map's size in cells: click to change it.", false);
+        var l = PaintLayer!;
+        var size = ToolButton($"{l.Columns} × {l.Rows}", "The size of the layer you paint, in cells: click to change it.", false);
         size.Click += async (_, _) => await ResizeTileMap();
         _tileRow.Children.Add(size);
+        var layer = ToolButton("＋ Layer", "Add another tile layer (in front of the objects or behind them, its own cells). In an EasyEngine project it becomes a Tilemap object.", false);
+        layer.Click += (_, _) => AddTileLayer();
+        _tileRow.Children.Add(layer);
+    }
+
+    void AddTileLayer()
+    {
+        var s = _scene;
+        if (s.TileLayers is not { Count: > 0 } layers) { MakeTileMap(); return; }
+        Checkpoint();
+        double cs = PaintLayer!.CellSize;
+        string name = "Tiles 2";
+        for (int n = 2; layers.Any(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)); n++) name = $"Tiles {n}";
+        layers.Add(new TileLayer((int)Math.Ceiling(s.Width / cs), (int)Math.Ceiling(s.Height / cs), cs, name));
+        _tileLayer = layers.Count - 1;
+        SetTileMode("brush");
     }
 
     void SetTileMode(string? mode)
@@ -122,15 +161,15 @@ public sealed partial class MainWindow
 
     async Task ResizeTileMap()
     {
-        var l = _scene.TileLayers![0];
+        if (PaintLayer is not { } l) return;
         string? text = await Dialogs.Input(this, "Tile map size", "Columns × rows (cells of " + l.CellSize + " px):", $"{l.Columns} x {l.Rows}");
         if (text == null) return;
         var parts = text.Split(['x', 'X', '×', ',', ' '], StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length != 2 || !int.TryParse(parts[0], out int c) || !int.TryParse(parts[1], out int r) || c < 1 || r < 1) { SetStatus(false, "Write it like 100 x 40."); return; }
         Checkpoint();
-        foreach (var layer in _scene.TileLayers) layer.Resize(c, r);
-        _scene.Width = Math.Max(_scene.Width, c * l.CellSize);
-        _scene.Height = Math.Max(_scene.Height, r * l.CellSize);
+        l.Resize(c, r); // only the layer being painted: each layer has its own grid
+        _scene.Width = Math.Max(_scene.Width, l.X + c * l.CellSize);
+        _scene.Height = Math.Max(_scene.Height, l.Y + r * l.CellSize);
         RefreshTileBar();
         _canvas.InvalidateVisual();
     }
@@ -153,8 +192,7 @@ public sealed partial class MainWindow
         public void Draw(DrawingContext ctx, SceneCanvas canvas)
         {
             if (w._tileScene != w._scene) Dispatcher.UIThread.Post(w.RefreshTileBar); // another scene, or undo: its kinds
-            if (w._scene.TileLayers is not { Count: > 0 } layers) return;
-            var l = layers[0];
+            if (w.PaintLayer is not { } l) return;
             double cs = l.CellSize * canvas.Zoom;
             if (cs < 6) return;
             var a = canvas.WorldToScreen(new Point(l.X, l.Y));
@@ -194,7 +232,7 @@ public sealed partial class MainWindow
 
         public void Release() { }
 
-        TileLayer Layer => w._scene.TileLayers![0];
+        TileLayer Layer => w.PaintLayer!;
 
         void Paint(Point world)
         {

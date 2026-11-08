@@ -133,7 +133,7 @@ static class LinkTests
             .First(l => l!["Objects"]!.AsArray().Any(o => (string?)o!["Name"] == name))!["Name"]!.GetValue<string>();
 
     /// <summary>The first difference between two JSON trees (for failure messages), or null.</summary>
-    static string? FirstDiff(JsonNode? a, JsonNode? b, string path = "$")
+    internal static string? FirstDiff(JsonNode? a, JsonNode? b, string path = "$")
     {
         if (EasyLink.SameJson(a, b)) return null;
         if (a is JsonObject ao && b is JsonObject bo)
@@ -400,7 +400,7 @@ static class LinkTests
                 Eq(1, eeRoot["Builder"]!["linkVersion"]!.GetValue<int>());
                 True(eeRoot["Builder"]!["mechanisms"]!["Intro"] != null, "project mechanisms in Builder.mechanisms");
                 Eq("images\\hero.png", (string?)FindEe(eeRoot, "Player")["SpritePath"]);
-                True(eeRoot["Scenes"]![0]!["Builder"]!["extra"]!["tileLayers"] != null, "tile maps in the scene's Builder.extra");
+                True(eeRoot["Scenes"]![0]!["Layers"]!.AsArray().SelectMany(l => l!["Objects"]!.AsArray()).Any(o => (string?)o!["Name"] == "Ground" && (string?)o["Type"] == "Tilemap"), "tile maps become EasyEngine Tilemap objects (TileLinkTests.cs)");
                 EasyLink.SaveFromEeproj(ee, b);
                 var q = Project.Load(b);
                 Eq(p.Mechanisms["Intro"], q.Mechanisms["Intro"]);

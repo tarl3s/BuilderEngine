@@ -15,14 +15,14 @@ static class TileDraw
     static readonly IPen CrackPen = new Pen(new SolidColorBrush(Color.FromArgb(200, 10, 10, 10)), 1.5).ToImmutable();
     static readonly IBrush CrackShade = new SolidColorBrush(Color.FromArgb(70, 0, 0, 0)).ToImmutable();
 
-    /// <summary>Draws the layers whose <see cref="TileLayer.Front"/> equals <paramref name="front"/>.</summary>
-    public static void Draw(DrawingContext ctx, IReadOnlyList<TileLayer> layers, IReadOnlyList<TileKind> kinds, Rect visible, ImageCache? images, bool front)
+    /// <summary>Draws the layers whose <see cref="TileLayer.Front"/> equals <paramref name="front"/> (an animated tile shows its frame for <paramref name="time"/>, the game clock).</summary>
+    public static void Draw(DrawingContext ctx, IReadOnlyList<TileLayer> layers, IReadOnlyList<TileKind> kinds, Rect visible, ImageCache? images, bool front, double time = 0)
     {
         foreach (var l in layers)
-            if (l.Front == front) DrawLayer(ctx, l, kinds, visible, images);
+            if (l.Front == front) DrawLayer(ctx, l, kinds, visible, images, time);
     }
 
-    public static void DrawLayer(DrawingContext ctx, TileLayer l, IReadOnlyList<TileKind> kinds, Rect visible, ImageCache? images)
+    public static void DrawLayer(DrawingContext ctx, TileLayer l, IReadOnlyList<TileKind> kinds, Rect visible, ImageCache? images, double time = 0)
     {
         double cs = l.CellSize;
         int c0 = Math.Max(0, (int)Math.Floor((visible.X - l.X) / cs)), c1 = Math.Min(l.Columns - 1, (int)Math.Floor((visible.Right - l.X) / cs));
@@ -39,7 +39,7 @@ static class TileDraw
                 int id = cells[row + c];
                 if (id == 0 || id > kinds.Count) { c++; continue; }
                 var k = kinds[id - 1];
-                if (k.Image.Length > 0 && images?.Get(k.Image) is { } bmp)
+                if (k.Image.Length > 0 && images?.Get(k.PictureAt(time)) is { } bmp)
                 {
                     ctx.DrawImage(bmp, new Rect(bmp.Size), new Rect(l.X + c * cs, y, cs, cs));
                     c++;

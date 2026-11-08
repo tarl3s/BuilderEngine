@@ -32,6 +32,7 @@ public sealed partial class MainWindow
     /// <summary>Builds the inspector again (now if it is on screen, otherwise the next time it is shown).</summary>
     void RebuildInspector()
     {
+        if (_tileScene != _scene) RefreshTileBar(); // another scene, an undo or an outside change: its tile layers and kinds (MainWindow.TilePaint.cs)
         if (_inspectorRoot.GetVisualRoot() == null) { _inspectorDirty = true; return; }
         _inspectorDirty = false;
         if (_canvas is not null) _canvas.Images = Pictures; // follows a project switch

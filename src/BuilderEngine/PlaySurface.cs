@@ -166,11 +166,11 @@ sealed partial class PlaySurface : Control, ICustomHitTest
             using (ctx.PushRenderOptions(Crisp))
             {
                 ctx.FillRectangle(GameDraw.BrushOf(_scene.Background, Palette.Bg1), new Rect(0, 0, _world.SceneWidth, _world.SceneHeight));
-                if (_world.HasTiles) TileDraw.Draw(ctx, _world.Tiles.Layers, _world.Tiles.Kinds, visible, _images, front: false); // GameKit: tiles behind
+                if (_world.HasTiles) TileDraw.Draw(ctx, _world.Tiles.Layers, _world.Tiles.Kinds, visible, _images, front: false, _world.Time); // GameKit: tiles behind
                 DrawObjects(ctx, _order, visible);
                 if (_world.HasTiles)
                 {
-                    TileDraw.Draw(ctx, _world.Tiles.Layers, _world.Tiles.Kinds, visible, _images, front: true);
+                    TileDraw.Draw(ctx, _world.Tiles.Layers, _world.Tiles.Kinds, visible, _images, front: true, _world.Time);
                     TileDraw.DrawDig(ctx, _world.Tiles);
                 }
                 DrawHudItems(ctx, anchored: true, area, scale);

@@ -23,7 +23,8 @@ public sealed partial class MainWindow
             var root = JsonNode.Parse(original)!.AsObject();
             JsonObject? Ee(JsonObject r, int id) => r["Scenes"]!.AsArray().SelectMany(s => s!["Layers"]!.AsArray())
                 .SelectMany(l => l!["Objects"]!.AsArray()).Select(o => o!.AsObject()).FirstOrDefault(o => (int?)o["Id"] == id);
-            int fileObjects = root["Scenes"]![0]!["Layers"]!.AsArray().Sum(l => l!["Objects"]!.AsArray().Count);
+            int fileObjects = root["Scenes"]![0]!["Layers"]!.AsArray().Sum(l => l!["Objects"]!.AsArray()
+                .Count(o => o?["Behaviors"] is not JsonArray b || !b.Any(x => (string?)x?["Kind"] == EasyLink.TilemapKind))); // tilemaps are tile layers
 
             OpenScene(0);
             await Task.Delay(500);
@@ -97,6 +98,7 @@ public sealed partial class MainWindow
             Select(target.Id);
             await Task.Delay(300);
             SnapControl(_inspectorRoot, dir, "link_5_both");
+            await SnapEasyTiles(dir); // its tilemaps as tile layers (MainWindow.TileLinkSnap.cs)
         }
         catch (Exception e) { lines.Add("FAIL exception: " + e); }
         File.WriteAllLines(Path.Combine(dir, "link_checks.txt"), lines);

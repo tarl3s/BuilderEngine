@@ -28,11 +28,33 @@ public sealed class TileKind
     /// <summary>Light it gives, as a radius in cells (a torch, lava). 0 = none.</summary>
     public double Light { get; set; }
     public string LightColor { get; set; } = "#FFC870";
+    /// <summary>An animated tile: its pictures, played at <see cref="Fps"/> (every copy in step). Null or one picture = still (<see cref="Image"/>).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Frames { get; set; }
+    /// <summary>Frames per second of an animated tile.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double Fps { get; set; }
 
     /// <summary>The item this tile gives when broken, or "" for nothing.</summary>
     [JsonIgnore] public string DropItem => Drop.Length == 0 ? Name : string.Equals(Drop, "none", StringComparison.OrdinalIgnoreCase) ? "" : Drop;
 
-    public TileKind Clone() => (TileKind)MemberwiseClone();
+    /// <summary>Animated: more than one picture in <see cref="Frames"/>.</summary>
+    [JsonIgnore] public bool Animated => Frames is { Count: > 1 };
+
+    /// <summary>The picture drawn <paramref name="time"/> seconds into the game: an animated tile's frame then, else <see cref="Image"/>.</summary>
+    public string PictureAt(double time)
+    {
+        if (Frames is not { Count: > 1 } f) return Image;
+        double fps = Math.Clamp(Fps <= 0 ? 8 : Fps, 1, 60);
+        return f[(int)(Math.Floor(Math.Max(0, time) * fps) % f.Count)];
+    }
+
+    public TileKind Clone()
+    {
+        var c = (TileKind)MemberwiseClone();
+        if (Frames != null) c.Frames = [.. Frames];
+        return c;
+    }
 
     internal static TileKind FromNode(JsonObject o) => new()
     {
@@ -46,6 +68,10 @@ public sealed class TileKind
         Drop = Project.Str(o, "drop", ""),
         Light = Math.Max(0, Project.Num(o, "light", 0)),
         LightColor = Project.Str(o, "lightColor", "#FFC870"),
+        Frames = Project.Get(o, "frames") is JsonArray fr
+            ? fr.Select(f => f is JsonValue v && v.TryGetValue<string>(out var s) ? s.Trim() : "").Where(s => s.Length > 0).ToList() is { Count: > 0 } list ? list : null
+            : null,
+        Fps = Math.Clamp(Project.Num(o, "fps", 0), 0, 60),
     };
 
     internal static bool Bool(JsonObject o, string name, bool def) => Project.Get(o, name) switch
@@ -76,6 +102,13 @@ public sealed class TileLayer
     public bool Solid { get; set; } = true;
     /// <summary>Drawn over the objects (leaves in front of the player) instead of behind them.</summary>
     public bool Front { get; set; }
+    /// <summary>
+    /// The EasyEngine Tilemap object this layer is (an EasyEngine project opened in BuilderEngine): that object as
+    /// BuilderEngine reads it, its EasyEngine data in its own <c>easy</c> block. Null for a layer made in BuilderEngine.
+    /// See <see cref="EasyLink"/>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonNode? Easy { get; set; }
 
     ushort[] _cells = new ushort[25 * 15];
     /// <summary>One kind number per cell, row by row (0 = empty).</summary>
@@ -182,6 +215,7 @@ public sealed class TileLayer
     {
         var c = (TileLayer)MemberwiseClone();
         c._cells = (ushort[])_cells.Clone();
+        c.Easy = Easy?.DeepClone();
         return c;
     }
 
@@ -195,6 +229,7 @@ public sealed class TileLayer
             Y = Project.Num(o, "y", 0),
             Solid = TileKind.Bool(o, "solid", true),
             Front = TileKind.Bool(o, "front", false),
+            Easy = Project.Get(o, "easy")?.DeepClone(),
         };
         l.Resize((int)Project.Num(o, "columns", 25), (int)Project.Num(o, "rows", 15));
         l.Data = Project.Str(o, "data", "");

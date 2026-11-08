@@ -61,7 +61,7 @@ each engine resolves it from the project folder, so both see the same file.
 - **In a `.eeproj`**, BuilderEngine's data lives in a `"Builder"` property, written only when there is something in it:
   - on the project: `{"linkVersion":1, "mechanisms": {name: source}, "extra": {...}}` (the project's own mechanisms
     and any BuilderEngine-only project data);
-  - on a scene: `{"extra": {...}}` (tile maps, BuilderEngine-only scene data);
+  - on a scene: `{"extra": {...}}` (BuilderEngine-only scene data; its tile kinds when needed, see *Tilemaps*);
   - on an object: `{"mechanisms":[{"name":"Coin","params":{...}}], "tags":[...], "extra": {...}}`.
   `extra` is everything of BuilderEngine's JSON at that level that isn't a common field; it comes back as is.
 - **In a `project.json`**, EasyEngine's data lives in an `"easy"` property: on the project (everything not mapped:
@@ -101,6 +101,49 @@ Inside a layer EasyEngine draws by `Z`, then by list order. When BuilderEngine k
 (new ones only at the end), the previous list and `Z` values are kept and new objects get the top `Z`. When it
 reordered them, the list follows BuilderEngine and `Z` values are raised just enough to keep that order (an untouched
 lower `Z` stays). An object without a `Z` key (older files) stays without one unless its `Z` must change.
+
+## Tilemaps
+
+An EasyEngine tilemap is an object with a `Tilemap` behavior: `Nums.tileSize`, `Texts.palette` (a JSON list of tiles:
+`{"color","solid"}` plus `"image"` for a picture, or `"frames"` + `"fps"` for an animated tile) and `Texts.data`
+(`{"cols","rows","cells"}`, row by row, 1 = the palette's first tile, 0 = empty), its grid's top-left corner at the
+object's `X`/`Y`. In BuilderEngine each one is a **tile layer** of its scene, not an object (`EasyLink.Tiles.cs`):
+
+| EasyEngine Tilemap object | BuilderEngine tile layer (`Scene.TileLayers`) |
+|---|---|
+| `Name`, `X`, `Y` | `TileLayer.Name`, `X`, `Y` |
+| `Nums.tileSize` (at least 4) | `CellSize` |
+| `Texts.data` cols / rows / cells | `Columns` / `Rows` / cells (a palette number the palette doesn't have reads as empty) |
+| palette tiles | the scene's `TileKinds`: one kind per different look (colour, solid, picture file name, frames + fps), shared by every layer of the scene; a picture keeps its relative path; animated tiles keep their `Frames`/`Fps` |
+| `Nums.breakable`, `Texts.drop` | the kind's `Breakable` and `Drop` (`"none"` when empty) |
+| its layer: Background / Sky / Base / anything up to the first Base layer | `Front = false` (drawn behind the objects) |
+| a world layer above the first Base layer | `Front = true` (drawn over the objects) |
+| always collides with its solid tiles | `Solid = true` |
+| the whole object | `TileLayer.Easy` (the object as BuilderEngine reads it, its EasyEngine data in its own `easy` block) |
+
+New kinds are named after their picture (`grass`, `dirt 2`) or `tile 1`, `tile 2`… Saving writes each layer back as
+its object, in its EasyEngine layer and draw order (the writer treats it as one more object, so `Name`/`X`/`Y` follow
+the common-field rules). The grid and palette are written only when the layer's cells differ from what BuilderEngine
+reads from the file: a cell that still shows the same tile keeps its number (an unchanged map stays the same text,
+editing one cell changes one number), and a kind the palette doesn't have is added at its end. `tileSize` is written
+when the cell size changed. A layer deleted in BuilderEngine deletes its object.
+
+A **tile layer made in BuilderEngine** becomes a new EasyEngine Tilemap object (`Type "Tilemap"`, the catalog's default
+`Nums`, its palette and grid), with an id from `FixIds` (`TileLayer.Easy = {"id": n}` until it is read back): behind the
+objects it goes in the first `Background` layer, in front in the first world layer above `Base` (else `Base`).
+BuilderEngine-only layer settings travel in the object's `Builder.extra`: `tileFront` when `Front` isn't what its layer
+gives, `tileSolid: false` for a layer bodies don't collide with. The scene's kinds are stored in the scene's
+`Builder.extra.tileKinds` only when reading the palettes wouldn't give them back as they are (names, hardness, drops,
+lights, one-way, unused kinds); reading starts from that list and adds a kind for each look it doesn't have. Files
+from the first link version kept BuilderEngine tile maps in `Builder.extra.tileLayers`: they are read as layers made in
+BuilderEngine and become Tilemap objects on the next save. EasyEngine needs no change for any of this: it draws and
+plays those Tilemap objects natively.
+
+Limits: BuilderEngine draws tile layers either behind or in front of all objects, so a tilemap drawn between two
+objects of one EasyEngine layer is drawn behind both; the object's and its layer's opacity, `Active`/off layers and a
+screen-space tilemap aren't reproduced (it plays as a world layer); EasyEngine fits a grid to the scene when it draws it
+(`TileGrid.Fit`), BuilderEngine shows the stored grid as it is (an empty one is made the scene's size); breaking tiles
+uses BuilderEngine's own rules (`break_tile`, `dig_tile`), not EasyEngine's `by…` options.
 
 ## Ids
 
@@ -185,4 +228,8 @@ to EasyEngine's equivalents where one exists, otherwise logged once as "not avai
 checks the text comes back identical; plus a synthetic project with every case, layers, ids, draw order, merges, the
 `Builder` block through an EasyEngine-like typed load/save, pictures/sounds, the live-link debounce and echoes, and a
 5000-object project. `BuilderEngine.exe --project <temp copy of an EasyEngine project> --snap <folder> --mute` renders
-the scene and the card and drives save / autosave / outside change / play (`link_checks.txt`).
+the scene and the card and drives save / autosave / outside change / play (`link_checks.txt`), then renders every scene
+with tilemaps and, in the one with the most, paints a cell with the tile brush, checks the file, undoes and plays
+(`tiles_checks.txt`, `tiles_*.png`). `tests/BuilderEngine.Tests/TileLinkTests.cs`: tilemaps read as layers, one edited
+cell = one changed number, new kinds added to a palette, a body landing on a converted tile, a BuilderEngine layer read
+by EasyEngine's strict model, old `Builder.extra.tileLayers`, and a Mistify copy (when found).

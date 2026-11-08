@@ -176,44 +176,47 @@ public static partial class EasyLink
     /// </summary>
     public static List<(SceneObject Object, int OldId)> FixIds(Project project)
     {
-        var used = new HashSet<int>();
-        var losers = new List<SceneObject>();
-        foreach (var s in project.Scenes)
-        {
-            var inScene = new HashSet<int>();
-            foreach (var o in s.Objects)
-                if (o.Easy != null && (o.Id <= 0 || !inScene.Add(o.Id))) losers.Add(o);
-            used.UnionWith(inScene);
-        }
-        foreach (var s in project.Scenes)
-            foreach (var o in s.Objects)
-                if (o.Easy == null && (o.Id <= 0 || !used.Add(o.Id))) losers.Add(o);
+        var (losers, layerLosers, next) = IdLosers(project);
         var changed = new List<(SceneObject, int)>();
-        if (losers.Count == 0) return changed;
-        int next = Math.Max(1, (used.Count == 0 ? 0 : used.Max()) + 1);
         foreach (var o in losers)
         {
             changed.Add((o, o.Id));
             o.Id = next++;
         }
+        // Tile layers are EasyEngine Tilemap objects (EasyLink.Tiles.cs): one made in BuilderEngine gets its object's id now.
+        foreach (var l in layerLosers) SetLayerId(l, next++);
         return changed;
     }
 
     /// <summary>Some ids <see cref="FixIds"/> would change.</summary>
     static bool NeedsIdFix(Project project)
     {
+        var (losers, layerLosers, _) = IdLosers(project);
+        return losers.Count > 0 || layerLosers.Count > 0;
+    }
+
+    /// <summary>The objects and tile layers <see cref="FixIds"/> renumbers, and the first free id.</summary>
+    static (List<SceneObject> Objects, List<TileLayer> Layers, int Next) IdLosers(Project project)
+    {
         var used = new HashSet<int>();
+        var losers = new List<SceneObject>();
+        var layerLosers = new List<TileLayer>();
         foreach (var s in project.Scenes)
         {
             var inScene = new HashSet<int>();
             foreach (var o in s.Objects)
-                if (o.Easy != null && (o.Id <= 0 || !inScene.Add(o.Id))) return true;
+                if (o.Easy != null && (o.Id <= 0 || !inScene.Add(o.Id))) losers.Add(o);
+            foreach (var l in s.TileLayers ?? [])
+                if (IsEasyTilemap(l) && LayerId(l) is var id && (id <= 0 || !inScene.Add(id))) layerLosers.Add(l);
             used.UnionWith(inScene);
         }
         foreach (var s in project.Scenes)
             foreach (var o in s.Objects)
-                if (o.Easy == null && (o.Id <= 0 || !used.Add(o.Id))) return true;
-        return false;
+                if (o.Easy == null && (o.Id <= 0 || !used.Add(o.Id))) losers.Add(o);
+        foreach (var s in project.Scenes)
+            foreach (var l in s.TileLayers ?? [])
+                if (!IsEasyTilemap(l) && LayerId(l) is var id && (id <= 0 || !used.Add(id))) layerLosers.Add(l);
+        return (losers, layerLosers, Math.Max(1, (used.Count == 0 ? 0 : used.Max()) + 1));
     }
 
     /// <summary>Writes a file atomically: a temp file next to it, then a replace (a reader never sees half a file).</summary>
@@ -281,14 +284,20 @@ public static partial class EasyLink
         };
         var objects = new JsonArray();
         var layers = Layers(s);
+        var tilemaps = new List<(JsonObject, JsonObject, int)>(); // tilemaps become tile layers (EasyLink.Tiles.cs)
         if (ids != null)
             for (int li = 0; li < layers.Count; li++)
             {
                 bool screen = IsScreen(layers[li]);
                 foreach (var o in InDrawOrder(LayerObjects(layers[li])))
-                    objects.Add(ObjectToBe(o, li, screen, ids.TryGetValue(o, out var fixedId) ? fixedId : (int)Number(o, "Id", 0), stripImagesFolder));
+                {
+                    var beo = ObjectToBe(o, li, screen, ids.TryGetValue(o, out var fixedId) ? fixedId : (int)Number(o, "Id", 0), stripImagesFolder);
+                    if (TilemapBehavior(o) != null) tilemaps.Add((o, beo, li));
+                    else objects.Add(beo);
+                }
             }
         be["objects"] = objects;
+        if (ids != null) TilesToBe(be, s, layers, tilemaps, Get(s, BuilderKey) as JsonObject, stripImagesFolder);
         var easy = Without(s, SceneKeys);
         if (Get(s, "Layers") is JsonArray)
         {
@@ -431,7 +440,7 @@ public static partial class EasyLink
 
     /// <summary>BuilderEngine keys mapped to EasyEngine (or structural): everything else goes to <c>Builder.extra</c>.</summary>
     static readonly string[] BeProjectKeys = ["name", "scenes", "prefabs", EasyKey];
-    static readonly string[] BeSceneKeys = ["id", "name", "width", "height", "background", "objects", EasyKey];
+    static readonly string[] BeSceneKeys = ["id", "name", "width", "height", "background", "objects", "tileKinds", "tileLayers", EasyKey];
     static string[] BeObjectKeys => _beObjectKeys ??=
         ["id", "name", "x", "y", "width", "height", "color", "image", "locked", "keepAspect", "tags", "mechanisms", EasyKey,
          .. OptionalFields.Where(f => f.Mapped).Select(f => f.Be)];

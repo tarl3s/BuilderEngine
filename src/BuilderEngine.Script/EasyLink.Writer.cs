@@ -86,7 +86,7 @@ public static partial class EasyLink
     static JsonObject? NonEmpty(JsonObject o) => o.Count == 0 ? null : o;
 
     /// <summary>BuilderEngine -> .eeproj, merged into the previous file when there is one.</summary>
-    sealed class EeWriter(Project project, JsonObject? prev, string? folder, string defaultPictureFolder)
+    sealed partial class EeWriter(Project project, JsonObject? prev, string? folder, string defaultPictureFolder)
     {
         /// <summary>Previous objects by id: the ones of the scene being written, else ids used only once in the whole file.</summary>
         Dictionary<int, JsonObject> _sceneById = [];
@@ -296,10 +296,13 @@ public static partial class EasyLink
                 node = Ordered(EeSceneOrder, mapped, rest);
             }
             _sceneById = ps != null ? ById(Layers(ps).SelectMany(LayerObjects)) : [];
-            WriteLayers(node, s, beScene, fromPrev: ps != null);
+            var (withMaps, beWithMaps) = WithTilemapObjects(s, beScene, node, ps); // tile layers are Tilemap objects (EasyLink.Tiles.cs)
+            WriteLayers(node, withMaps, beWithMaps, fromPrev: ps != null);
 
             var parts = new JsonObject();
-            if (NonEmpty(Without(beScene, BeSceneKeys)) is { } extra) parts["extra"] = extra;
+            var extraNode = Without(beScene, BeSceneKeys);
+            if (StoredTileKinds(s, node) is { } tileKinds) extraNode["tileKinds"] = tileKinds;
+            if (NonEmpty(extraNode) is { } extra) parts["extra"] = extra;
             PutBuilder(node, parts, ["extra"]);
             return node;
         }
@@ -469,6 +472,7 @@ public static partial class EasyLink
                 node = Ordered(EeObjectOrder, mapped, rest);
             }
 
+            if (!template && _tileOf.TryGetValue(o, out var tileLayer)) WriteTilemapCells(node, tileLayer);
             var parts = new JsonObject();
             if (Get(beObj, "mechanisms") is JsonArray { Count: > 0 } mechs) parts["mechanisms"] = mechs.DeepClone();
             var tags = o.Tags.Where(t => !(screen && t.Equals(UiTag, StringComparison.OrdinalIgnoreCase))).ToList();
