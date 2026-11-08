@@ -268,10 +268,9 @@ sealed partial class PlaySurface : Control, ICustomHitTest
     IBrush BrushFor(GameObject o)
     {
         if (o.Color != null) return GameDraw.BrushOf(o.Color, Fallback); // its scene colour, or one a script set ('color')
-        if (_brushes.TryGetValue(o, out var b)) return b;
-        b = o.Mechanisms.Count > 0 && _byMechanism.TryGetValue(o.Mechanisms[0].Def.Name, out var mb) ? mb : Fallback;
-        _brushes[o] = b;
-        return b;
+        if (_brushes.TryGetValue(o, out var b)) return b; // a scene object: its colour
+        // Spawned while playing: looked up each time, not kept per object (thousands of bullets come and go).
+        return o.Mechanisms.Count > 0 && _byMechanism.TryGetValue(o.Mechanisms[0].Def.Name, out var mb) ? mb : Fallback;
     }
 
     Color ColorOf(string text, Color fallback)
@@ -280,6 +279,23 @@ sealed partial class PlaySurface : Control, ICustomHitTest
         c = Color.TryParse(text, out var parsed) ? parsed : fallback;
         _colors[text] = c;
         return c;
+    }
+
+    readonly List<HudItem> _goneHud = [];
+    readonly HashSet<HudItem> _liveHud = [];
+
+    /// <summary>
+    /// The laid-out texts of HUD items that are gone (hidden, or their object destroyed — a text over each enemy of a
+    /// wave) are dropped, so they don't pile up for the whole game. Checked only when there are clearly more than shown.
+    /// </summary>
+    void ForgetGoneHudTexts(List<HudItem> hud)
+    {
+        if (_hudTexts.Count <= hud.Count + 32) return;
+        _liveHud.Clear();
+        _liveHud.UnionWith(hud);
+        _goneHud.Clear();
+        foreach (var h in _hudTexts.Keys) if (!_liveHud.Contains(h)) _goneHud.Add(h);
+        foreach (var h in _goneHud) _hudTexts.Remove(h);
     }
 
     FormattedText HudText(HudItem h, double size)
@@ -298,6 +314,7 @@ sealed partial class PlaySurface : Control, ICustomHitTest
     void DrawHudItems(DrawingContext ctx, bool anchored, Rect area, double scale)
     {
         var hud = _world.Hud;
+        if (anchored) ForgetGoneHudTexts(hud); // once a frame (the anchored pass comes first)
         for (int i = 0; i < hud.Count; i++)
         {
             var h = hud[i];
@@ -499,7 +516,7 @@ sealed partial class PlaySurface : Control, ICustomHitTest
         foreach (var (k, v) in _world.Globals)
         {
             if (_hud.Length > 0) _hud.Append("    ");
-            _hud.Append(k).Append("  ").Append(v is double d ? d.ToString("0.##", CultureInfo.InvariantCulture) : World.ToText(v));
+            _hud.Append(k).Append("  ").Append(v is double d ? World.ShortNumber(d) : World.ToText(v));
         }
         if (_hudFt == null || !_hud.Equals(_hudText.AsSpan()))
         {

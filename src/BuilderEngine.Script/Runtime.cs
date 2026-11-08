@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace BuilderEngine.Script;
 
@@ -63,7 +65,16 @@ public sealed partial class World
     public double Time { get; private set; }
     /// <summary>Seconds the last step took (<c>dt</c> in scripts).</summary>
     public double LastDt { get; private set; } = 1.0 / 60;
+    /// <summary>What the game printed (and the sounds it played), the newest last; the oldest go after <see cref="MaxOutputLines"/>.</summary>
     public List<string> Output { get; } = [];
+    /// <summary>The most lines <see cref="Output"/> keeps: a game printing every frame for hours would otherwise keep them all.</summary>
+    public const int MaxOutputLines = 20_000;
+
+    internal void AddOutput(string line)
+    {
+        if (Output.Count >= MaxOutputLines) Output.RemoveRange(0, MaxOutputLines / 2); // now and then, so adding stays cheap
+        Output.Add(line);
+    }
     public List<string> Errors { get; } = [];
     public HashSet<string> KeysDown { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -130,6 +141,7 @@ public sealed partial class World
             overrides?.TryGetValue(m, out ov);
             o.Mechanisms.Add(Instantiate(Find(m, 0), o, null, ov));
         }
+        _ = o.Flat; // every mechanism is there now: the flat list can be made (lookups by name use it)
         _pendingAdd.Add(o);
         return o;
     }
@@ -174,8 +186,12 @@ public sealed partial class World
 
     static object? DefaultFor(string type) => ParamTypes.Empty(type);
 
-    public GameObject? FindObject(string nameOrTag) =>
-        _objects.FirstOrDefault(o => !o.Destroyed && o.Is(nameOrTag)) ?? _pendingAdd.FirstOrDefault(o => o.Is(nameOrTag));
+    public GameObject? FindObject(string nameOrTag)
+    {
+        foreach (var o in _objects) if (!o.Destroyed && o.Is(nameOrTag)) return o;
+        foreach (var o in _pendingAdd) if (!o.Destroyed && o.Is(nameOrTag)) return o; // spawned this step (and not destroyed already)
+        return null;
+    }
 
     public void PressKey(string key)
     {
@@ -191,6 +207,7 @@ public sealed partial class World
     /// <summary>Advances the game by dt seconds: new objects start, ticks run, touches fire, waits resume.</summary>
     public void Step(double dt)
     {
+        _burst = 0; // lines run outside a 'when' (values in the HUD) count from here
         // 1. Newly spawned objects join and run 'when start'.
         while (_pendingAdd.Count > 0)
         {
@@ -248,7 +265,7 @@ public sealed partial class World
     {
         Debug?.Event(DebugEventKind.Emit, from.Owner, $"{from.Def.Name}: emit {signal}" + DebugArgs(args));
         NotifySignalWaiters(from, signal);
-        foreach (var m in from.Owner.AllMechanisms().ToArray())
+        foreach (var m in from.Owner.Flat)
             foreach (var w in m.Def.Whens)
             {
                 if (w.Event.Kind != EventKind.Signal || w.Event.Name != signal) continue;
@@ -268,10 +285,30 @@ public sealed partial class World
                     StartWhen(m, w, w.Event.Bind == null ? null : new() { [w.Event.Bind] = args.Count > 0 ? args[0] : null });
     }
 
+    /// <summary>
+    /// How many 'when's can be started inside each other in one go (a 'when told' that tells, an 'emit' whose handler
+    /// emits…). More is a loop that never waits: it is stopped with an error instead of overflowing the stack and
+    /// closing the program.
+    /// </summary>
+    public const int MaxEventNesting = 100;
+
+    /// <summary>
+    /// How many lines one 'when' (with what it starts at once) may run without a 'wait' before it counts as a runaway
+    /// loop (<c>repeat 1000000000</c>). About 2–5 seconds of work; a 'while' or 'repeat forever' already pauses each round.
+    /// </summary>
+    public int MaxLinesWithoutWait { get; set; } = 10_000_000;
+
+    int _advancing; // Advance calls inside each other (a 'when' that started another right away)
+    int _burst;     // lines run since the outermost Advance (or the step) began
+
     void StartWhen(MechanismInstance m, WhenDef w, Dictionary<string, object?>? locals, GameObject? other = null)
     {
         if (m.Owner.Destroyed) return;
-        var ctx = new Ctx(this, m) { Locals = locals ?? new(), Other = other, Source = w.From };
+        if (_advancing >= MaxEventNesting)
+            throw new ScriptError($"'{Printer.WhenHead(w.Event)}' was started inside itself more than {MaxEventNesting} times at once " +
+                "(something tells or emits it again before any 'wait'). Add a 'wait' or an 'if' that stops it.", w.Line);
+        var ctx = new Ctx(this, m) { Other = other, Source = w.From };
+        if (locals != null) ctx.Locals = locals;
         var co = new Coroutine(m, w, Exec(w.Body, ctx).GetEnumerator());
         if (Debug != null) co.State = ctx.State = new CoState { Line = w.Line, Source = w.From };
         // Runs right away until its first 'wait' (so effects happen in the same step).
@@ -294,6 +331,8 @@ public sealed partial class World
 
     void Advance(Coroutine co)
     {
+        if (_advancing == 0) _burst = 0;
+        _advancing++;
         try
         {
             if (co.Inst.Owner.Destroyed || !co.It.MoveNext()) { co.Done = true; return; }
@@ -302,6 +341,22 @@ public sealed partial class World
         }
         catch (StopException) { co.Done = true; }
         catch (ScriptError e) { CoroutineError(co, e); }
+        finally { _advancing--; }
+    }
+
+    /// <summary>Counts one line run; too many without a 'wait' is a runaway loop (an error, not a frozen editor).</summary>
+    void CountLine(int line)
+    {
+        if (++_burst > MaxLinesWithoutWait)
+            throw new ScriptError($"This ran more than {MaxLinesWithoutWait:N0} lines without waiting — a loop that never ends? " +
+                "Put a 'wait' inside long loops (or use 'while' / 'repeat forever', which go one round per frame).", line);
+    }
+
+    /// <summary>A value or command inside itself so deep that the stack would run out: an error instead of a crash.</summary>
+    static void CheckStack(int line)
+    {
+        if (!RuntimeHelpers.TryEnsureSufficientExecutionStack())
+            throw new ScriptError("This goes too deep: a value or a command inside itself too many times (a very long formula, or one that never stops calling itself).", line);
     }
 
     /// <summary>A condition that throws (a script error inside 'wait until') ends that coroutine with the error.</summary>
@@ -323,10 +378,17 @@ public sealed partial class World
         string where = source != null && !string.Equals(source, co.Inst.Def.Name, StringComparison.OrdinalIgnoreCase)
             ? $"{co.Inst.Def.Name} (from {source}, line {e.Line})" : $"{co.Inst.Def.Name} (line {e.Line})";
         string msg = $"{where}: {e.Message}";
+        // The same error again (a broken 'when tick' fails every frame): counted, but printed once — 60 lines a second
+        // would bury the console and slow the editor down. The kept text is reused, so repeats cost almost no memory.
+        bool again = _errorTexts.TryGetValue(msg, out var known);
+        if (again) msg = known!;
+        else _errorTexts.Add(msg);
         Errors.Add(msg);
-        Printed?.Invoke("⚠ " + msg);
+        if (!again) Printed?.Invoke("⚠ " + msg);
         Debug?.Event(DebugEventKind.Error, co.Inst.Owner, msg, null, source ?? co.Inst.Def.Name, e.Line);
     }
+
+    readonly HashSet<string> _errorTexts = [];
 
     /// <summary>A running 'when' (When set) or a background task started with 'run' (When null).</summary>
     sealed class Coroutine(MechanismInstance inst, WhenDef? when, IEnumerator<WaitFor> it)
@@ -384,12 +446,13 @@ public sealed partial class World
         foreach (var s in body)
         {
             if (ctx.Inst.Owner.Destroyed || ctx.Returned) yield break;
+            CountLine(s.Line);
             // Debugger: where each 'when' is, and breakpoints (nothing but two null checks when none is attached).
             if (ctx.State is { } st) { st.Line = s.Line; st.Stmt = s; st.Source = ctx.Source; }
             if (Debug is { } dbg && dbg.Statement(ctx.Inst, ctx.Source ?? ctx.Inst.Def.Name, s, canBreak: !ctx.NoBreak))
             {
                 if (ctx.State is { } bs) bs.AtBreak = true;
-                yield return new WaitFor(0, () => !dbg.HoldBreak);
+                yield return BreakWait(dbg);
                 if (ctx.State is { } be) be.AtBreak = false;
             }
             switch (s)
@@ -399,19 +462,19 @@ public sealed partial class World
                     break;
                 case WaitUntilStmt u:
                     // Already true: go on right away. Otherwise check once per step.
-                    if (!Truthy(Eval(u.Cond, ctx))) yield return new WaitFor(0, () => Truthy(Eval(u.Cond, ctx)));
+                    if (!Truthy(Eval(u.Cond, ctx))) yield return UntilTrue(u.Cond, ctx);
                     break;
                 case WaitSignalStmt ws:
                 {
                     var waiter = WaitSignal(ws, ctx);
-                    yield return new WaitFor(0, () => waiter.Fired);
+                    yield return UntilFired(waiter);
                     break;
                 }
                 case WaitKeyStmt wk:
                 {
                     string key = ToText(Eval(wk.Key, ctx)).ToLowerInvariant();
                     long since = _keySeq;
-                    yield return new WaitFor(0, () => _keyPressed.TryGetValue(key, out var seq) && seq > since);
+                    yield return UntilKey(key, since);
                     break;
                 }
                 case ReturnStmt ret:
@@ -488,6 +551,13 @@ public sealed partial class World
         }
     }
 
+    // The waits Exec yields, made here: a lambda inside Exec would capture its locals in an object made on every run of
+    // every block (a few hundred bytes per frame per object), even when no wait is ever reached.
+    static WaitFor BreakWait(IDebugHooks dbg) => new(0, () => !dbg.HoldBreak);
+    WaitFor UntilTrue(Expr cond, Ctx ctx) => new(0, () => Truthy(Eval(cond, ctx)));
+    static WaitFor UntilFired(SignalWaiter waiter) => new(0, () => waiter.Fired);
+    WaitFor UntilKey(string key, long since) => new(0, () => _keyPressed.TryGetValue(key, out var seq) && seq > since);
+
     /// <summary>Runs a one-line statement; a command that takes time returns what to wait for.</summary>
     WaitFor? ExecSimple(Stmt s, Ctx ctx)
     {
@@ -527,7 +597,7 @@ public sealed partial class World
             bag[n] = Combine(a.Op, old, value, a.Line);
             return;
         }
-        var holder = Resolve(a.Target[..^1], ctx, a.Line);
+        var holder = Resolve(a.Target, a.Target.Length - 1, ctx, a.Line); // all but the last name (no array copy per line)
         string member = a.Target[^1];
         switch (holder)
         {
@@ -537,6 +607,9 @@ public sealed partial class World
             {
                 double cur = member switch { "x" => g.X, "y" => g.Y, "width" => g.Width, "height" => g.Height, "vx" => g.Vx, "vy" => g.Vy, _ => throw new ScriptError($"Objects have x, y, width, height, vx and vy you can change — not '{member}'.", a.Line) };
                 double nv = ToNumber(Combine(a.Op, cur, value, a.Line), a.Line);
+                // NaN or infinity (sqrt(-1), a huge product) would make the object vanish for good and slow physics down.
+                if (!double.IsFinite(nv))
+                    throw new ScriptError($"{g.Name}.{member} can't be {ToText(nv)} — that isn't a number the game can use (sqrt of a negative number? a number too big?).", a.Line);
                 switch (member) { case "x": g.X = nv; break; case "y": g.Y = nv; break; case "width": g.Width = nv; break; case "vx": g.Vx = nv; break; case "vy": g.Vy = nv; break; default: g.Height = nv; break; }
                 break;
             }
@@ -556,8 +629,8 @@ public sealed partial class World
     static object? Combine(string op, object? old, object? value, int line) => op switch
     {
         "=" => value,
-        "+=" => old is string || value is string ? ToText(old) + ToText(value) : ToNumber(old, line) + ToNumber(value, line),
-        "-=" => ToNumber(old, line) - ToNumber(value, line),
+        "+=" => old is string || value is string ? ToText(old) + ToText(value) : Box(ToNumber(old, line) + ToNumber(value, line)),
+        "-=" => Box(ToNumber(old, line) - ToNumber(value, line)),
         "*=" => ToNumber(old, line) * ToNumber(value, line),
         "/=" => Divide(ToNumber(old, line), ToNumber(value, line), line),
         _ => throw new ScriptError($"Unknown operator '{op}'.", line)
@@ -572,34 +645,38 @@ public sealed partial class World
     {
         switch (e)
         {
-            case NumberExpr n: return n.Value;
+            case NumberExpr n: return Box(n.Value);
             case StringExpr s: return s.Value;
-            case BoolExpr b: return b.Value;
-            case NameExpr n: return Resolve(n.Path, ctx, n.Line);
+            case BoolExpr b: return Box(b.Value);
+            case NameExpr n: return Resolve(n.Path, n.Path.Length, ctx, n.Line);
+        }
+        CheckStack(e.Line); // only values made of other values can nest (a formula thousands of terms long)
+        switch (e)
+        {
             case UnaryExpr u:
             {
                 var v = Eval(u.Operand, ctx);
-                return u.Op == "not" ? !Truthy(v) : -ToNumber(v, u.Line);
+                return u.Op == "not" ? Box(!Truthy(v)) : -ToNumber(v, u.Line);
             }
             case BinaryExpr b:
             {
-                if (b.Op == "and") return Truthy(Eval(b.Left, ctx)) && Truthy(Eval(b.Right, ctx));
-                if (b.Op == "or") return Truthy(Eval(b.Left, ctx)) || Truthy(Eval(b.Right, ctx));
+                if (b.Op == "and") return Box(Truthy(Eval(b.Left, ctx)) && Truthy(Eval(b.Right, ctx)));
+                if (b.Op == "or") return Box(Truthy(Eval(b.Left, ctx)) || Truthy(Eval(b.Right, ctx)));
                 var l = Eval(b.Left, ctx);
                 var r = Eval(b.Right, ctx);
                 switch (b.Op)
                 {
-                    case "+": return l is string || r is string ? ToText(l) + ToText(r) : ToNumber(l, b.Line) + ToNumber(r, b.Line);
-                    case "-": return ToNumber(l, b.Line) - ToNumber(r, b.Line);
-                    case "*": return ToNumber(l, b.Line) * ToNumber(r, b.Line);
+                    case "+": return l is string || r is string ? ToText(l) + ToText(r) : Box(ToNumber(l, b.Line) + ToNumber(r, b.Line));
+                    case "-": return Box(ToNumber(l, b.Line) - ToNumber(r, b.Line));
+                    case "*": return Box(ToNumber(l, b.Line) * ToNumber(r, b.Line));
                     case "/": return Divide(ToNumber(l, b.Line), ToNumber(r, b.Line), b.Line);
                     case "%": { double d = ToNumber(r, b.Line); return d == 0 ? throw new ScriptError("Division by zero.", b.Line) : ToNumber(l, b.Line) % d; }
-                    case "==": return AreEqual(l, r);
-                    case "!=": return !AreEqual(l, r);
-                    case "<": return ToNumber(l, b.Line) < ToNumber(r, b.Line);
-                    case ">": return ToNumber(l, b.Line) > ToNumber(r, b.Line);
-                    case "<=": return ToNumber(l, b.Line) <= ToNumber(r, b.Line);
-                    case ">=": return ToNumber(l, b.Line) >= ToNumber(r, b.Line);
+                    case "==": return Box(AreEqual(l, r));
+                    case "!=": return Box(!AreEqual(l, r));
+                    case "<": return Box(ToNumber(l, b.Line) < ToNumber(r, b.Line));
+                    case ">": return Box(ToNumber(l, b.Line) > ToNumber(r, b.Line));
+                    case "<=": return Box(ToNumber(l, b.Line) <= ToNumber(r, b.Line));
+                    case ">=": return Box(ToNumber(l, b.Line) >= ToNumber(r, b.Line));
                 }
                 throw new ScriptError($"Unknown operator '{b.Op}'.", b.Line);
             }
@@ -616,11 +693,37 @@ public sealed partial class World
     internal Random Rng = new();
 
 
-    object? Resolve(string[] path, Ctx ctx, int line)
+    /// <summary>The value of the first <paramref name="count"/> names of a dotted path (<c>Boss.Health.hp</c>).</summary>
+    object? Resolve(string[] path, int count, Ctx ctx, int line)
     {
         object? cur = ResolveFirst(path[0], ctx, line);
-        for (int i = 1; i < path.Length; i++) cur = Member(cur, path[i], line);
+        for (int i = 1; i < count; i++) cur = Member(cur, path[i], line);
         return cur;
+    }
+
+    object? Resolve(string[] path, Ctx ctx, int line) => Resolve(path, path.Length, ctx, line);
+
+    static readonly object True = true, False = false;
+    /// <summary>true / false as a value, without a new box each time (comparisons run every frame).</summary>
+    static object Box(bool b) => b ? True : False;
+
+    // Whole numbers from -128 to 1024 (counters, scores, literals) as values made once: "n += 1" every frame on
+    // thousands of objects doesn't make a new box each time. Other numbers are boxed as usual.
+    static readonly object[] SmallNumbers = Enumerable.Range(-128, 1024 + 129).Select(i => (object)(double)i).ToArray();
+    static object Box(double d) => d >= -128 && d <= 1024 && d == Math.Floor(d) ? SmallNumbers[(int)d + 128] : d;
+
+    static MechanismInstance? MechanismNamed(GameObject g, string name, StringComparison how)
+    {
+        if (g.FlatIfMade is { } flat)
+        {
+            foreach (var m in flat)
+                if (string.Equals(m.Def.Name, name, how)) return m;
+            return null;
+        }
+        // Still being made (a param's default value is worked out): its list isn't complete, so it isn't cached yet.
+        foreach (var m in g.AllMechanisms())
+            if (string.Equals(m.Def.Name, name, how)) return m;
+        return null;
     }
 
     /// <summary>One step of a dotted name: <c>Boss.x</c>, <c>other.Health</c>, <c>Health.hp</c>, <c>card.cost</c>.</summary>
@@ -629,8 +732,8 @@ public sealed partial class World
         GameObject g => m switch
         {
             "x" => g.X, "y" => g.Y, "width" => g.Width, "height" => g.Height, "name" => g.Name,
-            "vx" => g.Vx, "vy" => g.Vy, "on_ground" => g.OnGround,
-            _ => (object?)g.AllMechanisms().FirstOrDefault(x => string.Equals(x.Def.Name, m, StringComparison.OrdinalIgnoreCase))
+            "vx" => g.Vx, "vy" => g.Vy, "on_ground" => Box(g.OnGround),
+            _ => (object?)MechanismNamed(g, m, StringComparison.OrdinalIgnoreCase)
                  ?? (TryGameMember(g, m, out var gm) ? gm : throw new ScriptError($"'{g.Name}' has no '{m}'.", line)) // World.Screens.cs
         },
         MechanismInstance inst => inst.Vars.TryGetValue(m, out var v) ? v
@@ -655,8 +758,7 @@ public sealed partial class World
             if (m.Children.TryGetValue(n, out var ch)) return ch;
             if (m != ctx.Inst) break; // a child sees its own names, a parent's children only through the parent
         }
-        foreach (var other in ctx.Inst.Owner.AllMechanisms())
-            if (string.Equals(other.Def.Name, n, StringComparison.Ordinal)) return other;
+        if (MechanismNamed(ctx.Inst.Owner, n, StringComparison.Ordinal) is { } other) return other;
         if (Globals.TryGetValue(n, out v)) return v;
         if (EngineValues.TryGetValue(n, out var ev)) return ev(this); // mouse_x, mouse_y… (World.Mouse.cs)
         if (Library.ContainsKey(n)) return n; // a mechanism name, e.g. 'spawn Coin'
@@ -680,7 +782,8 @@ public sealed partial class World
                 Other = ctx.Other,
                 Locals = ctx.Locals,
             };
-            Commands[name](cc);
+            try { Commands[name](cc); }
+            catch (ScriptError e) when (e.Line == 0) { throw new ScriptError(e.Message, c.Line); } // a helper that didn't know the line
             return cc.Pending;
         }
         RunBuiltInCommand(c, ctx);
@@ -708,7 +811,7 @@ public sealed partial class World
             case "print":
             {
                 string text = string.Join(" ", args.Select(ToText));
-                Output.Add(text);
+                AddOutput(text);
                 Printed?.Invoke(text);
                 Debug?.Event(DebugEventKind.Print, ctx.Inst.Owner, text, null, ctx.Source ?? ctx.Inst.Def.Name, c.Line);
                 return;
@@ -736,7 +839,7 @@ public sealed partial class World
             case "play":
             {
                 string sound = args.Count > 0 ? ToText(args[0]) : "";
-                Output.Add("♪ " + sound);
+                AddOutput("♪ " + sound);
                 SoundPlayed?.Invoke(sound);
                 return;
             }
@@ -787,20 +890,94 @@ public sealed partial class World
     public static string ToText(object? v) => v switch
     {
         null => "",
-        double d => d.ToString(CultureInfo.InvariantCulture),
+        double d => (d == 0 ? 0.0 : d).ToString(CultureInfo.InvariantCulture), // -0 (0 * -1) reads as 0
         bool b => b ? "true" : "false",
-        List<object?> l => "[" + string.Join(", ", l.Select(x => x is string s ? Printer.Quote(s) : ToText(x))) + "]",
+        List<object?> or Record => NestedText(v),
         _ => v.ToString() ?? ""
     };
 
-    static bool AreEqual(object? a, object? b)
+    /// <summary>A number the way texts show it ("Score: {score}", the HUD): at most 2 decimals, never "-0".</summary>
+    public static string ShortNumber(double d) => (Math.Round(d, 2) == 0 ? 0.0 : d).ToString("0.##", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// How deep lists and records inside each other are shown or compared. A list that contains itself
+    /// (<c>add hand to hand</c>, a card whose owner holds the card) shows as <c>[…]</c> instead of never ending.
+    /// </summary>
+    public const int MaxValueDepth = 64;
+
+    static string NestedText(object v)
+    {
+        var sb = new StringBuilder();
+        AppendNested(sb, v, []);
+        return sb.ToString();
+    }
+
+    static void AppendNested(StringBuilder sb, object? v, List<object> path)
+    {
+        if (v is not (List<object?> or Record))
+        {
+            sb.Append(v is string s ? Printer.Quote(s) : ToText(v));
+            return;
+        }
+        if (path.Count >= MaxValueDepth || path.Exists(p => ReferenceEquals(p, v))) { sb.Append(v is Record ? "{…}" : "[…]"); return; }
+        path.Add(v);
+        if (v is List<object?> l)
+        {
+            sb.Append('[');
+            for (int i = 0; i < l.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                AppendNested(sb, l[i], path);
+            }
+            sb.Append(']');
+        }
+        else
+        {
+            sb.Append('{');
+            bool first = true;
+            foreach (var (k, x) in (Record)v)
+            {
+                if (!first) sb.Append(", ");
+                first = false;
+                sb.Append(Record.Key(k)).Append(": ");
+                AppendNested(sb, x, path);
+            }
+            sb.Append('}');
+        }
+        path.RemoveAt(path.Count - 1);
+    }
+
+    static bool AreEqual(object? a, object? b) => AreEqual(a, b, 0);
+
+    static bool AreEqual(object? a, object? b, int depth)
     {
         if (a is List<object?> la && b is List<object?> lb)
-            return ReferenceEquals(la, lb) || (la.Count == lb.Count && la.Zip(lb).All(p => AreEqual(p.First, p.Second)));
-        if (a is double || b is double)
-            try { return ToNumber(a, 0) == ToNumber(b, 0); } catch (ScriptError) { return false; }
+        {
+            if (ReferenceEquals(la, lb)) return true;
+            if (la.Count != lb.Count || depth >= MaxValueDepth) return false; // lists inside themselves: only the same list is equal
+            for (int i = 0; i < la.Count; i++)
+                if (!AreEqual(la[i], lb[i], depth + 1)) return false;
+            return true;
+        }
+        if (a is double || b is double) return TryNumber(a, out var x) && TryNumber(b, out var y) && x == y; // "1" == 1
         if (a is GameObject ga && b is string sb) return ga.Is(sb);
-        return Equals(a, b) || (a == null && Equals(b, "")) || (b == null && Equals(a, ""));
+        // Nothing (an unset variable) equals what it reads as: "", 0 (above) and false.
+        if (a == null) return b == null || Equals(b, "") || Equals(b, false);
+        if (b == null) return Equals(a, "") || Equals(a, false);
+        return Equals(a, b);
+    }
+
+    /// <summary>Like <see cref="ToNumber"/> without the error (comparisons with a text that isn't a number are just false).</summary>
+    static bool TryNumber(object? v, out double d)
+    {
+        switch (v)
+        {
+            case null: d = 0; return true;
+            case double n: d = n; return true;
+            case bool b: d = b ? 1 : 0; return true;
+            case string s: return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out d);
+            default: d = 0; return false;
+        }
     }
 
     static string Describe(object? v) => v switch

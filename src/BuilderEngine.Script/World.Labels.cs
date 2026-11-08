@@ -105,7 +105,7 @@ public sealed partial class World
             (o.Labels ??= []).Add(label);
         }
         object? v = c.Args[i + 1];
-        string text = v is double d ? d.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) : ToText(v);
+        string text = v is double d ? ShortNumber(d) : ToText(v);
         label.World = c.World;
         label.Owner = c.Mechanism;
         label.Template = text.IndexOf('{') >= 0 ? text : null;

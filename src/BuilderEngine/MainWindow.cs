@@ -138,9 +138,21 @@ public sealed partial class MainWindow : Window
         return w;
     }
 
+    /// <summary>
+    /// The console keeps about its last 40,000 characters. Every line copies and lays out the whole text again, so a game
+    /// printing every frame used to make each frame slower than the one before (minutes later the editor crawled).
+    /// </summary>
+    const int ConsoleKeep = 40_000, ConsoleMax = 60_000;
+
     internal void Log(string line)
     {
-        _console.Text = (_console.Text ?? "") + line + "\n";
+        string text = (_console.Text ?? "") + line + "\n";
+        if (text.Length > ConsoleMax)
+        {
+            int cut = text.IndexOf('\n', text.Length - ConsoleKeep);
+            text = cut >= 0 ? text[(cut + 1)..] : text[^ConsoleKeep..];
+        }
+        _console.Text = text;
         AiOnLog(line);
     }
 

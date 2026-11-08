@@ -32,7 +32,7 @@ public sealed partial class World
             string sound = c.Args.Count > 0 ? ToText(c.Args[0]) : "";
             bool loop = IndexOfWord(c, "loop") >= 0 || IndexOfWord(c, "forever") >= 0;
             double volume = NamedNumber(c, "with") is double v ? Math.Clamp(v, 0, 1) : 1;
-            world.Output.Add("♪ " + sound);
+            world.AddOutput("♪ " + sound);
             if (!loop) { world.SoundPlayed?.Invoke(sound); return; }
             world.Loops[sound] = volume;
             world.SoundControl?.Invoke(new SoundRequest(sound, Loop: true, Volume: volume * world.MasterVolume));
