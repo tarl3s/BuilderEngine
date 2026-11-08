@@ -338,7 +338,8 @@ Test("a missing indent is still an error without the colon", () => Throws("inden
 Test("printer: exact canonical form", () =>
 {
     string src = "mechanism   Coin\n  param value : number=1\n  uses Sprite 'coin.png'\n  when touched by 'player'   # comment\n    score+=value\n    if score>=10 : emit won\n    play  \"coin.wav\"\n    destroy self\n  when told \"x\" v\n    repeat 2 times\n      wait (1)\n";
-    Eq("mechanism Coin\n    param value: number = 1\n    uses Sprite \"coin.png\"\n\n    when touched by \"player\"\n        score += value\n        if score >= 10: emit won\n        play \"coin.wav\"\n        destroy self\n\n    when told \"x\" v\n        repeat 2\n            wait 1\n",
+    // The end-of-line comment stays on its line (it used to be dropped: docs/audit/language-and-blocks.md).
+    Eq("mechanism Coin\n    param value: number = 1\n    uses Sprite \"coin.png\"\n\n    when touched by \"player\"  # comment\n        score += value\n        if score >= 10: emit won\n        play \"coin.wav\"\n        destroy self\n\n    when told \"x\" v\n        repeat 2\n            wait 1\n",
         Printer.Print(Parser.Parse(src)));
 });
 Test("printer: tricky values get the parentheses they need", () =>
@@ -1258,6 +1259,7 @@ SystemsTests.Run(Test); // systems (sets of mechanisms that work together) and "
 LinkTests.Run(Test); // the EasyEngine ⇄ BuilderEngine link: .eeproj round-trips, layers, ids, live link (LinkTests.cs)
 AuditDataTests.Run(Test); // the data audit: project files, mechanisms, settings, plugins, export, big projects (AuditDataTests.cs)
 AuditRuntimeTests.Run(Test); // the runtime audit: crash-proof scripts, runaway loops, values, saves, long play, allocations (AuditRuntimeTests.cs)
+AuditLangTests.Run(Test); // audit: lexer/parser edge cases, comments kept, corpus round-trips, fuzzers (AuditLangTests.cs)
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;

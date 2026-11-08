@@ -66,11 +66,9 @@ static class AuditRuntimeTests
         test("a formula thousands of terms long is an error, not a crash", () =>
         {
             string sum = string.Join(" + ", Enumerable.Repeat("1", 20000));
-            var w = NewWorld(M("when start\n    x = " + sum + "\n    after = 1"));
-            var o = w.Spawn("o", 0, 0, ["T"]);
-            w.Step(Dt);
-            True(OneError(w).Contains("too deep"), w.Errors[0]);
-            Eq(null, Var(o, "after"), "that 'when' stopped at the line");
+            // Since the language audit the parser refuses it when the code is read (Parser.MaxSteps), before it can run.
+            try { NewWorld(M("when start\n    x = " + sum + "\n    after = 1")); throw new Exception("no error"); }
+            catch (ScriptError e) { True(e.Message.Contains("too deep"), e.Message); }
             var ok = NewWorld(M("when start\n    x = " + string.Join(" + ", Enumerable.Repeat("1", 300))));
             var p = ok.Spawn("p", 0, 0, ["T"]);
             ok.Step(Dt);

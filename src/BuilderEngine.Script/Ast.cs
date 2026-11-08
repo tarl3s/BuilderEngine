@@ -14,8 +14,22 @@ public sealed record UnaryExpr(string Op, Expr Operand, int Line) : Expr(Line);
 public sealed record BinaryExpr(string Op, Expr Left, Expr Right, int Line) : Expr(Line);
 public sealed record CallExpr(string Name, List<Expr> Args, int Line) : Expr(Line);
 
+// ---- Comments ----
+/// <summary>
+/// The <c># comments</c> written next to a piece of code: the whole comment lines just above it (<see cref="Before"/>) and
+/// the one at the end of its first line (<see cref="After"/>). The parser fills them so that printing the code (after an
+/// edit in the blocks) keeps the person's comments; the game never reads them. Texts include the '#'.
+/// </summary>
+public sealed record CodeComments(IReadOnlyList<string> Before, string? After);
+
+/// <summary>A piece of code that can carry comments: a statement, a <c>when</c>, a <c>to</c>, a param, a <c>uses</c>, a mechanism.</summary>
+public abstract record Commented
+{
+    public CodeComments? Comments { get; init; }
+}
+
 // ---- Statements ----
-public abstract record Stmt(int Line);
+public abstract record Stmt(int Line) : Commented;
 public sealed record AssignStmt(string[] Target, string Op, Expr Value, int Line) : Stmt(Line);
 public sealed record IfStmt(Expr Cond, List<Stmt> Then, List<Stmt>? Else, int Line) : Stmt(Line);
 /// <summary><c>repeat 3</c> (Count set) or <c>repeat forever</c> (Count null).</summary>
@@ -46,7 +60,7 @@ public sealed record EventSpec(EventKind Kind, string? Filter = null, string? Bi
     };
 }
 
-public sealed record WhenDef(EventSpec Event, List<Stmt> Body, int Line)
+public sealed record WhenDef(EventSpec Event, List<Stmt> Body, int Line) : Commented
 {
     /// <summary>On a variant: the mechanism whose code this inherited <c>when</c> is (null = the mechanism itself).</summary>
     public string? From { get; init; }
@@ -56,15 +70,15 @@ public sealed record WhenDef(EventSpec Event, List<Stmt> Body, int Line)
 /// <c>param speed: number = 100</c>. Type is what the inspector shows: number, text, Sound, Image, Object, Path, Color,
 /// Key, <c>List</c> or <c>List of number</c>, <c>Choice</c> (with <see cref="Options"/>), or "any" when not written.
 /// </summary>
-public sealed record ParamDef(string Name, string Type, Expr? Default, int Line)
+public sealed record ParamDef(string Name, string Type, Expr? Default, int Line) : Commented
 {
     /// <summary>The options of a <c>Choice</c>: <c>param level: Choice "easy", "normal", "hard"</c>.</summary>
     public List<string>? Options { get; init; }
 }
 /// <summary><c>uses Health max 2</c>: Name "Health", Args {max: 2}; <c>uses Sprite "slime.png"</c>: Positional.</summary>
-public sealed record UsesDef(string Name, Expr? Positional, Dictionary<string, Expr> Args, int Line);
+public sealed record UsesDef(string Name, Expr? Positional, Dictionary<string, Expr> Args, int Line) : Commented;
 
-public sealed record MechanismDef(string Name, List<ParamDef> Params, List<UsesDef> Uses, List<WhenDef> Whens, int Line)
+public sealed record MechanismDef(string Name, List<ParamDef> Params, List<UsesDef> Uses, List<WhenDef> Whens, int Line) : Commented
 {
     /// <summary>The commands this mechanism makes (<c>to name params</c>), in the order they are written.</summary>
     public List<ProcDef> Procs { get; init; } = [];
@@ -74,6 +88,8 @@ public sealed record MechanismDef(string Name, List<ParamDef> Params, List<UsesD
     public bool IsSystem { get; init; }
     /// <summary>A system's <c>includes Pickup sound pickup_sound</c> lines: the mechanisms it comes with and the defaults it gives them.</summary>
     public List<UsesDef> Includes { get; init; } = [];
+    /// <summary>The comments after the last line of code in the file (kept on its last mechanism).</summary>
+    public IReadOnlyList<string>? EndComments { get; init; }
 }
 
 // ---- Builder Script 2: user commands, waiting, parallel, loops, lists ----
@@ -110,7 +126,7 @@ public sealed record ReturnStmt(Expr? Value, int Line) : Stmt(Line);
 /// <c>to attack target, power</c>: a command the person makes. Called like any command (<c>attack Boss, 3</c>);
 /// when it gives back a value with <c>return</c> it can also be used in a value (<c>damage_for(3)</c>).
 /// </summary>
-public sealed record ProcDef(string Name, List<string> Params, List<Stmt> Body, int Line)
+public sealed record ProcDef(string Name, List<string> Params, List<Stmt> Body, int Line) : Commented
 {
     /// <summary>On a variant: the mechanism whose code this inherited command is (null = the mechanism itself).</summary>
     public string? From { get; init; }

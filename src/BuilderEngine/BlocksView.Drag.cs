@@ -86,7 +86,7 @@ sealed partial class BlocksView
     void Press(PointerPressedEventArgs e, DragSrc src)
     {
         e.Handled = true;
-        if (_stale || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        if (Locked || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
         _press = src;
         _pressAt = e.GetPosition(_layer);
         _grab = e.GetPosition(src.Visual);
@@ -202,14 +202,16 @@ sealed partial class BlocksView
     DropAt? StatementTarget(Point p, Rect view, DragSrc src)
     {
         var moving = src.Kind == DragKind.Stmt ? (Stmt)src.List![src.Index]! : null;
-        bool onlyInProc = src.PaletteId == "return" || moving is ReturnStmt; // 'return' only goes inside a 'to'
+        bool onlyInProc = src.PaletteId == "return"; // 'return' only goes inside a 'to'
         StmtSlot? best = null;
         Rect bestRect = default;
         double bestDist = double.MaxValue;
         foreach (var slot in _stmtSlots)
         {
-            if (moving != null && BlockEdits.Contains(moving, slot.List)) continue; // never inside itself
-            if (onlyInProc && (slot.Mech >= _defs.Count || !BlockEdits.InProc(_defs[slot.Mech], slot.List))) continue;
+            if (slot.Mech >= _defs.Count) continue;
+            // Never inside itself; a block holding a 'return' (an 'if' with one inside, too) only inside a 'to'.
+            if (moving != null && !BlockEdits.CanPlace(_defs[slot.Mech], moving, slot.List)) continue;
+            if (onlyInProc && !BlockEdits.InProc(_defs[slot.Mech], slot.List)) continue;
             if (BoundsIn(slot.Area) is not { } r || !r.Intersects(view)) continue;
             // Inside an area wins (the deepest one); otherwise the nearest area takes it.
             double d = r.Contains(p) ? -1 - slot.Depth : Distance(r, p);
@@ -292,7 +294,7 @@ sealed partial class BlocksView
 
     void Drop(DragSrc src, DropAt t)
     {
-        if (_stale) return;
+        if (Locked) return;
         if (t.Delete)
         {
             if (src.List == null || src.Index < 0 || src.Index >= src.List.Count) return;
@@ -331,7 +333,11 @@ sealed partial class BlocksView
                 changed = true;
                 break;
             case DragKind.Stmt:
-                changed = BlockEdits.MoveStatement((List<Stmt>)src.List!, src.Index, (List<Stmt>)t.List, t.Index);
+                // The drop target was already checked while dragging (StatementTarget); checked again here because
+                // a drop that breaks the rule would print code that doesn't parse.
+                changed = t.Mech >= 0 && t.Mech < _defs.Count && src.Index >= 0 && src.Index < src.List!.Count
+                    && BlockEdits.CanPlace(_defs[t.Mech], (Stmt)src.List[src.Index]!, (List<Stmt>)t.List)
+                    && BlockEdits.MoveStatement((List<Stmt>)src.List, src.Index, (List<Stmt>)t.List, t.Index);
                 if (changed) { _selBody = (List<Stmt>)t.List; _selMech = t.Mech; }
                 break;
             case DragKind.When:

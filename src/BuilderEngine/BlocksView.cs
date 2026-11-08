@@ -161,6 +161,17 @@ sealed partial class BlocksView : Border
     List<MechanismDef> _defs = [];
     string _shown = "";
     bool _stale;
+    /// <summary>The code changed and <see cref="Show"/> comes in a moment (see <see cref="Expect"/>).</summary>
+    bool _pending;
+    /// <summary>No edits now: the code has an error (stale) or newer code is about to be shown (pending).</summary>
+    bool Locked => _stale || _pending;
+    /// <summary>
+    /// False right after another mechanism was opened (or the code didn't parse): the next code shown is a fresh start,
+    /// not an edit made in the code view (which becomes an undo step, see <see cref="Show"/>).
+    /// </summary>
+    bool _codeIsEdit;
+    /// <summary>The line each statement is on in the code printed by the last block edit (null = the parsed lines).</summary>
+    Dictionary<Stmt, int>? _lines;
     readonly StackPanel _blocks = new() { Margin = new Thickness(12, 12, 16, 48) };
     readonly ScrollViewer _scroll = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
     readonly Border _banner;
@@ -263,16 +274,17 @@ sealed partial class BlocksView : Border
 
     // ---------------- Undo ----------------
 
-    /// <summary>Steps back one block edit (the code view follows).</summary>
-    public void Undo() => Restore(_stale ? null : _undo.Undo(_shown));
+    /// <summary>Steps back one edit (a block edit, or the code typed since the last one); the code view follows.</summary>
+    public void Undo() => Restore(Locked ? null : _undo.Undo(_shown));
 
-    /// <summary>Steps forward one block edit.</summary>
-    public void Redo() => Restore(_stale ? null : _undo.Redo(_shown));
+    /// <summary>Steps forward one edit.</summary>
+    public void Redo() => Restore(Locked ? null : _undo.Redo(_shown));
 
     /// <summary>Forgets the undo steps and the selection: another mechanism is being opened.</summary>
     public void ResetUndo()
     {
         _undo.Reset();
+        _codeIsEdit = false;
         _selBody = null;
         _selMech = int.MaxValue;
         UpdateUndoButtons();
@@ -290,6 +302,7 @@ sealed partial class BlocksView : Border
         var place = SelAddress();
         _defs = defs;
         _shown = source;
+        _lines = null;
         SelectAddress(place);
         Rebuild();
         UpdateUndoButtons();
@@ -298,8 +311,8 @@ sealed partial class BlocksView : Border
 
     void UpdateUndoButtons()
     {
-        _undoButton.IsEnabled = !_stale && _undo.CanUndo;
-        _redoButton.IsEnabled = !_stale && _undo.CanRedo;
+        _undoButton.IsEnabled = !Locked && _undo.CanUndo;
+        _redoButton.IsEnabled = !Locked && _undo.CanRedo;
     }
 
     /// <summary>Where the selected body is, as an address that survives a reparse.</summary>
@@ -323,6 +336,7 @@ sealed partial class BlocksView : Border
     /// <summary>Shows a mechanism's source as blocks. Source that doesn't parse leaves the view empty, waiting for a fix.</summary>
     public void Show(string source)
     {
+        _pending = false;
         if (Norm(source) == Norm(_shown) && _defs.Count > 0) { SetStale(false); return; }
         List<MechanismDef> defs;
         try { defs = Parser.Parse(source); }
@@ -330,16 +344,32 @@ sealed partial class BlocksView : Border
         {
             _defs = [];
             _shown = source;
+            _codeIsEdit = false; // an undo step must always hold code that parses
             SetStale(true, e.ToString());
             Rebuild();
             return;
         }
+        // Code typed in the code view is an undo step too (typing until the next block edit is one step): without it,
+        // undoing the block edit before it put that older text back and the typed code was gone.
+        if (_codeIsEdit) _undo.Record(_shown, source, "code");
+        _codeIsEdit = true;
         var place = SelAddress(); // the code changed: keep the same place selected when it still exists
         _defs = defs;
         _shown = source;
+        _lines = null;
         SelectAddress(place);
         Rebuild();
         SetStale(false);
+    }
+
+    /// <summary>
+    /// The code changed and will be shown after a short pause in the typing: until <see cref="Show"/> the blocks take no
+    /// edits, so an edit can't print the older blocks over the newer code (losing what was just typed).
+    /// </summary>
+    public void Expect()
+    {
+        _pending = true;
+        ApplyLock();
     }
 
     /// <summary>Stale = the code has an error: keep the last good blocks, greyed and locked, with a note.</summary>
@@ -349,12 +379,20 @@ sealed partial class BlocksView : Border
         _banner.IsVisible = stale;
         _bannerText.Text = detail ?? BlockText("The blocks show the last version that worked. They come back as soon as the code has no errors.");
         _scroll.Opacity = stale ? 0.4 : 1;
-        _scroll.IsHitTestVisible = !stale;
         _palette.Opacity = stale ? 0.4 : 1;
-        _palette.IsHitTestVisible = !stale;
-        if (stale) CancelDrag();
+        ApplyLock();
+    }
+
+    void ApplyLock()
+    {
+        _scroll.IsHitTestVisible = !Locked;
+        _palette.IsHitTestVisible = !Locked;
+        if (Locked) CancelDrag();
         UpdateUndoButtons();
     }
+
+    /// <summary>The line a statement is on in the code shown now (it moves when a block edit reprints the code).</summary>
+    int LineOf(Stmt s) => _lines != null && _lines.TryGetValue(s, out int line) ? line : s.Line;
 
     /// <summary>
     /// Applies an edit to the blocks: reprints the code, records one undo step (edits of one field in a row merge) and
@@ -364,7 +402,9 @@ sealed partial class BlocksView : Border
     {
         string before = _shown;
         _shown = Printer.Print(_defs);
+        _lines = BlockEdits.LinesAfterPrint(_defs, _shown) ?? _lines;
         _undo.Record(before, _shown, Field.Committing is { } f ? "field:" + f.Id : null);
+        if (_pending) { _pending = false; ApplyLock(); } // this edit replaces the code that was about to be shown
         UpdateUndoButtons();
         if (rebuild) Dispatcher.UIThread.Post(Rebuild);
         Edited?.Invoke(_shown);
@@ -521,7 +561,7 @@ sealed partial class BlocksView : Border
 
     void AddStatement(string id)
     {
-        if (_stale || _defs.Count == 0) return;
+        if (Locked || _defs.Count == 0) return;
         var body = _selBody;
         if (id == "return")
         {
@@ -546,7 +586,7 @@ sealed partial class BlocksView : Border
 
     void AddWhen(EventKind k)
     {
-        if (_stale || _defs.Count == 0) return;
+        if (Locked || _defs.Count == 0) return;
         var w = BlockEdits.NewWhen(k);
         _defs[MechIndex()].Whens.Add(w);
         _selBody = w.Body;
@@ -556,7 +596,7 @@ sealed partial class BlocksView : Border
 
     void AddParam()
     {
-        if (_stale || _defs.Count == 0) return;
+        if (Locked || _defs.Count == 0) return;
         var m = _defs[MechIndex()];
         var p = BlockEdits.NewParam(m);
         m.Params.Add(p);
@@ -566,7 +606,7 @@ sealed partial class BlocksView : Border
 
     void AddUses()
     {
-        if (_stale || _defs.Count == 0) return;
+        if (Locked || _defs.Count == 0) return;
         var u = BlockEdits.NewUses();
         _defs[MechIndex()].Uses.Add(u);
         _reveal = u;

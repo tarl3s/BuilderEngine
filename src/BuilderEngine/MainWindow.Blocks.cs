@@ -30,6 +30,9 @@ public sealed partial class MainWindow
         _code.TextChanged += (_, _) =>
         {
             bool fresh = _blocksSource != null && BlocksNorm(_code.Text ?? "") == BlocksNorm(_blocksSource);
+            // A redraw still waiting for the typing to pause would show older code (and unlock the blocks) over code
+            // that no longer parses: drop it; the next code that parses schedules a new one.
+            if (!fresh) { _blocksTimer?.Stop(); _blocksPending = null; }
             _blocksView.SetStale(!fresh);
         };
         _blocksTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
@@ -82,8 +85,9 @@ public sealed partial class MainWindow
             _blocksView.Show(source);
             return;
         }
-        // Typing in the code redraws the blocks once the typing pauses.
+        // Typing in the code redraws the blocks once the typing pauses; until then they take no edits (Expect).
         _blocksPending = source;
+        _blocksView.Expect();
         _blocksTimer!.Stop();
         _blocksTimer.Start();
     }
@@ -140,10 +144,42 @@ public sealed partial class MainWindow
             _blocksView.Undo();
             await Task.Delay(200);
             Check("undo after the pointer edits", _sources[_current] == original);
+            await SnapCodeAndBlocks(original, Check);
             await SnapLanguageBlocks(dir, Check);
         }
         catch (Exception e) { Check("no exception: " + e.Message, false); }
         finally { File.WriteAllLines(Path.Combine(dir, "blocks_checks.txt"), lines); }
+    }
+
+    /// <summary>
+    /// Typing in the code and editing blocks together (language audit): while the blocks wait for the typing to pause they
+    /// take no edits; undo steps back through the typed code instead of jumping over it; after a block edit every block
+    /// knows the line it is on now (for breakpoints); a comment survives a block edit.
+    /// </summary>
+    async Task SnapCodeAndBlocks(string original, Action<string, bool> check)
+    {
+        string typed = original.TrimEnd('\n', '\r') + "\n        # a note typed in the code\n        print \"typed\"\n";
+        _code.Text = typed; // as if typed: the shell parses it and the blocks redraw after a pause
+        await Task.Delay(30); // the text box reports the change on the next turn (well before the 150 ms pause)
+        check("right after typing the blocks take no edit (no older blocks printed over the new code)",
+            !_blocksView!.DebugPointer("stop", drag: false) || _sources[_current!] == typed);
+        await Task.Delay(500);
+        check("after the pause the blocks show the typed code", _sources[_current!] == typed && _blocksView.DebugHasBlocks);
+        check("a block edit after typing works", _blocksView.DebugPointer("stop", drag: false) && _sources[_current!] != typed);
+        await Task.Delay(300);
+        check("the comment typed in the code survives the block edit", _sources[_current!].Contains("# a note typed in the code"));
+        check("every block knows its line in the printed code", _blocksView.DebugLinesMatchCode());
+        _blocksView.Undo();
+        await Task.Delay(200);
+        check("undo takes back the block edit only", BlocksNorm(_sources[_current!]) == BlocksNorm(typed));
+        _blocksView.Undo();
+        await Task.Delay(200);
+        check("undo again takes back the typing", _sources[_current!] == original);
+        _blocksView.Redo();
+        await Task.Delay(200);
+        check("redo brings the typed code back", BlocksNorm(_sources[_current!]) == BlocksNorm(typed));
+        _blocksView.Undo();
+        await Task.Delay(200);
     }
 
     /// <summary>

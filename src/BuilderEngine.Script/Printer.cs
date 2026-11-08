@@ -6,7 +6,8 @@ namespace BuilderEngine.Script;
 /// <summary>
 /// Turns the AST back into canonical Builder Script: 4-space indents, a blank line before each <c>when</c>,
 /// only the parentheses the precedence needs. <c>Parser.Parse(Printer.Print(defs))</c> gives the same tree back
-/// (comments and the original spacing are not kept). Empty blocks print as <c>when start:</c>.
+/// (the original spacing and blank lines are not kept). Comments are printed where the parser hung them: comment lines
+/// just above their code, an end-of-line comment at the end of its code's first line. Empty blocks print as <c>when start:</c>.
 /// </summary>
 public static class Printer
 {
@@ -36,28 +37,61 @@ public static class Printer
 
     static void Print(StringBuilder sb, MechanismDef m)
     {
+        Before(sb, m.Comments, 0);
         sb.Append(m.IsSystem ? "system " : "mechanism ").Append(m.Name);
         if (m.Base != null) sb.Append(" from ").Append(m.Base);
-        sb.Append('\n');
-        foreach (var u in m.Includes) sb.Append(Indent).Append(PrintIncludes(u)).Append('\n');
-        foreach (var p in m.Params) sb.Append(Indent).Append(Print(p)).Append('\n');
-        foreach (var u in m.Uses) sb.Append(Indent).Append(Print(u)).Append('\n');
+        EndLine(sb, m.Comments?.After);
+        foreach (var u in m.Includes) Line(sb, u, PrintIncludes(u));
+        foreach (var p in m.Params) Line(sb, p, Print(p));
+        foreach (var u in m.Uses) Line(sb, u, Print(u));
         bool gap = m.Params.Count + m.Uses.Count + m.Includes.Count > 0;
         foreach (var w in m.Whens)
         {
             if (gap) sb.Append('\n');
             gap = true;
+            Before(sb, w.Comments, 1);
             sb.Append(Indent).Append(WhenHead(w.Event));
-            PrintBody(sb, w.Body, 2);
+            PrintBody(sb, w.Body, 2, w.Comments?.After);
         }
         foreach (var p in m.Procs)
         {
             if (gap) sb.Append('\n');
             gap = true;
+            Before(sb, p.Comments, 1);
             sb.Append(Indent).Append(ProcHead(p));
-            PrintBody(sb, p.Body, 2);
+            PrintBody(sb, p.Body, 2, p.Comments?.After);
+        }
+        if (m.EndComments != null)
+            foreach (var c in m.EndComments) sb.Append(Indent).Append(c).Append('\n');
+    }
+
+    /// <summary>A one-line part of a mechanism (param, uses, includes) with its comments.</summary>
+    static void Line(StringBuilder sb, Commented part, string text)
+    {
+        Before(sb, part.Comments, 1);
+        sb.Append(Indent).Append(text);
+        EndLine(sb, part.Comments?.After);
+    }
+
+    /// <summary>The comment lines written above a piece of code, at its indentation.</summary>
+    static void Before(StringBuilder sb, CodeComments? c, int indent)
+    {
+        if (c == null) return;
+        foreach (var line in c.Before)
+        {
+            Pad(sb, indent);
+            sb.Append(line).Append('\n');
         }
     }
+
+    /// <summary>Ends a line, with its end-of-line comment when there is one.</summary>
+    static void EndLine(StringBuilder sb, string? after)
+    {
+        if (after != null) sb.Append("  ").Append(after);
+        sb.Append('\n');
+    }
+
+    static string? Join(string? a, string? b) => a == null ? b : b == null ? a : a + " " + b;
 
     /// <summary><c>to attack target, power</c></summary>
     public static string ProcHead(ProcDef p) => "to " + p.Name + (p.Params.Count == 0 ? "" : " " + string.Join(", ", p.Params));
@@ -146,10 +180,11 @@ public static class Printer
         return sb.ToString();
     }
 
-    static void PrintBody(StringBuilder sb, List<Stmt> body, int indent)
+    /// <summary>The end of a block's head line (a ':' when the block is empty, the head's comment), then its lines.</summary>
+    static void PrintBody(StringBuilder sb, List<Stmt> body, int indent, string? after = null)
     {
-        if (body.Count == 0) { sb.Append(":\n"); return; }
-        sb.Append('\n');
+        if (body.Count == 0) sb.Append(':');
+        EndLine(sb, after);
         foreach (var s in body) PrintStmt(sb, s, indent);
     }
 
@@ -158,55 +193,79 @@ public static class Printer
         for (int i = 0; i < indent; i++) sb.Append(Indent);
     }
 
-    static void PrintStmt(StringBuilder sb, Stmt s, int indent)
+    /// <summary>One statement with its comments; <paramref name="after"/> = an extra end-of-line comment for its first line.</summary>
+    static void PrintStmt(StringBuilder sb, Stmt s, int indent, string? after = null)
     {
+        Before(sb, s.Comments, indent);
+        after = Join(s.Comments?.After, after);
         switch (s)
         {
-            case IfStmt i: PrintIf(sb, i, indent, "if "); break;
+            case IfStmt i: PrintIf(sb, i, indent, "if ", after); break;
             case RepeatStmt r:
                 Pad(sb, indent);
                 sb.Append(r.Count == null ? "repeat forever" : "repeat " + RepeatCount(r.Count));
-                PrintBody(sb, r.Body, indent + 1);
+                PrintBody(sb, r.Body, indent + 1, after);
                 break;
             case TogetherStmt t:
                 Pad(sb, indent);
                 sb.Append("together");
-                PrintBody(sb, t.Body, indent + 1);
+                PrintBody(sb, t.Body, indent + 1, after);
                 break;
             case WhileStmt w:
                 Pad(sb, indent);
                 sb.Append("while ").Append(Print(w.Cond));
-                PrintBody(sb, w.Body, indent + 1);
+                PrintBody(sb, w.Body, indent + 1, after);
                 break;
             case ForEachStmt f:
                 Pad(sb, indent);
                 sb.Append("for each ").Append(f.Var).Append(" in ").Append(Print(f.List));
-                PrintBody(sb, f.Body, indent + 1);
+                PrintBody(sb, f.Body, indent + 1, after);
                 break;
-            case RunStmt r when !IsSimple(r):
-                if (r.Body.Count == 1)
-                {
-                    // 'run repeat forever' + its block: the inner block printed with "run " in front of its first line.
-                    string inner = Print(r.Body[0], indent);
-                    int at = indent * Indent.Length;
-                    sb.Append(inner, 0, at).Append("run ").Append(inner, at, inner.Length - at);
-                    break;
-                }
+            case RunStmt { Body.Count: 1 } r:
+            {
+                // 'run patrol', 'run repeat forever' + its block: the one statement printed with "run " in front of its
+                // first line. Its comment lines go above that line, its end-of-line comment at its end.
+                var one = WithoutRunComments(r.Body[0], sb, indent, ref after);
+                var inner = new StringBuilder();
+                PrintStmt(inner, one, indent, after);
+                int at = indent * Indent.Length;
+                sb.Append(inner, 0, at).Append("run ").Append(inner, at, inner.Length - at);
+                break;
+            }
+            case RunStmt r:
                 Pad(sb, indent);
                 sb.Append("run");
-                PrintBody(sb, r.Body, indent + 1);
+                PrintBody(sb, r.Body, indent + 1, after);
                 break;
             default:
                 Pad(sb, indent);
-                sb.Append(Simple(s)).Append('\n');
+                sb.Append(Simple(s));
+                EndLine(sb, after);
                 break;
         }
     }
 
+    /// <summary>
+    /// The statement a one-statement 'run' starts, without its comments (nor those of a 'run run x' chain inside it, which
+    /// would land in front of the shared line): their comment lines are printed now, their end-of-line comments join
+    /// <paramref name="after"/>.
+    /// </summary>
+    static Stmt WithoutRunComments(Stmt s, StringBuilder sb, int indent, ref string? after)
+    {
+        Before(sb, s.Comments, indent);
+        after = Join(after, s.Comments?.After);
+        if (s is RunStmt { Body.Count: 1 } r) return r with { Comments = null, Body = [WithoutRunComments(r.Body[0], sb, indent, ref after)] };
+        return s.Comments == null ? s : s with { Comments = null };
+    }
+
+    /// <summary>True when the statement (or the one a one-statement 'run' starts) carries comments.</summary>
+    static bool HasComments(Stmt s) => s.Comments != null || s is RunStmt { Body.Count: 1 } r && HasComments(r.Body[0]);
+
     static string RepeatCount(Expr count)
     {
         string c = Print(count);
-        return c is "forever" or "times" ? "(" + c + ")" : c;
+        // 'repeat forever + 1' would read as 'repeat forever' (a count starting with the word, not only the word itself).
+        return StartsWithWord(c, "forever") || c == "times" ? "(" + c + ")" : c;
     }
 
     /// <summary>'wait until' / 'wait for' are other statements: a value starting with those words gets parentheses.</summary>
@@ -219,21 +278,23 @@ public static class Printer
     static bool StartsWithWord(string s, string word) =>
         s.StartsWith(word, StringComparison.Ordinal) && (s.Length == word.Length || !(char.IsLetterOrDigit(s[word.Length]) || s[word.Length] == '_'));
 
-    static void PrintIf(StringBuilder sb, IfStmt s, int indent, string word)
+    static void PrintIf(StringBuilder sb, IfStmt s, int indent, string word, string? after)
     {
         Pad(sb, indent);
         sb.Append(word).Append(Print(s.Cond));
-        // One simple statement and no else: the one-line form "if hp <= 0: stop".
-        if (s.Else == null && s.Then.Count == 1 && IsSimple(s.Then[0]))
+        // One simple statement (without comments of its own) and no else: the one-line form "if hp <= 0: stop".
+        if (s.Else == null && s.Then.Count == 1 && IsSimple(s.Then[0]) && !HasComments(s.Then[0]))
         {
-            sb.Append(": ").Append(Simple(s.Then[0])).Append('\n');
+            sb.Append(": ").Append(Simple(s.Then[0]));
+            EndLine(sb, after);
             return;
         }
-        PrintBody(sb, s.Then, indent + 1);
+        PrintBody(sb, s.Then, indent + 1, after);
         if (s.Else == null) return;
         if (s.Else.Count == 1 && s.Else[0] is IfStmt elseIf)
         {
-            PrintIf(sb, elseIf, indent, "else if ");
+            Before(sb, elseIf.Comments, indent);
+            PrintIf(sb, elseIf, indent, "else if ", elseIf.Comments?.After);
             return;
         }
         Pad(sb, indent);
@@ -261,12 +322,47 @@ public static class Printer
         StopStmt => "stop",
         EmitStmt e => "emit " + e.Signal + ArgsTail(e.Args),
         TellStmt t => Tell(t),
-        CommandStmt c => c.Name + ArgsTail(c.Args) + NamedTail(c.Named),
+        CommandStmt c => Command(c),
         _ => throw new ArgumentException($"'{s.GetType().Name}' is not a one-line statement.")
     };
 
-    static string NamedTail(Dictionary<string, List<Expr>>? named) =>
-        named == null ? "" : string.Concat(named.Select(kv => " " + kv.Key + (kv.Value.Count == 0 ? "" : " " + Args(kv.Value))));
+    /// <summary>
+    /// <c>move Boss to 400, 300 in 2</c>. The parser reads a connector word (to, in, at...) that has something after it
+    /// as the start of a named part, and skips 'seconds' after a named number: a value starting with such a word gets
+    /// parentheses (<c>say (to) + 1</c>), except a lone word at the very end, which already reads as a value (<c>say to</c>).
+    /// </summary>
+    static string Command(CommandStmt c)
+    {
+        var sb = new StringBuilder(c.Name);
+        int start = 0;
+        // 'stop sound "rain.wav"' (World.Audio.cs): the word 'sound' reads as part of the command, not as a value.
+        if (c.Name == "stop" && c.Args.Count > 0 && c.Args[0] is NameExpr { Path: [("sound" or "sounds") and var word] })
+        {
+            sb.Append(' ').Append(word);
+            start = 1;
+        }
+        var parts = new List<(string? Connector, List<Expr> Values, int From)> { (null, c.Args, start) };
+        if (c.Named != null) parts.AddRange(c.Named.Select(kv => ((string?)kv.Key, kv.Value, 0)));
+        int total = parts.Sum(p => p.Values.Count - p.From), n = 0;
+        for (int k = 0; k < parts.Count; k++)
+        {
+            var (connector, list, from) = parts[k];
+            if (connector != null) sb.Append(' ').Append(connector);
+            for (int i = from; i < list.Count; i++)
+            {
+                string v = Print(list[i]);
+                bool last = ++n == total;
+                bool connectorStart = Parser.Connectors.Any(w => StartsWithWord(v, w)) && !(last && Parser.Connectors.Contains(v));
+                bool unitStart = connector != null && i > 0 && (StartsWithWord(v, "seconds") || StartsWithWord(v, "second"));
+                if (connectorStart || unitStart) v = "(" + v + ")";
+                // The values of one part are separated by commas; the first one follows a space (a "-1" right after
+                // 'stop sound' would read as "sound - 1", so it takes a comma there too).
+                bool joinsWord = i == start && start > 0 && (v.StartsWith('-') || v.StartsWith('(') || v.StartsWith('['));
+                sb.Append(i == from && !joinsWord ? " " : ", ").Append(v);
+            }
+        }
+        return sb.ToString();
+    }
 
     /// <summary>Values after a command or signal: a space, then the values separated by commas.</summary>
     static string ArgsTail(List<Expr> args) => args.Count == 0 ? "" : " " + Args(args);
@@ -329,11 +425,25 @@ public static class Printer
         _ => 6
     };
 
+    /// <summary>
+    /// The shortest text that reads back as exactly this number, written without an exponent (the lexer reads none):
+    /// <c>1E+21</c> → 1000000000000000000000, <c>1E-30</c> → 0.000…001. (A custom format kept only 15 digits and wrote 0 for 1E-30.)
+    /// </summary>
     public static string Number(double v)
     {
         string s = v.ToString("R", CultureInfo.InvariantCulture);
-        if (s.Contains('E')) s = v.ToString("0.############################", CultureInfo.InvariantCulture);
-        return s;
+        int e = s.IndexOf('E');
+        if (e < 0) return s;
+        bool negative = s[0] == '-';
+        string mantissa = s[(negative ? 1 : 0)..e];
+        int exponent = int.Parse(s[(e + 1)..], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+        int dot = mantissa.IndexOf('.');
+        string digits = dot < 0 ? mantissa : mantissa.Remove(dot, 1);
+        int point = (dot < 0 ? mantissa.Length : dot) + exponent; // where the decimal point goes in the digits
+        string plain = point <= 0 ? "0." + new string('0', -point) + digits
+            : point >= digits.Length ? digits + new string('0', point - digits.Length)
+            : digits[..point] + "." + digits[point..];
+        return negative ? "-" + plain : plain;
     }
 
     public static string Quote(string s)
