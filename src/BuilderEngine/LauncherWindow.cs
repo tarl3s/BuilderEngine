@@ -53,7 +53,7 @@ public sealed class LauncherWindow : Window
             if (e.Key == Key.N && e.KeyModifiers == KeyModifiers.Control) { _ = NewProjectAsync(); e.Handled = true; }
             if (e.Key == Key.O && e.KeyModifiers == KeyModifiers.Control) { _ = OpenFolderAsync(); e.Handled = true; }
         };
-        InstallSamplesOnce();
+        TidyRecentSamplesOnce();
         FillRecent();
         Opened += async (_, _) => await CheckForUpdateAsync();
     }
@@ -90,32 +90,37 @@ public sealed class LauncherWindow : Window
     }
 
     /// <summary>
-    /// Like EasyEngine's samples: the first time the start screen opens, each sample game is made in
-    /// Documents\BuilderEngine Projects and added to Recent. Settings remember which were installed
-    /// ("samplesInstalled"), so one the person removes doesn't come back.
+    /// The sample games live in BuilderEngine's own folder (%APPDATA%\BuilderEngine\Samples), are opened only from the
+    /// "Sample games" list and never appear in Recent, so they are always there and never clutter the person's projects.
     /// </summary>
-    void InstallSamplesOnce()
+    public static string SamplesRoot => Path.Combine(AppSettings.DefaultFolder, "Samples");
+
+    public static bool IsSample(string dir)
     {
         try
         {
-            var installed = _settings.GetList("samplesInstalled");
-            var recent = _settings.RecentProjects();
-            bool changed = false;
-            foreach (var (name, _, _) in Samples)
-            {
-                if (installed.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
-                string dir = Path.Combine(ProjectsRoot, name);
-                try { if (!Project.Exists(dir)) SampleGames.Make(name, dir); }
-                catch { continue; } // try again next time
-                if (!recent.Any(r => AppSettings.SameFolder(r, dir))) recent.Add(dir);
-                installed.Add(name);
-                changed = true;
-            }
-            if (!changed) return;
-            _settings.SetList("samplesInstalled", installed);
-            _settings.SetList("recentProjects", recent.Take(AppSettings.MaxRecent));
+            string full = Path.GetFullPath(dir).TrimEnd('\\', '/') + Path.DirectorySeparatorChar;
+            return full.StartsWith(Path.GetFullPath(SamplesRoot).TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
-        catch { /* samples are a convenience */ }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Older versions put the samples in Documents\BuilderEngine Projects and in Recent: take those Recent entries out
+    /// once (the folders are left alone — they may hold the person's changes).
+    /// </summary>
+    void TidyRecentSamplesOnce()
+    {
+        try
+        {
+            if (_settings.Get("samplesOutOfRecent") == "1") return;
+            var sampleCopies = Samples.Select(s => Path.Combine(ProjectsRoot, s.Name)).ToList();
+            var recent = _settings.RecentProjects()
+                .Where(r => !IsSample(r) && !sampleCopies.Any(c => AppSettings.SameFolder(c, r))).ToList();
+            _settings.SetList("recentProjects", recent);
+            _settings.Set("samplesOutOfRecent", "1");
+        }
+        catch { /* a convenience */ }
     }
 
     // ---------------- Layout ----------------
@@ -206,7 +211,7 @@ public sealed class LauncherWindow : Window
             CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 9), HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
-        ToolTip.SetTip(b, Directory.Exists(Path.Combine(ProjectsRoot, name)) ? "Open it" : "Make a copy in your projects and open it");
+        ToolTip.SetTip(b, "Open this sample game (it stays in this list, not in your projects)");
         b.Click += (_, _) => OpenSample(name);
         return b;
     }
@@ -214,7 +219,7 @@ public sealed class LauncherWindow : Window
     void FillRecent()
     {
         _recent.Children.Clear();
-        var list = _settings.RecentProjects();
+        var list = _settings.RecentProjects().Where(d => !IsSample(d)).ToList();
         if (list.Count == 0)
         {
             _recent.Children.Add(new TextBlock
@@ -321,7 +326,7 @@ public sealed class LauncherWindow : Window
 
     void OpenSample(string name)
     {
-        string dir = Path.Combine(ProjectsRoot, name);
+        string dir = Path.Combine(SamplesRoot, name);
         if (!Project.Exists(dir))
         {
             try { SampleGames.Make(name, dir); }

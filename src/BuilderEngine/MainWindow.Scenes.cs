@@ -36,7 +36,8 @@ public sealed partial class MainWindow
 
         var more = SmallButton("⋯", "Rename, duplicate, move or delete this scene");
         var flyout = new MenuFlyout();
-        flyout.Opening += (_, _) =>
+        // An Avalonia MenuFlyout with no items never opens: fill it now, and again each time it opens (the state changes).
+        void Fill()
         {
             flyout.Items.Clear();
             MenuItem Item(string text, Action run, bool enabled = true)
@@ -52,7 +53,9 @@ public sealed partial class MainWindow
             flyout.Items.Add(Item("Move later", () => MoveSceneCommand(+1), _sceneIndex < n - 1));
             flyout.Items.Add(new Separator());
             flyout.Items.Add(Item("Delete…", () => _ = DeleteSceneAsync(), n > 1));
-        };
+        }
+        Fill();
+        flyout.Opening += (_, _) => Fill();
         more.Flyout = flyout;
 
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };

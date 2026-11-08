@@ -51,7 +51,8 @@ public sealed partial class MainWindow
 
     void RememberProject()
     {
-        if (!_settings.ReadOnly) _settings.RememberProject(_projectDir);
+        // Sample games are opened from the start screen's list and never go to Recent.
+        if (!_settings.ReadOnly && !LauncherWindow.IsSample(_projectDir)) _settings.RememberProject(_projectDir);
     }
 
     void UpdateTitle()
