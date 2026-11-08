@@ -23,7 +23,8 @@ may use: `FindEeproj(folder)`, `IsEasyFolder(folder)`, `IsProjectFolder(folder)`
 `FromEeproj` throws `JsonException` when the text isn't a JSON object.
 
 EasyEngine references `BuilderEngine.Script.dll` (+ `BuilderEngine.Plugin.dll`) as a **binary reference** copied into
-`engine/lib/BuilderEngine/` by `engine/tools/Update-BuilderEngineLib.ps1`, so the EasyEngine repo still builds on its
+`engine/lib/BuilderEngine/` by `engine/tools/Update-BuilderEngineLib.ps1` (which runs this repo's `tools/Build-LinkLib.ps1`:
+Release build of `BuilderEngine.Script` + `BuilderEngine.Plugin`, DLLs copied to the target folder), so the EasyEngine repo still builds on its
 own (GitHub, other PCs). Rebuild + recopy when the link or the runtime changes.
 
 ## Common fields (both engines edit them)
@@ -42,8 +43,15 @@ own (GitHub, other PCs). Rebuild + recopy when the link or the runtime changes.
 The last row is mapped only when BuilderEngine's `SceneObject` has those properties (the converter checks once, by
 reflection); until then they simply stay in the object's `easy` block. Animations are `{Name, Frames, Fps, Loop}` in
 EasyEngine and the same in camelCase in `project.json`; a BuilderEngine object with no animations is written as
-`"Animations": []`, never `null`. Project prefabs (`Prefabs`) stay in the project's `easy` block for now; prefabs made
-in BuilderEngine travel in `Builder.extra`.
+`"Animations": []`, never `null`.
+
+Project prefabs map both ways: BuilderEngine `Project.Prefabs` (`Prefab{Name, Icon, Category, Template}`, `prefabs` in
+`project.json`) ⇄ EasyEngine `Prefabs` (`PrefabDef{Name, Icon, Category, Template}`). A template goes through the same
+object mapping as a scene object (its EasyEngine data in the template's `easy` block, its mechanisms and tags in the
+template's `Builder` block; no layer). Saving merges by prefab name: an unchanged prefab keeps its exact JSON, one deleted
+in BuilderEngine is removed, a new one is added at the end; prefabs BuilderEngine can't read (no name, a repeated name)
+stay as they were. Files from the first link version kept BuilderEngine's prefabs in `Builder.extra.prefabs`: they are
+read and moved to `Prefabs` on the next save.
 
 Colours are `#RRGGBB` (or `#AARRGGBB`); pictures keep their relative path (`images/x.png` or `Assets\sprites\x.png`):
 each engine resolves it from the project folder, so both see the same file.
@@ -138,7 +146,9 @@ argument: **EasyEngine opens a `.eeproj` given as its first argument in the edit
 BuilderEngine's start screen and Project menu: **Open project folder…** takes a folder with a `project.json` or a
 `.eeproj`; **Open EasyEngine project…** takes a `.eeproj` file. Recent lists the folder with an **EasyEngine** badge.
 `--project` takes either. A folder with both files opens `project.json` (unless the `.eeproj` is picked as a file).
-Saving writes the `.eeproj` atomically; a `.eeproj` that can't be read is never saved over.
+Saving writes the `.eeproj` atomically; a `.eeproj` that can't be read is never saved over. Likewise `SaveFromEeproj`
+throws (an `IOException` the caller shows) instead of saving into a folder whose `project.json` can't be read, since
+saving deletes the mechanism files it doesn't list.
 
 ## Live link
 

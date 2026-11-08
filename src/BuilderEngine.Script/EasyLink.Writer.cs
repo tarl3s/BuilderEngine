@@ -165,6 +165,8 @@ public static partial class EasyLink
             }
             else if (prev == null && project.Easy == null && project.Scenes.Count > 0) root["StartScene"] = project.Scenes[0].Name;
 
+            root = WritePrefabs(root, be);
+
             var parts = new JsonObject();
             if (project.Mechanisms.Count > 0)
             {
@@ -180,6 +182,67 @@ public static partial class EasyLink
             }
             PutBuilder(root, parts, ["linkVersion", "mechanisms", "extra"]);
             return root;
+        }
+
+        /// <summary>
+        /// The project's prefabs (<c>Prefabs</c>), merged into the previous list: a prefab BuilderEngine read keeps its
+        /// exact JSON except what changed (its template goes through <see cref="WriteObject"/>), one it deleted is removed,
+        /// one it made is added at the end. Prefabs BuilderEngine couldn't read (no name, a repeated name) stay as they were.
+        /// </summary>
+        JsonObject WritePrefabs(JsonObject root, JsonObject be)
+        {
+            var bePrefabs = Get(be, "prefabs") as JsonArray ?? [];
+            var prevArr = prev != null ? Get(prev, "Prefabs") as JsonArray : Get(root, "Prefabs") as JsonArray; // no previous file: an older project.json kept them in easy
+            if (prevArr == null && project.Prefabs.Count == 0) return root;
+            var used = new bool[project.Prefabs.Count];
+            int Match(string name)
+            {
+                for (int i = 0; i < project.Prefabs.Count; i++)
+                    if (!used[i] && project.Prefabs[i].Name.Trim().Equals(name, StringComparison.OrdinalIgnoreCase)) return i;
+                return -1;
+            }
+            JsonObject? BeOf(int i) => i < bePrefabs.Count ? bePrefabs[i] as JsonObject : null;
+
+            var output = new JsonArray();
+            if (prevArr != null)
+            {
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var pp in prevArr)
+                {
+                    if (pp is not JsonObject po) { output.Add(pp?.DeepClone()); continue; }
+                    string name = Text(po, "Name", "").Trim();
+                    bool readable = name.Length > 0 && seen.Add(name);
+                    int i = readable ? Match(name) : -1;
+                    if (i >= 0) { used[i] = true; output.Add(WritePrefab(project.Prefabs[i], BeOf(i), po)); }
+                    else if (!readable || prev == null) output.Add(po.DeepClone()); // BuilderEngine never saw it (or an older easy list)
+                }
+            }
+            for (int i = 0; i < project.Prefabs.Count; i++)
+                if (!used[i]) output.Add(WritePrefab(project.Prefabs[i], BeOf(i), null));
+
+            if (Get(root, "Prefabs") is JsonArray old && SameJson(old, output)) return root; // keep the exact previous text
+            bool had = Get(root, "Prefabs") != null;
+            root[KeyIn(root, "Prefabs")] = output;
+            return had || prev != null ? root : Ordered(EeProjectOrder, new JsonObject(), root);
+        }
+
+        JsonObject WritePrefab(Prefab p, JsonObject? beP, JsonObject? prevP)
+        {
+            var beTemplate = beP != null && Get(beP, "template") is JsonObject bt ? bt : new JsonObject();
+            var prevT = prevP != null ? Get(prevP, "Template") as JsonObject : null;
+            JsonObject node;
+            if (prevP != null)
+            {
+                node = prevP.DeepClone().AsObject();
+                var was = Prefab.FromNode(PrefabToBe(prevP, false)) ?? new Prefab();
+                Put(node, KeyIn(node, "Name"), p.Name, was.Name != p.Name, isDefault: was.Name == p.Name);
+                Put(node, KeyIn(node, "Icon"), p.Icon, was.Icon != p.Icon, isDefault: was.Icon == p.Icon); // a missing key that still reads the same stays missing
+                Put(node, KeyIn(node, "Category"), p.Category, was.Category != p.Category, isDefault: was.Category == p.Category);
+            }
+            else node = new JsonObject { ["Name"] = p.Name, ["Icon"] = p.Icon, ["Category"] = p.Category };
+            var t = WriteObject(p.Template, beTemplate, false, template: true, templatePrev: prevT);
+            if (prevT == null || !SameJson(prevT, t)) node[KeyIn(node, "Template")] = t;
+            return node;
         }
 
         /// <summary>The key as the object already spells it (case-insensitive), else as given.</summary>
@@ -356,11 +419,16 @@ public static partial class EasyLink
             Put(node, key, z, ZOf(node) != z, isDefault: z == 0);
         }
 
-        JsonObject WriteObject(SceneObject o, JsonObject beObj, bool screen)
+        /// <summary>
+        /// One object as EasyEngine stores it. A prefab's template (<paramref name="template"/>) is matched with the previous
+        /// prefab's template (<paramref name="templatePrev"/>) instead of by id.
+        /// </summary>
+        JsonObject WriteObject(SceneObject o, JsonObject beObj, bool screen, bool template = false, JsonObject? templatePrev = null)
         {
             JsonObject node;
             JsonObject? prevObj = null;
-            if (o.Easy != null && !_sceneById.TryGetValue(o.Id, out prevObj)) prevObj = _prevById.GetValueOrDefault(o.Id);
+            if (template) prevObj = templatePrev;
+            else if (o.Easy != null && !_sceneById.TryGetValue(o.Id, out prevObj)) prevObj = _prevById.GetValueOrDefault(o.Id);
             if (prevObj != null)
             {
                 node = prevObj.DeepClone().AsObject();
