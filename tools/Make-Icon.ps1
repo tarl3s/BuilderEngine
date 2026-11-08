@@ -29,7 +29,7 @@ function Draw-Bitmap([int]$s) {
     $hw = $s * 0.13                                   # handle width
     $g.FillPath($orange, (Rounded ($s / 2 - $hw / 2) ($s * 0.34) $hw ($s * 0.49) ($hw * 0.45)))
     $headW = $s * 0.50; $headH = $s * 0.20            # head
-    $g.FillPath($orange, (Rounded ($s / 2 - $headW * 0.42) ($s * 0.21) $headW $headH ($headH * 0.22)))
+    $g.FillPath($orange, (Rounded ($s / 2 - $headW / 2) ($s * 0.21) $headW $headH ($headH * 0.22)))
     if ($s -ge 32) {
         # a dark line where the head meets the handle, so it reads as two parts
         $dark = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 17, 17, 17))

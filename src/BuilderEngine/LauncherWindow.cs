@@ -180,18 +180,13 @@ public sealed class LauncherWindow : Window
 
     static Control Logo()
     {
-        // The hexagon of EasyEngine's launcher, in BuilderEngine's faded orange, with a block inside.
-        var hex = new Polygon
+        // The app icon itself (the orange hammer, Assets/BuilderEngine.png from tools/Make-Icon.ps1), so both always match.
+        try
         {
-            Points = [new(20, 2), new(37, 11), new(37, 31), new(20, 40), new(3, 31), new(3, 11)],
-            Stroke = Palette.Accent, StrokeThickness = 2.5, Fill = Palette.AccentSoft
-        };
-        var block = new Rectangle { Width = 12, Height = 12, Fill = Palette.Accent, RadiusX = 2, RadiusY = 2 };
-        Canvas.SetLeft(block, 14); Canvas.SetTop(block, 15);
-        var c = new Canvas { Width = 40, Height = 42 };
-        c.Children.Add(hex);
-        c.Children.Add(block);
-        return c;
+            using var s = Avalonia.Platform.AssetLoader.Open(new Uri("avares://BuilderEngine/Assets/BuilderEngine.png"));
+            return new Image { Source = new Avalonia.Media.Imaging.Bitmap(s), Width = 44, Height = 44 };
+        }
+        catch { return new Border { Width = 44, Height = 44 }; }
     }
 
     Control SampleCard(string name, string pitch, string color)
