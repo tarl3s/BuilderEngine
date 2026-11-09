@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -472,18 +471,11 @@ public sealed partial class EasyCompat
 
     static JsonObject? Bag(JsonObject b, string name) => EasyLink.Get(b, name) as JsonObject;
 
-    /// <summary>A behavior's number (its "Nums"), a number written as text too.</summary>
+    /// <summary>A behavior's number (its "Nums"): a number (also written as text, "0,5" too) or a yes/no (1 / 0).</summary>
     internal static double N(JsonObject b, string key, double def)
     {
-        if (Bag(b, "Nums") is { } nums && EasyLink.Get(nums, key) is { } n && Project.Value(n) is { } v)
-            return v switch
-            {
-                double d => d,
-                bool x => x ? 1 : 0,
-                string s when double.TryParse(s.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) => d,
-                _ => def,
-            };
-        return def;
+        if (Bag(b, "Nums") is not { } nums) return def;
+        return EasyLink.Get(nums, key) is JsonValue v && v.TryGetValue<bool>(out var x) ? (x ? 1 : 0) : EasyLink.Number(nums, key, def);
     }
 
     internal static bool On(JsonObject b, string key, double def) => N(b, key, def) >= 0.5;
@@ -492,8 +484,29 @@ public sealed partial class EasyCompat
     internal static string T(JsonObject b, string key, string def) =>
         Bag(b, "Texts") is { } texts && EasyLink.Get(texts, key) is { } t && Project.Value(t) is { } v ? World.ToText(v) : def;
 
-    static string Str(JsonObject o, string key, string def) => EasyLink.Get(o, key) is JsonValue v && v.TryGetValue<string>(out var s) ? s : def;
-    static double Num(JsonObject o, string key, double def) => Project.Value(EasyLink.Get(o, key)) is double d ? d : def;
+    static string Str(JsonObject o, string key, string def) => EasyLink.Text(o, key, def);
+    static double Num(JsonObject o, string key, double def) => EasyLink.Number(o, key, def);
+
+    /// <summary>
+    /// Whether a yes/no text says yes ("on", "true", "yes", "1"), says no ("off", "false", "no", "0"), or neither (null);
+    /// capital letters and spaces round it don't matter.
+    /// </summary>
+    internal static bool? TextFlag(string s) => s.Trim().ToLowerInvariant() switch
+    {
+        "on" or "true" or "yes" or "1" => true,
+        "off" or "false" or "no" or "0" => false,
+        _ => null,
+    };
+
+    /// <summary>A yes/no text that says yes (anything else is no).</summary>
+    internal static bool IsOn(string s) => TextFlag(s) == true;
+
+    /// <summary>A comparison as one of &gt; &lt; &gt;= &lt;= == != ("=" is ==, "&lt;&gt;" is !=; anything else is &gt;=, like EasyEngine).</summary>
+    internal static string NormalOp(string op) => op.Trim() switch
+    {
+        ">" => ">", "<" => "<", ">=" => ">=", "<=" => "<=", "==" or "=" => "==", "!=" or "<>" => "!=",
+        _ => ">=",
+    };
 
     /// <summary>An EasyEngine key (WPF's names: "E", "Space", "LeftShift", "Return", "D1") as Builder Script names it.</summary>
     internal static string Key(string ee)

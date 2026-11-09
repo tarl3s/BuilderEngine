@@ -388,7 +388,7 @@ public sealed partial class MainWindow : Window
             ShowTab(false);
         }
         if (!fromBlocks && parsed != null) BlocksShow(text);
-        _code.RefreshColors(_sources.Keys); // a new 'to' command or mechanism name recolours the lines that use it
+        _code.RefreshColors(_sources.Keys, text); // a new 'to' command or mechanism name recolours the lines that use it
         SceneOnMechanismsChanged();
     }
 

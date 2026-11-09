@@ -10,6 +10,8 @@ public sealed partial class GameObject
     public int Id { get; internal set; }
     public string Name { get; set; } = "Object";
     public double X, Y, Width = 32, Height = 32;
+    /// <summary>How far it is turned, in degrees (clockwise; drawn rotated round its centre). Scripts: self.angle.</summary>
+    public double Angle;
     public HashSet<string> Tags { get; } = new(StringComparer.OrdinalIgnoreCase);
     public List<MechanismInstance> Mechanisms { get; } = [];
     public bool Destroyed { get; internal set; }
@@ -971,7 +973,7 @@ public sealed partial class World
     }
 
     /// <summary>Like <see cref="ToNumber"/> without the error (comparisons with a text that isn't a number are just false).</summary>
-    static bool TryNumber(object? v, out double d)
+    internal static bool TryNumber(object? v, out double d)
     {
         switch (v)
         {

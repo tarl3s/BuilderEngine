@@ -48,19 +48,49 @@ public static partial class EasyLink
             bool solid = Get(e, "solid") switch
             {
                 JsonValue v when v.TryGetValue<bool>(out var b) => b,
-                JsonValue v when v.TryGetValue<string>(out var s) => s.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) || Project.TryNumber(s, out var sn) && sn >= 0.5,
-                JsonValue v when TryNumber(v, out var d) => d >= 0.5,
-                _ => false,
+                JsonValue v when v.TryGetValue<string>(out var s) && s.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) => true,
+                var n => TryLooseNumber(n, out var d) && d >= 0.5,
             };
             var frames = Get(e, "frames") is JsonArray fr
                 ? fr.Select(f => f is JsonValue fv && fv.TryGetValue<string>(out var fs) ? fs : "").Where(s => !string.IsNullOrWhiteSpace(s)).ToList()
                 : [];
             string? image = Get(e, "image") is JsonValue iv && iv.TryGetValue<string>(out var im) && !string.IsNullOrWhiteSpace(im) ? im : null;
-            double fps = Get(e, "fps") is JsonValue pv && (TryNumber(pv, out var fd) || pv.TryGetValue<string>(out var ps) && Project.TryNumber(ps, out fd)) ? Math.Clamp(fd, 1, 60) : 8;
+            double fps = TryLooseNumber(Get(e, "fps"), out var fd) ? Math.Clamp(fd, 1, 60) : 8;
             var pics = frames.Count > 0 ? frames : image != null ? [image] : new List<string>();
             tiles.Add(new EeTile(color, solid, pics, fps));
         }
         return (tiles, arr);
+    }
+
+    /// <summary>A number however it was written: a JSON number (parsed or set in code) or a number in a text ("0,5" too).</summary>
+    static bool TryLooseNumber(JsonNode? n, out double d) =>
+        TryNumber(n, out d) || n is JsonValue v && v.TryGetValue<string>(out var s) && Project.TryNumber(s, out d);
+
+    /// <summary>A Tilemap behavior's settings bags and the values read from them (EasyEngine's defaults when missing).</summary>
+    readonly record struct TilemapSettings(JsonObject Nums, JsonObject Texts)
+    {
+        public double TileSize => Math.Max(4, Number(Nums, "tileSize", 32));
+        public bool Breakable => Number(Nums, "breakable", 0) >= 0.5;
+        public string Drop => Text(Texts, "drop", "");
+        public string Palette => Text(Texts, "palette", "");
+        public string Data => Text(Texts, "data", "");
+    }
+
+    /// <summary>
+    /// The settings of a Tilemap behavior. A missing Nums / Texts bag reads as empty; with <paramref name="addMissing"/>
+    /// it is added to the behavior (to be written into).
+    /// </summary>
+    static TilemapSettings SettingsOf(JsonObject bh, bool addMissing = false)
+    {
+        JsonObject Bag(string name)
+        {
+            if (Get(bh, name) is JsonObject o) return o;
+            o = new JsonObject();
+            if (addMissing) bh[EeWriter.KeyIn(bh, name)] = o;
+            return o;
+        }
+        var nums = Bag("Nums");
+        return new TilemapSettings(nums, Bag("Texts"));
     }
 
     /// <summary>The grid: columns, rows and one palette number per cell (0, 0 and none when it can't be read).</summary>
@@ -156,6 +186,17 @@ public static partial class EasyLink
             return Kinds.Count;
         }
 
+        /// <summary>The kind number of each tile of a Tilemap behavior's palette (adding the kinds it needs).</summary>
+        public int[] IdsFor(TilemapSettings s, bool stripImagesFolder)
+        {
+            var (tiles, _) = ParsePalette(s.Palette);
+            bool breakable = s.Breakable;
+            string drop = s.Drop;
+            var ids = new int[tiles.Count];
+            for (int i = 0; i < ids.Length; i++) ids[i] = IdFor(tiles[i], breakable, drop, stripImagesFolder);
+            return ids;
+        }
+
         string NewName(string stem)
         {
             if (stem.Length > 0 && !_names.Contains(stem)) return stem;
@@ -171,13 +212,18 @@ public static partial class EasyLink
     /// Where a tilemap is drawn in BuilderEngine (which draws tile layers behind or in front of all objects): in front when
     /// its EasyEngine layer is a world layer above the first Base layer (not Background / Sky), else behind.
     /// </summary>
-    static bool FrontFor(List<JsonObject> eeLayers, int li)
+    static bool FrontFor(List<JsonObject> eeLayers, int li) => FrontFor(eeLayers, li, BaseLayerIndex(eeLayers));
+
+    /// <summary><see cref="FrontFor(List{JsonObject}, int)"/> with the first Base layer's index already known.</summary>
+    static bool FrontFor(List<JsonObject> eeLayers, int li, int baseAt)
     {
         if (li < 0 || li >= eeLayers.Count || IsScreen(eeLayers[li])) return false;
         if (Kind(eeLayers[li]) is "Background" or "Sky") return false;
-        int baseAt = eeLayers.FindIndex(l => !IsScreen(l) && Kind(l) == "Base");
         return baseAt >= 0 && li > baseAt;
     }
+
+    /// <summary>The first world (not screen) layer of kind Base, or -1.</summary>
+    static int BaseLayerIndex(List<JsonObject> eeLayers) => eeLayers.FindIndex(l => !IsScreen(l) && Kind(l) == "Base");
 
     /// <summary>
     /// A scene's tilemaps (in draw order) as its <c>tileKinds</c> / <c>tileLayers</c>. Tile maps an earlier link version kept
@@ -203,14 +249,10 @@ public static partial class EasyLink
     /// <summary>One EasyEngine tilemap as a tile layer (<paramref name="beo"/>: the object as BuilderEngine reads it, kept in <see cref="TileLayer.Easy"/>).</summary>
     static TileLayer ReadTilemap(JsonObject ee, JsonObject beo, int li, List<JsonObject> eeLayers, KindTable table, double sceneW, double sceneH, bool stripImagesFolder)
     {
-        var bh = TilemapBehavior(ee)!;
-        var nums = Get(bh, "Nums") as JsonObject ?? new JsonObject();
-        var texts = Get(bh, "Texts") as JsonObject ?? new JsonObject();
-        double ts = Math.Max(4, Number(nums, "tileSize", 32));
-        bool breakable = Number(nums, "breakable", 0) >= 0.5;
-        var (tiles, _) = ParsePalette(Text(texts, "palette", ""));
-        var ids = tiles.Select(t => table.IdFor(t, breakable, Text(texts, "drop", ""), stripImagesFolder)).ToArray();
-        var (cols, rows, cells) = ParseData(Text(texts, "data", ""));
+        var settings = SettingsOf(TilemapBehavior(ee)!);
+        double ts = settings.TileSize;
+        var ids = table.IdsFor(settings, stripImagesFolder);
+        var (cols, rows, cells) = ParseData(settings.Data);
         double x = Number(ee, "X", 0), y = Number(ee, "Y", 0);
         if (cols == 0) { (cols, rows) = FitDims(ts, x, y, sceneW, sceneH); cells = new int[cols * rows]; }
 
@@ -285,31 +327,32 @@ public static partial class EasyLink
             var prevOrder = ps == null ? [] : Layers(ps).SelectMany(l => InDrawOrder(LayerObjects(l))).Select(IdOf).ToList();
             var todo = tileLayers.Select((l, i) => (L: l, I: i, Pos: IsEasyTilemap(l) ? prevOrder.IndexOf(LayerId(l)) : -1))
                 .OrderBy(t => t.Pos < 0 ? int.MaxValue : t.Pos).ThenBy(t => t.I).ToList();
+            // id -> index of the first object with EasyEngine data and that id (kept right as Tilemap objects go in)
+            var firstAt = new Dictionary<int, int>();
+            for (int i = 0; i < objs.Count; i++) if (objs[i].Easy != null) firstAt.TryAdd(objs[i].Id, i);
             foreach (var (l, _, pos) in todo)
             {
                 var (o, beo) = TilemapObject(l, eeLayers);
-                int at = InsertAt(objs, o, pos, prevOrder, IsEasyTilemap(l));
+                int at = InsertAt(objs, o, pos, prevOrder, IsEasyTilemap(l), firstAt);
                 objs.Insert(at, o);
                 beObjs.Insert(at, beo);
                 _tileOf[o] = l;
+                for (int i = at + 1; i < objs.Count; i++) // everything after it moved down one
+                    if (objs[i].Easy != null && firstAt.TryGetValue(objs[i].Id, out var was) && was == i - 1) firstAt[objs[i].Id] = i;
+                if (o.Easy != null && (!firstAt.TryGetValue(o.Id, out var first) || first > at)) firstAt[o.Id] = at;
             }
-            var ws = new Scene { Id = s.Id, Name = s.Name, Width = s.Width, Height = s.Height, Background = s.Background, Objects = objs, Easy = s.Easy, TileKinds = s.TileKinds, TileLayers = s.TileLayers };
             var wbe = beScene.DeepClone().AsObject();
             wbe["objects"] = new JsonArray(beObjs.ToArray());
-            return (ws, wbe);
+            return (s.WithObjects(objs), wbe);
         }
 
         /// <summary>Where a Tilemap object goes in the scene's list: after the object drawn just before it in the previous file.</summary>
-        static int InsertAt(List<SceneObject> objs, SceneObject o, int pos, List<int> prevOrder, bool fromEasy)
+        static int InsertAt(List<SceneObject> objs, SceneObject o, int pos, List<int> prevOrder, bool fromEasy, Dictionary<int, int> firstAt)
         {
             if (pos >= 0)
             {
                 for (int k = pos - 1; k >= 0; k--)
-                {
-                    int id = prevOrder[k];
-                    int at = objs.FindIndex(x => x.Id == id && x.Easy != null);
-                    if (at >= 0) return at + 1;
-                }
+                    if (firstAt.TryGetValue(prevOrder[k], out var at)) return at + 1;
                 return 0;
             }
             if (!fromEasy) return objs.Count; // made in BuilderEngine: on top of its layer
@@ -336,10 +379,12 @@ public static partial class EasyLink
             {
                 // Made in BuilderEngine: a new EasyEngine Tilemap object (FixIds gave the layer its id), behind the objects in
                 // the Background layer, or in front in the first world layer above Base.
-                int baseAt = eeLayers.FindIndex(x => !IsScreen(x) && Kind(x) == "Base");
-                int li = l.Front
-                    ? eeLayers.FindIndex(x => !IsScreen(x) && FrontFor(eeLayers, eeLayers.IndexOf(x)))
-                    : eeLayers.FindIndex(x => !IsScreen(x) && Kind(x) == "Background");
+                int baseAt = BaseLayerIndex(eeLayers);
+                int li = -1;
+                if (!l.Front) li = eeLayers.FindIndex(x => !IsScreen(x) && Kind(x) == "Background");
+                else
+                    for (int i = 0; i < eeLayers.Count && li < 0; i++)
+                        if (FrontFor(eeLayers, i, baseAt)) li = i;
                 if (li < 0) li = baseAt;
                 var easy = Without(DefaultEeObject(), ["Prefab", "PrefabAll", "Animations", "DefaultAnimation"]);
                 easy["Type"] = TilemapKind;
@@ -347,10 +392,13 @@ public static partial class EasyLink
                 if (li >= 0) easy[LayerKey] = li;
                 beo = new JsonObject
                 {
-                    ["id"] = LayerId(l), ["name"] = l.Name, ["x"] = l.X, ["y"] = l.Y, ["width"] = 32, ["height"] = 32, ["color"] = "#9A9AA0",
+                    ["id"] = (double)LayerId(l), ["name"] = l.Name, ["x"] = l.X, ["y"] = l.Y, ["width"] = 32.0, ["height"] = 32.0, ["color"] = "#9A9AA0",
                     ["image"] = "", ["tags"] = new JsonArray(), ["mechanisms"] = new JsonArray(), [EasyKey] = easy,
                 };
             }
+            // SceneObject.FromNode reads numbers as doubles: an id set in code as an int (SetLayerId) becomes one (same text).
+            if (beo.TryGetPropertyValue("id", out var idNode) && idNode is JsonValue idv && !idv.TryGetValue<double>(out _) && TryNumber(idv, out var id))
+                beo["id"] = id;
             beo["name"] = l.Name;
             beo["x"] = l.X;
             beo["y"] = l.Y;
@@ -359,7 +407,7 @@ public static partial class EasyLink
             int layerIndex = Get(beo, EasyKey) is JsonObject e && TryNumber(Get(e, LayerKey), out var d) ? (int)d : -1;
             if (l.Front != FrontFor(eeLayers, layerIndex)) beo["tileFront"] = l.Front;
             if (!l.Solid) beo["tileSolid"] = false;
-            return (SceneObject.FromNode(JsonNode.Parse(beo.ToJsonString())!.AsObject()), beo); // through text: values set in code (ints) read as numbers
+            return (SceneObject.FromNode(beo), beo);
         }
 
         /// <summary>EasyEngine's Tilemap behavior with its catalog defaults (BehaviorCatalog.cs) and no cells yet.</summary>
@@ -382,30 +430,28 @@ public static partial class EasyLink
         void WriteTilemapCells(JsonObject node, TileLayer l)
         {
             if (TilemapBehavior(node) is not { } bh) return; // EasyEngine took the behavior off meanwhile: its file wins
-            var nums = Get(bh, "Nums") as JsonObject;
-            if (nums == null) bh[KeyIn(bh, "Nums")] = nums = new JsonObject();
-            var texts = Get(bh, "Texts") as JsonObject;
-            if (texts == null) bh[KeyIn(bh, "Texts")] = texts = new JsonObject();
-            double ts = Math.Max(4, Number(nums, "tileSize", 32));
-            if (l.CellSize != ts) nums[KeyIn(nums, "tileSize")] = l.CellSize;
+            var settings = SettingsOf(bh, addMissing: true);
+            var (nums, texts) = (settings.Nums, settings.Texts);
+            if (l.CellSize != settings.TileSize) nums[KeyIn(nums, "tileSize")] = l.CellSize;
 
             var kinds = _tileScene?.TileKinds ?? [];
             var kindKeys = kinds.Select(LookKey).ToArray();
             string KindKey(int id) => id >= 1 && id <= kindKeys.Length ? kindKeys[id - 1] : "";
-            var (tiles, raw) = ParsePalette(Text(texts, "palette", ""));
+            var (tiles, raw) = ParsePalette(settings.Palette);
             var tileKeys = tiles.Select(LookKey).ToList();
             string TileKey(int v) => v >= 1 && v <= tileKeys.Count ? tileKeys[v - 1] : "";
-            var (cols, rows, cells) = ParseData(Text(texts, "data", ""));
+            var (cols, rows, cells) = ParseData(settings.Data);
             bool empty = cols == 0;
             int wc = cols, wr = rows;
             if (empty) (wc, wr) = FitDims(Math.Max(4, l.CellSize), l.X, l.Y, _tileScene?.Width ?? 960, _tileScene?.Height ?? 540);
 
+            // One pass: each cell's palette number, and whether anything differs from what the file reads as. A cell that
+            // still shows the same tile keeps its number; only a changed cell can need a new palette tile, so an unchanged
+            // map adds nothing and is left as it is.
             var lc = l.Cells;
-            bool same = l.Columns == wc && l.Rows == wr;
-            for (int i = 0; same && i < lc.Length; i++)
-                if (KindKey(lc[i]) != (empty ? "" : TileKey(cells[i]))) same = false;
-            if (same) return;
-
+            bool sameDims = l.Columns == wc && l.Rows == wr;
+            bool sameGrid = !empty && sameDims; // (then wc, wr are the file's cols, rows)
+            bool changed = !sameDims;
             var added = new List<JsonObject>();
             var byKind = new Dictionary<int, int>();
             int PaletteNumber(int id)
@@ -422,10 +468,15 @@ public static partial class EasyLink
                 }
                 return byKind[id] = n;
             }
-            bool sameGrid = !empty && l.Columns == cols && l.Rows == rows;
             var output = new int[lc.Length];
             for (int i = 0; i < lc.Length; i++)
-                output[i] = sameGrid && KindKey(lc[i]) == TileKey(cells[i]) ? cells[i] : PaletteNumber(lc[i]);
+            {
+                string key = KindKey(lc[i]);
+                if (sameGrid && key == TileKey(cells[i])) { output[i] = cells[i]; continue; }
+                if (sameGrid || key.Length > 0) changed = true; // (an empty cell where the file has no grid yet is the same)
+                output[i] = PaletteNumber(lc[i]);
+            }
+            if (!changed) return;
             texts[KeyIn(texts, "data")] = DataText(l.Columns, l.Rows, output);
             if (added.Count > 0)
             {
@@ -458,13 +509,7 @@ public static partial class EasyLink
             var table = new KindTable(null);
             foreach (var layer in Layers(sceneNode))
                 foreach (var o in InDrawOrder(LayerObjects(layer)))
-                    if (TilemapBehavior(o) is { } bh)
-                    {
-                        var nums = Get(bh, "Nums") as JsonObject ?? new JsonObject();
-                        var texts = Get(bh, "Texts") as JsonObject ?? new JsonObject();
-                        bool breakable = Number(nums, "breakable", 0) >= 0.5;
-                        foreach (var t in ParsePalette(Text(texts, "palette", "")).Tiles) table.IdFor(t, breakable, Text(texts, "drop", ""), StripPictures);
-                    }
+                    if (TilemapBehavior(o) is { } bh) table.IdsFor(SettingsOf(bh), StripPictures);
             var mine = JsonSerializer.SerializeToNode(kinds, Project.WriteOptions);
             return SameJson(mine, JsonSerializer.SerializeToNode(table.Kinds, Project.WriteOptions)) ? null : mine;
         }

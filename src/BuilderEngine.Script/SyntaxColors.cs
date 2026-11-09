@@ -50,30 +50,37 @@ public sealed class SyntaxContext
         {
             int end = source.IndexOf('\n', pos);
             if (end < 0) end = source.Length;
-            int i = pos;
-            while (i < end && source[i] is ' ' or '\t') i++;
-            if (end - i > 3 && string.CompareOrdinal(source, i, "to", 0, 2) == 0 && source[i + 2] is ' ' or '\t')
+            int start = SkipBlanks(source, pos, end);
+            if (end - start > 3 && string.CompareOrdinal(source, start, "to", 0, 2) == 0 && source[start + 2] is ' ' or '\t')
             {
-                i += 3;
-                while (i < end && source[i] is ' ' or '\t') i++;
-                int s = i;
-                while (i < end && (char.IsLetterOrDigit(source[i]) || source[i] == '_')) i++;
-                if (i > s && !char.IsDigit(source[s])) procs.Add(source[s..i]);
+                int s = SkipBlanks(source, start + 3, end), e = NameEnd(source, s, end);
+                if (e > s && !char.IsDigit(source[s])) procs.Add(source[s..e]);
             }
             // A mechanism in this text (several in one file) counts as known too.
-            i = pos;
-            while (i < end && source[i] is ' ' or '\t') i++;
-            foreach (var head in (string[])["mechanism ", "system "])
-                if (end - i > head.Length && string.CompareOrdinal(source, i, head, 0, head.Length) == 0)
+            foreach (var head in MechanismHeads)
+                if (end - start > head.Length && string.CompareOrdinal(source, start, head, 0, head.Length) == 0)
                 {
-                    int s = i + head.Length;
-                    int e = s;
-                    while (e < end && (char.IsLetterOrDigit(source[e]) || source[e] == '_')) e++;
+                    int s = start + head.Length, e = NameEnd(source, s, end);
                     if (e > s) mechs.Add(source[s..e]);
                 }
             pos = end + 1;
         }
         return new SyntaxContext(procs, mechs);
+    }
+
+    static readonly string[] MechanismHeads = ["mechanism ", "system "];
+
+    static int SkipBlanks(string s, int i, int end)
+    {
+        while (i < end && s[i] is ' ' or '\t') i++;
+        return i;
+    }
+
+    /// <summary>Where a name (letters, digits, '_') starting at <paramref name="i"/> ends.</summary>
+    static int NameEnd(string s, int i, int end)
+    {
+        while (i < end && (char.IsLetterOrDigit(s[i]) || s[i] == '_')) i++;
+        return i;
     }
 
     /// <summary>Same commands and mechanisms (nothing to recolour when a change keeps them).</summary>
@@ -100,7 +107,7 @@ public static class SyntaxColors
 
     public static readonly HashSet<string> ConstantWords = new(StringComparer.Ordinal) { "true", "false", "nothing", "none", "self", "other" };
 
-    static HashSet<string>? s_commands;
+    static HashSet<string>? s_commands, s_firstWords;
 
     /// <summary>The engine's commands (one and two words: "camera follow"), the built-in ones, the editor tools' ones.</summary>
     static HashSet<string> EngineCommands
@@ -118,12 +125,31 @@ public static class SyntaxColors
         }
     }
 
-    static bool IsCommand(string name, SyntaxContext ctx)
+    /// <summary>The first words of the two-word engine commands ("camera" of "camera follow"): only those start one.</summary>
+    static HashSet<string> FirstWords =>
+        s_firstWords ??= new HashSet<string>(EngineCommands.Where(c => c.Contains(' ')).Select(c => c[..c.IndexOf(' ')]), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The engine's commands and the active plugins' ones, made again when the plugins change.</summary>
+    sealed record CommandSet(int Version, PluginManager? Active, int PluginCount, HashSet<string> Names);
+    static CommandSet? s_allCommands;
+
+    static HashSet<string> AllCommands
     {
-        if (ctx.Procs.Contains(name) || EngineCommands.Contains(name)) return true;
-        foreach (var c in PluginRegistry.Commands) if (string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)) return true;
-        return false;
+        get
+        {
+            int version = PluginManager.Version;
+            var active = PluginManager.Active;
+            int count = active?.Plugins.Count ?? 0;
+            var cached = s_allCommands;
+            if (cached != null && cached.Version == version && ReferenceEquals(cached.Active, active) && cached.PluginCount == count) return cached.Names;
+            var names = new HashSet<string>(EngineCommands, StringComparer.OrdinalIgnoreCase);
+            foreach (var c in PluginRegistry.Commands) names.Add(c.Name);
+            s_allCommands = new CommandSet(version, active, count, names);
+            return names;
+        }
     }
+
+    static bool IsCommand(string name, SyntaxContext ctx) => ctx.Procs.Contains(name) || AllCommands.Contains(name);
 
     [ThreadStatic] static List<RawSpan>? t_raw;
 
@@ -141,7 +167,17 @@ public static class SyntaxColors
         result.Clear();
         var raw = t_raw ??= [];
         Lexer.ScanLine(line, raw);
-        string Text(int k) => line.Substring(raw[k].Start, raw[k].Length);
+        // The text of a piece; the last few names read are kept, so each name is cut out of the line once.
+        int at1 = -1, at2 = -1;
+        string word1 = "", word2 = "";
+        string Text(int k)
+        {
+            if (k == at1) return word1;
+            if (k == at2) return word2;
+            string t = line.Substring(raw[k].Start, raw[k].Length);
+            (at2, word2, at1, word1) = (at1, word1, k, t);
+            return t;
+        }
         bool IsOp(int k, string op) => k >= 0 && k < raw.Count && raw[k].Kind == RawKind.Op && raw[k].Length == op.Length && string.CompareOrdinal(line, raw[k].Start, op, 0, op.Length) == 0;
         bool IsIdent(int k) => k >= 0 && k < raw.Count && raw[k].Kind == RawKind.Ident;
 
@@ -207,10 +243,10 @@ public static class SyntaxColors
             // A command at the start of a statement: one word (print) or two (camera follow, stop sound).
             if (k == stmt)
             {
-                if (IsIdent(k + 1) && EngineCommands.Contains(w + " " + Text(k + 1))) return CodeClass.Function;
+                if (IsIdent(k + 1) && FirstWords.Contains(w) && EngineCommands.Contains(w + " " + Text(k + 1))) return CodeClass.Function;
                 if (!ControlWords.Contains(w) && !DeclarationWords.Contains(w) && w != "to" && !IsAssignment(k + 1) && IsCommand(w, ctx)) return CodeClass.Function;
             }
-            if (k == stmt + 1 && IsIdent(stmt) && EngineCommands.Contains(Text(stmt) + " " + w)) return CodeClass.Function;
+            if (k == stmt + 1 && IsIdent(stmt) && FirstWords.Contains(Text(stmt)) && EngineCommands.Contains(Text(stmt) + " " + w)) return CodeClass.Function;
 
             if (ControlWords.Contains(w)) return CodeClass.Control;
             if (w == "in" && head == "for") return CodeClass.Control;

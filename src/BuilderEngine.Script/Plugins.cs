@@ -36,7 +36,19 @@ public sealed class PluginManager : IDisposable
     public const string FolderName = "plugins";
 
     /// <summary>The plugins every new world gets (null = none; the editor sets it once the person enabled plugins).</summary>
-    public static PluginManager? Active { get; set; }
+    public static PluginManager? Active
+    {
+        get => s_active;
+        set { s_active = value; Changed(); }
+    }
+    static PluginManager? s_active;
+
+    static int s_version;
+
+    /// <summary>Goes up whenever the active plugins (and so their commands) may have changed: caches of their names check it.</summary>
+    internal static int Version => Volatile.Read(ref s_version);
+
+    static void Changed() => Interlocked.Increment(ref s_version);
 
     [ThreadStatic] static bool t_noPlugins;
 
@@ -130,6 +142,7 @@ public sealed class PluginManager : IDisposable
             lp.Errors.Add(Inner(e).Message);
             Report($"Plugin {lp.Name} ({source}) failed while registering: {Inner(e).Message}");
         }
+        Changed();
         return lp;
     }
 
@@ -156,6 +169,7 @@ public sealed class PluginManager : IDisposable
     public void Unload()
     {
         Plugins.Clear();
+        Changed();
         Errors.Clear();
         var c = _context;
         _context = null;

@@ -69,7 +69,7 @@ public sealed partial class EasyCompat
                             string v = p.Value.GetString() ?? "";
                             if (v.TrimStart().StartsWith("expr:", StringComparison.OrdinalIgnoreCase)) v = v.TrimStart()[5..].Trim();
                             (toTrigger ? r.WT : r.T)[name] = v;
-                            if (TryNum(v, out var qn)) (toTrigger ? r.WN : r.N)[name] = qn;
+                            if (Project.TryNumber(v, out var qn)) (toTrigger ? r.WN : r.N)[name] = qn;
                             break;
                         }
                         case JsonValueKind.True:
@@ -104,7 +104,7 @@ public sealed partial class EasyCompat
         {
             bool any = false;
             if (r.N.TryGetValue(k, out var v)) { r.N[k] = -v; any = true; }
-            if (r.T.TryGetValue(k, out var s) && s.Trim().Length > 0) { r.T[k] = TryNum(s, out var sv) ? Fmt(-sv) : $"-({s})"; any = true; }
+            if (r.T.TryGetValue(k, out var s) && s.Trim().Length > 0) { r.T[k] = Project.TryNumber(s, out var sv) ? Fmt(-sv) : $"-({s})"; any = true; }
             if (!any) r.N[k] = -def;
         }
         void Flip(string k, string def)
@@ -657,21 +657,21 @@ public sealed partial class EasyCompat
 
         static string NumOf(Dictionary<string, string> t, Dictionary<string, double> n, string key, double def)
         {
-            if (t.TryGetValue(key, out var s) && !TryNum(s, out _)) return s.Trim().Length == 0 ? Fmt(def) : Formula(s);
+            if (t.TryGetValue(key, out var s) && !Project.TryNumber(s, out _)) return s.Trim().Length == 0 ? Fmt(def) : Formula(s);
             return Fmt(n.TryGetValue(key, out var v) ? v : def);
         }
 
         /// <summary>A rule's value: its "expr" formula, else the first of the keys it has, else the default.</summary>
         static string Value(Rule r, double def, params string[] keys)
         {
-            if (r.T.TryGetValue("expr", out var ex) && ex.Trim().Length > 0) return TryNum(ex, out var d) ? Fmt(d) : Formula(ex);
+            if (r.T.TryGetValue("expr", out var ex) && ex.Trim().Length > 0) return Project.TryNumber(ex, out var d) ? Fmt(d) : Formula(ex);
             foreach (var k in keys) if (r.Has(k)) return Num(r, k, def);
             return Fmt(def);
         }
 
         static string Formula(string ee) => $"easy_value({Lit(ee.Trim())})";
 
-        static string Op(string op) => op.Trim() switch { "=" => "==", "<>" => "!=", ">" or "<" or ">=" or "<=" or "==" or "!=" => op.Trim(), _ => ">=" };
+        static string Op(string op) => NormalOp(op);
 
         static string On(Rule r, string key, bool def) => (r.T.TryGetValue(key, out var s) ? IsOn(s) : r.N.TryGetValue(key, out var n) ? n >= 0.5 : def) ? "true" : "false";
 
@@ -710,11 +710,13 @@ public sealed partial class EasyCompat
         return r.Length > 100 ? r[..100] + "…" : r;
     }
 
-    static string Fmt(double d) => d.ToString("0.######", CultureInfo.InvariantCulture);
-
-    static bool TryNum(string s, out double d) =>
-        double.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out d) && double.IsFinite(d)
-        || double.TryParse(s.Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out d) && double.IsFinite(d);
-
-    static bool IsOn(string s) => s.Trim().ToLowerInvariant() is "on" or "true" or "yes" or "1";
+    /// <summary>
+    /// A number written into the generated source: up to 6 decimals on purpose (not <see cref="World.ShortNumber"/>'s 2,
+    /// which is for showing), so 0.125 s or a 0.0005 factor keep their value; never "-0".
+    /// </summary>
+    static string Fmt(double d)
+    {
+        string s = d.ToString("0.######", CultureInfo.InvariantCulture);
+        return s == "-0" ? "0" : s;
+    }
 }

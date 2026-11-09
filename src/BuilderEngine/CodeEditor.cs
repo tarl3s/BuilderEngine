@@ -139,9 +139,12 @@ sealed class CodeEditor : TextEditor
         Select(l.Offset, l.Length);
     }
 
-    /// <summary>The project's mechanism names changed (or the text did): recolour when that changes any colour.</summary>
-    public void RefreshColors(IEnumerable<string>? mechanisms)
+    /// <summary>
+    /// The project's mechanism names changed (or the text did): recolour when that changes any colour. A caller that
+    /// already has the editor's text passes it (<paramref name="text"/>), so it isn't built again from the document.
+    /// </summary>
+    public void RefreshColors(IEnumerable<string>? mechanisms, string? text = null)
     {
-        if (Colors.Update(Document.Text, mechanisms)) TextArea.TextView.Redraw();
+        if (Colors.Update(text ?? Document.Text, mechanisms)) TextArea.TextView.Redraw();
     }
 }

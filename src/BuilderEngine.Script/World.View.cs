@@ -2,12 +2,6 @@ using System.Runtime.CompilerServices;
 
 namespace BuilderEngine.Script;
 
-public sealed partial class GameObject
-{
-    /// <summary>How far it is turned, in degrees (clockwise; drawn rotated round its centre). Scripts: self.angle.</summary>
-    public double Angle;
-}
-
 /// <summary>
 /// The size of the view, the camera's feel, and cinema bars:
 /// <code>
@@ -42,8 +36,7 @@ public sealed partial class World
             var world = c.World;
             world.ViewMaxWidth = vw;
             world.ViewMaxHeight = vh;
-            world.Camera.BaseWidth = Math.Min(world.SceneWidth, vw);
-            world.Camera.BaseHeight = Math.Min(world.SceneHeight, vh);
+            world.ApplyViewSize();
         };
         w.Commands["camera smooth"] = c =>
         {
@@ -77,6 +70,13 @@ public sealed partial class World
         w.EngineValues["view_width"] = x => x.Camera.ViewWidth;
         w.EngineValues["view_height"] = x => x.Camera.ViewHeight;
     });
+
+    /// <summary>The camera shows at most <see cref="ViewMaxWidth"/> × <see cref="ViewMaxHeight"/> of the scene at zoom 1 (a smaller scene whole).</summary>
+    void ApplyViewSize()
+    {
+        Camera.BaseWidth = Math.Min(SceneWidth, ViewMaxWidth);
+        Camera.BaseHeight = Math.Min(SceneHeight, ViewMaxHeight);
+    }
 
     /// <summary>Cinema bars slide towards what was asked (real time, like the other screen effects).</summary>
     void UpdateBars(double realDt)

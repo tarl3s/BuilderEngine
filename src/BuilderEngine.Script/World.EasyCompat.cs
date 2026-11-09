@@ -41,8 +41,49 @@ public sealed partial class World
     /// <summary>EasyCompat's own commands and functions (easy_…): there for EasyEngine projects, not words to teach or offer.</summary>
     public static bool IsEasyWord(string name) => name.StartsWith("easy_", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>The objects in the game now (EasyCompat finds objects by name among them).</summary>
-    internal IEnumerable<GameObject> EasyObjects() => LiveObjects();
+    /// <summary>The objects in the game now (EasyCompat finds objects by name among them), without making a list.</summary>
+    internal LiveObjectList EasyObjects() => new(_objects, _pendingAdd);
+
+    /// <summary>The objects not destroyed in two lists (the world's and the ones added this frame), for foreach.</summary>
+    internal readonly struct LiveObjectList(List<GameObject> first, List<GameObject> then)
+    {
+        public Enumerator GetEnumerator() => new(first, then);
+
+        public struct Enumerator(List<GameObject> first, List<GameObject> then)
+        {
+            int _i = -1;
+            bool _second;
+            public GameObject Current { get; private set; } = null!;
+
+            public bool MoveNext()
+            {
+                while (true)
+                {
+                    var list = _second ? then : first;
+                    if (++_i >= list.Count)
+                    {
+                        if (_second) return false;
+                        _second = true;
+                        _i = -1;
+                        continue;
+                    }
+                    if (!list[_i].Destroyed) { Current = list[_i]; return true; }
+                }
+            }
+        }
+    }
+
+    /// <summary>EasyEngine key names already turned into Builder Script's (<see cref="EasyCompat.Key"/>), so a held key costs a lookup.</summary>
+    readonly Dictionary<string, string> _easyKeys = new(StringComparer.Ordinal);
+
+    internal string EasyKey(string ee)
+    {
+        if (_easyKeys.TryGetValue(ee, out var k)) return k;
+        if (_easyKeys.Count >= 512) _easyKeys.Clear(); // keys made from changing texts: don't keep them all
+        return _easyKeys[ee] = EasyCompat.Key(ee);
+    }
+
+    readonly List<object?> _easyBodies = [];
 
     /// <summary>A line in the console (prints go the same way).</summary>
     internal void Say(string line) => RaisePrinted(line);
@@ -150,13 +191,17 @@ public sealed partial class World
         string Arg(List<object?> a, int i) => i < a.Count ? ToText(a[i]) : "";
 
         // values
-        w.Functions["easy_on"] = a => Box(a.Count == 0 || Arg(a, 0).Trim().Length == 0 || E().Eval(w, Arg(a, 0), w.CallingInst?.Owner) != 0);
+        w.Functions["easy_on"] = a =>
+        {
+            string cond = Arg(a, 0);
+            return Box(string.IsNullOrWhiteSpace(cond) || E().Eval(w, cond, w.CallingInst?.Owner) != 0);
+        };
         w.Functions["easy_value"] = a => E().Eval(w, Arg(a, 0), w.CallingInst?.Owner);
         w.Functions["easy_var"] = a => E().Var(w, Arg(a, 0), w.CallingInst?.Owner);
         w.Functions["easy_text"] = a => E().TextOf(w, Arg(a, 0), w.CallingInst?.Owner);
         w.Functions["easy_compare"] = a => Box(EasyCompat.Compare(EasyCompat.Number(a.Count > 0 ? a[0] : null), Arg(a, 1), EasyCompat.Number(a.Count > 2 ? a[2] : null)));
         w.Functions["easy_bar_max"] = a => Arg(a, 0).Length > 0 ? E().Var(w, Arg(a, 0), null) : (a.Count > 1 ? a[1] : 1.0);
-        w.Functions["easy_key"] = a => Box(w.KeysDown.Contains(EasyCompat.Key(Arg(a, 0))));
+        w.Functions["easy_key"] = a => Box(w.KeysDown.Contains(w.EasyKey(Arg(a, 0))));
         w.Functions["easy_talking"] = _ => Box(w.EasyTalking);
         w.Functions["easy_knocked"] = _ => Box(E().State(Me()).KnockUntil > w.Time);
         w.Functions["easy_dynamic"] = _ => Box(Me().HasBody && Me().Gravity > 0);
@@ -173,22 +218,35 @@ public sealed partial class World
         {
             string name = Arg(a, 0);
             var me = w.CallingInst?.Owner;
-            foreach (var o in w.LiveObjects())
-                if (o != me && string.Equals(o.Name, name, StringComparison.OrdinalIgnoreCase) && o.Mechanisms.Any(m => m.Def.Name == "EasyHealth")) return o;
+            foreach (var o in w.EasyObjects())
+                if (o != me && string.Equals(o.Name, name, StringComparison.OrdinalIgnoreCase) && EasyCompat.HasMechanism(o, "EasyHealth")) return o;
             return null;
         };
         w.Functions["easy_contact"] = a => Box(a.Count >= 2 && a[0] is GameObject x && a[1] is GameObject y && EasyCompat.Contact(x, y));
         w.Functions["easy_touching"] = a => Box(a.Count >= 2 && a[0] is GameObject x && a[1] is GameObject y && EasyCompat.Touching(x, y));
         w.Functions["easy_touch"] = a => EasyCompat.TouchingNamed(w, Me(), Arg(a, 0));
         w.Functions["easy_near"] = a => Box(EasyCompat.Near(w, Me(), Arg(a, 0), a.Count > 1 ? ToNumber(a[1], 0) : 100));
-        w.Functions["easy_count"] = a => (double)w.LiveObjects().Count(o => EasyCompat.InFamily(o.Name, Arg(a, 0)));
-        w.Functions["easy_bodies"] = _ => w.LiveObjects().Where(o => o.HasBody && o.Gravity > 0).Cast<object?>().ToList();
+        w.Functions["easy_count"] = a =>
+        {
+            string family = Arg(a, 0);
+            int n = 0;
+            foreach (var o in w.EasyObjects()) if (EasyCompat.InFamily(o.Name, family)) n++;
+            return (double)n;
+        };
+        w.Functions["easy_bodies"] = _ =>
+        {
+            // one list, refilled at each call (for each goes through a copy of it)
+            var bodies = w._easyBodies;
+            bodies.Clear();
+            foreach (var o in w.EasyObjects()) if (o.HasBody && o.Gravity > 0) bodies.Add(o);
+            return bodies;
+        };
         w.Functions["easy_solid_beside"] = a => Box(EasyCompat.SolidBeside(w, Me(), a.Count > 0 ? ToNumber(a[0], 0) : 1));
         w.Functions["easy_near_pad"] = a => Box(a.Count >= 3 && a[0] is GameObject pad && a[1] is GameObject o && EasyCompat.OnPad(pad, o, Arg(a, 2)));
         w.Functions["easy_latch"] = a =>
         {
             var st = E().State(Me());
-            string k = EasyCompat.Key(Arg(a, 0));
+            string k = w.EasyKey(Arg(a, 0));
             return Box(st.Latched.Add(k));
         };
 
@@ -197,7 +255,7 @@ public sealed partial class World
         w.Commands["easy_add"] = c => c.World.Easy?.SetVar(c.World, c.Self, ToText(c.Arg(0)), c.Arg(1), add: true);
         w.Commands["easy_set_local"] = c => c.World.Easy?.SetLocal(c.Self, ToText(c.Arg(0)), c.Arg(1), add: false);
         w.Commands["easy_add_local"] = c => c.World.Easy?.SetLocal(c.Self, ToText(c.Arg(0)), c.Arg(1), add: true);
-        w.Commands["easy_unlatch"] = c => c.World.Easy?.State(c.Self).Latched.Remove(EasyCompat.Key(ToText(c.Arg(0))));
+        w.Commands["easy_unlatch"] = c => c.World.Easy?.State(c.Self).Latched.Remove(c.World.EasyKey(ToText(c.Arg(0))));
         w.Commands["easy_interacted"] = c => { if (c.World.Easy != null) c.World.Easy.State(c.Self).Interactions++; };
         w.Commands["easy_note"] = c => c.World.Easy?.Note(c.World, ToText(c.Arg(0)));
         w.Commands["easy_goto"] = c =>
@@ -220,7 +278,7 @@ public sealed partial class World
             c.WaitUntil(() =>
             {
                 world.PumpEasyLines();
-                if (lines.Any(d => !d.Closed)) return false;
+                foreach (var d in lines) if (!d.Closed) return false;
                 if (freeze && world._easyLines.Count == 0) world.LockControls(false);
                 return true;
             });
@@ -281,7 +339,7 @@ public sealed partial class World
         {
             // a cutscene holds a key for the player for a while (also while the player is locked)
             var world = c.World;
-            string k = EasyCompat.Key(ToText(c.Arg(0)));
+            string k = world.EasyKey(ToText(c.Arg(0)));
             double until = world.Time + Math.Max(0, c.Number(c.Arg(1)));
             if (k.Length == 0) return;
             if (world.KeysDown.Add(k)) world.PressKey(k);

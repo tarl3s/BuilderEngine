@@ -104,27 +104,53 @@ public sealed partial class EasyCompat
         st.Locals[name] = add ? Number(Local(self, name)) + Number(value) : value is string ? value : Number(value);
     }
 
-    /// <summary>A text with EasyEngine's {name} parts filled in (Substitute): texts, lists, numbers, {local.x}, {count:list}.</summary>
+    /// <summary>
+    /// A text with EasyEngine's {name} parts filled in (Substitute): texts, lists, numbers, {local.x}, {count:list}.
+    /// A part is a '{', at least one character, and the first '}' after it (the text itself when there's none).
+    /// </summary>
     internal string Format(World w, string text, GameObject? self)
     {
-        if (text.IndexOf('{') < 0) return text;
-        return System.Text.RegularExpressions.Regex.Replace(text, @"\{([^}]+)\}", m => TextOf(w, m.Groups[1].Value, self));
+        int open = text.IndexOf('{');
+        if (open < 0) return text;
+        System.Text.StringBuilder? sb = null;
+        int copied = 0;
+        while (open >= 0)
+        {
+            int close = text.IndexOf('}', open + 1);
+            if (close < 0) break; // no '}' after it: nothing more to fill in
+            if (close == open + 1) { open = text.IndexOf('{', close); continue; } // "{}" isn't a part
+            sb ??= new System.Text.StringBuilder(text.Length + 16);
+            sb.Append(text, copied, open - copied).Append(TextOf(w, text.Substring(open + 1, close - open - 1), self));
+            copied = close + 1;
+            open = text.IndexOf('{', copied);
+        }
+        if (sb == null) return text;
+        return sb.Append(text, copied, text.Length - copied).ToString();
     }
 
     object? Holder(World w, GameObject self, string name, bool local) => local ? Local(self, name) : w.Globals.GetValueOrDefault(name);
+
+    /// <summary>A word like "isnot" as a rule wrote it, trimmed and in small letters (no copy when it already is).</summary>
+    static string LowerWord(string s)
+    {
+        string t = s.Trim();
+        foreach (char c in t)
+            if (c > 127 || char.IsAsciiLetterUpper(c)) return t.ToLowerInvariant();
+        return t;
+    }
 
     /// <summary>"While a text variable…": is / isnot / contains / empty / notempty (capital letters don't matter).</summary>
     internal bool TextIs(World w, GameObject self, string var, string op, string value, bool local)
     {
         string cur = Holder(w, self, var, local) is string s ? s : "";
         string want = Format(w, value, self);
-        return op.Trim().ToLowerInvariant() switch
+        return LowerWord(op) switch
         {
-            "isnot" => !string.Equals(cur.Trim(), want.Trim(), StringComparison.OrdinalIgnoreCase),
+            "isnot" => !cur.AsSpan().Trim().Equals(want.AsSpan().Trim(), StringComparison.OrdinalIgnoreCase),
             "contains" => cur.Contains(want, StringComparison.OrdinalIgnoreCase),
             "empty" => cur.Length == 0,
             "notempty" => cur.Length > 0,
-            _ => string.Equals(cur.Trim(), want.Trim(), StringComparison.OrdinalIgnoreCase),
+            _ => cur.AsSpan().Trim().Equals(want.AsSpan().Trim(), StringComparison.OrdinalIgnoreCase),
         };
     }
 
@@ -133,9 +159,11 @@ public sealed partial class EasyCompat
     {
         var list = Holder(w, self, var, local) as List<object?> ?? [];
         string want = Format(w, value, self).Trim();
-        bool has = list.Any(x => string.Equals(World.ToText(x).Trim(), want, StringComparison.OrdinalIgnoreCase));
-        double n = TryNum(want, out var d) ? d : 0;
-        return op.Trim().ToLowerInvariant() switch
+        bool has = false;
+        foreach (var x in list)
+            if (World.ToText(x).AsSpan().Trim().Equals(want, StringComparison.OrdinalIgnoreCase)) { has = true; break; }
+        double n = Project.TryNumber(want, out var d) ? d : 0;
+        return LowerWord(op) switch
         {
             "notcontains" => !has,
             "empty" => list.Count == 0,
@@ -163,10 +191,10 @@ public sealed partial class EasyCompat
         }
     }
 
-    internal static bool Compare(double a, string op, double b) => op.Trim() switch
+    internal static bool Compare(double a, string op, double b) => NormalOp(op) switch
     {
-        ">" => a > b, "<" => a < b, ">=" => a >= b, "<=" => a <= b,
-        "==" or "=" => Math.Abs(a - b) < 0.0001, "!=" or "<>" => Math.Abs(a - b) >= 0.0001,
+        ">" => a > b, "<" => a < b, "<=" => a <= b,
+        "==" => Math.Abs(a - b) < 0.0001, "!=" => Math.Abs(a - b) >= 0.0001,
         _ => a >= b,
     };
 
@@ -179,6 +207,13 @@ public sealed partial class EasyCompat
         if (name.Length == 0) return null;
         foreach (var o in w.EasyObjects()) if (string.Equals(o.Name, name, StringComparison.OrdinalIgnoreCase)) return o;
         return name.Equals("player", StringComparison.OrdinalIgnoreCase) ? w.FindObject("player") : null;
+    }
+
+    /// <summary>The object has a mechanism of this name (not counting the ones used inside others).</summary>
+    internal static bool HasMechanism(GameObject o, string name)
+    {
+        foreach (var m in o.Mechanisms) if (m.Def.Name == name) return true;
+        return false;
     }
 
     /// <summary>"Coin" names Coin and its numbered copies (Coin_2, Coin 3, Coin4…).</summary>

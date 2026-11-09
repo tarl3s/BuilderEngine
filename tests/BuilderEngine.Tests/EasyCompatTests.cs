@@ -444,6 +444,82 @@ static class EasyCompatTests
             Eq(1, s.Printed.Count(l => l.Contains("not supported yet: Boss AI")), "said once");
         });
 
+        test("compat: EasyEngine formulas: names, properties, functions and operators read the way EasyEngine reads them", () =>
+        {
+            var s = new Session(ProjectOf(SceneOf("Level", 960, 540, Player(100, 440), Ground())), NewDir());
+            var w = s.World;
+            w.Globals["score"] = 7.0;
+            w.Globals["item:wood"] = 3.0;
+            w.Globals["items"] = new List<object?> { "a", "b" };
+            w.KeysDown.Add("e");
+            var value = w.Functions["easy_value"];
+            double V(string f) => (double)value([f])!;
+            foreach (var (f, want) in new (string, double)[]
+            {
+                ("min(3, 1, 2)", 1), ("max()", 0), ("max(2, 5) - min()", 5), ("clamp(5, 0, 3)", 3), ("clamp(5, 4, 3)", 4),
+                ("abs(-2) + floor(2.7) + ceil(0.2) + round(2.5)", 7), ("sqrt(-4)", 0), ("sqrt(16)", 4), ("dist(0, 0, 3, 4)", 5),
+                ("score * 2 + count:items", 16), ("item:wood", 3), ("count:nothing", 0), ("key:E", 1), ("KEY:e", 1), ("key:F", 0),
+                ("Player.cx", 120), ("player.facing", 1), ("Player.exists", 1), ("Nobody.x", 0), ("Nobody.exists", 0),
+                ("self.x", 0), ("local.hp", 0), ("Player.unknownprop", 0), ("2 = 2 and 1 <> 1", 0), ("2 = 2 or 1 <> 1", 1),
+                ("not 0", 1), ("!1", 0), ("7 % 0 + 7 / 0", 0), ("pi > 3.14 and pi < 3.15", 1), ("scenew + SceneHeight", 1500),
+                ("unknownfn(1, 2)", 0), ("true + TRUE + false", 2), ("1 =< 2", 1), ("3 => 4", 0), ("-(2 + 3) * +2", -10),
+                ("", 0), ("   ", 0), ("garbage )(", 0), ("2 >", 1), ("1 && 0 || 1", 1), ("score >= 7 and score <= 7", 1),
+                ("min(1, 2, 3, 4, 5, 6, 7, 8, 9, 0)", 0), ("max(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)", 10),
+            })
+                Eq(want, V(f), $"easy_value(\"{f}\")");
+            Eq(0, s.AllErrors().Count, string.Join(" | ", s.AllErrors()));
+        });
+
+        test("compat: values as numbers (easy_compare): texts read like the runtime reads them, a yes/no is 1 / 0, a list its length", () =>
+        {
+            var w = new World();
+            var compare = w.Functions["easy_compare"];
+            bool C(object? a, string op, object? b) => (bool)compare([a, op, b])!;
+            True(C("3", "==", 3.0), "\"3\" is 3");
+            True(C(" 3 ", "==", 3.0), "\" 3 \" is 3");
+            True(C("2,5", "==", 0.0), "\"2,5\" isn't a number: 0");
+            True(C("abc", "=", 0.0), "a word is 0");
+            True(C(true, "==", 1.0) && C(false, "==", 0.0), "yes / no are 1 / 0");
+            True(C(new List<object?> { 1.0, 2.0 }, "==", 2.0), "a list counts as its length");
+            True(C(null, "==", 0.0), "nothing is 0");
+            True(C(5.0, " <> ", 4.0) && !C(5.0, "!=", 5.0), "<> and != (spaces round it don't matter)");
+            True(C(5.0, "weird", 5.0) && !C(4.0, "weird", 5.0), "an unknown comparison is >=");
+            True(C(1.0, "<", 2.0) && C(2.0, "<=", 2.0) && C(3.0, ">", 2.0) && !C(1.0, ">=", 2.0), "< <= > >=");
+        });
+
+        test("compat: {name} parts in texts (easy_format) are filled in like EasyEngine's Substitute", () =>
+        {
+            var s = new Session(ProjectOf(SceneOf("Level", 960, 540, Player(100, 440), Ground())), NewDir());
+            var w = s.World;
+            w.Globals["score"] = 7.0;
+            w.Globals["name"] = "Ana";
+            w.Globals["items"] = new List<object?> { "a", "b" };
+            var format = w.Functions["easy_format"];
+            string F(string t) => (string)format([t])!;
+            Eq("a 7 b", F("a {score} b"));
+            Eq("Ana: 77", F("{name}: {score}{score}"));
+            Eq("{}", F("{}"), "an empty {} isn't a part");
+            Eq("x {score", F("x {score"), "no closing brace: as it is");
+            Eq("0", F("{a{score}"), "a part runs to the first } (\"a{score\": no such variable)");
+            Eq("7", F("{ score }"), "spaces round the name");
+            Eq("2", F("{count:items}"));
+            Eq("}7{", F("}{score}{"));
+            Eq("a, b!", F("{items}!"), "a list shows its items");
+            string plain = "nothing to fill {}";
+            True(ReferenceEquals(plain, F(plain)), "a text with nothing to fill in comes back as it is");
+        });
+
+        test("compat: translated rules and cutscenes: numbers never read \"-0\", yes/no words in steps", () =>
+        {
+            string rules = EasyCompat.TranslateRules("EasyRules_T", "Obj", [], "[{\"when\":\"always\",\"do\":\"rotate\",\"speed\":0,\"reverse\":true}]", out _);
+            True(rules.Contains("self.angle += (0) * dt") && !rules.Contains("-0"), "a reversed 0 is 0:\n" + rules);
+            string cut = EasyCompat.TranslateCutscene("EasyCutscene_T", "Obj", "start", "", "E", "Player", false, false, false, "follow",
+                "{\"steps\":[{\"do\":\"title\",\"text\":\"A\",\"wait\":\"no\"},{\"do\":\"title\",\"text\":\"B\",\"wait\":\"maybe\"},"
+                + "{\"do\":\"title\",\"text\":\"C\",\"wait\":0},{\"do\":\"title\",\"text\":\"D\",\"wait\":\" YES \"},{\"do\":\"bars\",\"on\":\"OFF\"}]}", out _);
+            Eq(2, cut.Split('\n').Count(l => l.Trim() == "wait 2"), "'no' and 0 don't wait, an unknown word keeps the default (wait), ' YES ' waits:\n" + cut);
+            True(cut.Split('\n').Any(l => l.Trim() == "bars off"), "'OFF' turns the bars off");
+        });
+
         MistifyTests(test);
         foreach (var d in Made) try { Directory.Delete(d, true); } catch { }
         Made.Clear();

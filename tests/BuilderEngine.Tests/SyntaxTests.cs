@@ -117,6 +117,18 @@ static class SyntaxTests
                 Is(CodeClass.Constant, $"        x = {w}", w);
         });
 
+        test("keywords: every word of the language (Parser.Keywords, Parser.Connectors) has a keyword colour", () =>
+        {
+            var coloured = new HashSet<CodeClass> { CodeClass.Control, CodeClass.Declaration, CodeClass.Constant };
+            foreach (var w in Parser.Keywords.Concat(Parser.Connectors))
+            {
+                True(SyntaxColors.ControlWords.Contains(w) || SyntaxColors.DeclarationWords.Contains(w) || SyntaxColors.ConstantWords.Contains(w)
+                     || Parser.Connectors.Contains(w), $"'{w}' is in one of the colour lists");
+                var cls = ClassOf($"        a {w} b", w);
+                True(coloured.Contains(cls), $"'{w}' in the middle of a line is coloured as a keyword (got {cls})");
+            }
+        });
+
         test("strings, numbers, comments: a # inside a text is not a comment, a comment's quotes are not a text", () =>
         {
             Eq("print:Function \"score # not a comment\":String", Show("print \"score # not a comment\""));

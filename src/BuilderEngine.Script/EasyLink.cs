@@ -493,14 +493,14 @@ public static partial class EasyLink
 
     internal static JsonNode? Get(JsonObject o, string name) => Project.Get(o, name);
 
-    static string Text(JsonObject o, string name, string def) =>
+    internal static string Text(JsonObject o, string name, string def) =>
         Get(o, name) is JsonValue v && v.TryGetValue<string>(out var s) ? s : def;
 
-    static double Number(JsonObject o, string name, double def) =>
+    internal static double Number(JsonObject o, string name, double def) =>
         TryNumber(Get(o, name), out var d) ? d : Project.Num(o, name, def);
 
     /// <summary>A JSON number however it was made (parsed text, or an int/long/double value set in code).</summary>
-    static bool TryNumber(JsonNode? n, out double d)
+    internal static bool TryNumber(JsonNode? n, out double d)
     {
         d = 0;
         if (n is not JsonValue v) return false;

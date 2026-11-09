@@ -513,6 +513,14 @@ public sealed class Scene
     /// <summary>A deep copy (used by undo and duplicate).</summary>
     public Scene Clone() => FromJson(ToJson());
 
+    /// <summary>A shallow copy with another object list (every other field shared, new fields included).</summary>
+    internal Scene WithObjects(List<SceneObject> objects)
+    {
+        var s = (Scene)MemberwiseClone();
+        s.Objects = objects;
+        return s;
+    }
+
     public string ToJson() => Project.SerializeScene(this);
     public static Scene FromJson(string json) => FromNode(Project.Parse(json) as JsonObject ?? new JsonObject());
 

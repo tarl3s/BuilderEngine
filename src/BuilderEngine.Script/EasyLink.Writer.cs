@@ -246,7 +246,7 @@ public static partial class EasyLink
         }
 
         /// <summary>The key as the object already spells it (case-insensitive), else as given.</summary>
-        static string KeyIn(JsonObject o, string key) =>
+        internal static string KeyIn(JsonObject o, string key) =>
             o.Select(p => p.Key).FirstOrDefault(k => k.Equals(key, StringComparison.OrdinalIgnoreCase)) ?? key;
 
         /// <summary>Each BuilderEngine scene's previous scene: same name first, then the one sharing the most object ids.</summary>

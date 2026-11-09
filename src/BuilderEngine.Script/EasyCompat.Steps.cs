@@ -39,8 +39,9 @@ public sealed partial class EasyCompat
     sealed record Step(string Do, Dictionary<string, string> P)
     {
         public string Str(string k, string d = "") => P.TryGetValue(k, out var v) ? v : d;
-        public double Num(string k, double d = 0) => P.TryGetValue(k, out var v) && TryNum(v, out var n) ? n : d;
-        public bool On(string k, bool d) => P.TryGetValue(k, out var v) ? (TryNum(v, out var n) ? n >= 0.5 : IsOn(v) || (v.Trim().ToLowerInvariant() is not ("off" or "false" or "no") && d)) : d;
+        public double Num(string k, double d = 0) => P.TryGetValue(k, out var v) && Project.TryNumber(v, out var n) ? n : d;
+        /// <summary>A yes/no field: a number (0.5 or more = yes), a yes/no word, else the default.</summary>
+        public bool On(string k, bool d) => P.TryGetValue(k, out var v) ? (Project.TryNumber(v, out var n) ? n >= 0.5 : TextFlag(v) ?? d) : d;
     }
 
     /// <summary>EasyEngine's cutscene steps: {"steps":[{"do":"say","text":…},…]} (a bare list works too).</summary>
@@ -169,7 +170,7 @@ public sealed partial class EasyCompat
         {
             string v = s.Str(k, "");
             if (v.Trim().Length == 0) return Fmt(def);
-            return TryNum(v, out var d) ? Fmt(d) : $"easy_value({Lit(v.Trim())})";
+            return Project.TryNumber(v, out var d) ? Fmt(d) : $"easy_value({Lit(v.Trim())})";
         }
 
         void WriteStep(Step s)

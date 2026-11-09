@@ -7,16 +7,33 @@ namespace BuilderEngine.Script;
 /// EasyCompat keeps as they were written: numbers, names (<c>score</c>, <c>item:wood</c>, <c>key:E</c>, <c>Player.x</c>,
 /// <c>self.health</c>, <c>local.hp</c>), functions (abs, min, max, floor, ceil, round, sqrt, sign, sin, cos, atan2,
 /// clamp, rand, randi, dist), + - * / %, comparisons (also <c>=</c> and <c>&lt;&gt;</c>), and / or / not (&amp;&amp; || !).
-/// Like EasyEngine it never throws: anything it can't read is 0. A formula is read once and kept.
+/// Like EasyEngine it never throws: anything it can't read is 0. A formula is read once and kept, with every name
+/// already sorted out (a key, the mouse, obj.prop, a variable…), so playing it reads values and does arithmetic only.
 /// </summary>
 public sealed partial class EasyCompat
 {
     abstract record Node;
     sealed record NumNode(double V) : Node;
-    sealed record NameNode(string Name) : Node;
-    sealed record CallNode(string Name, Node[] Args) : Node;
+    /// <summary>key:E — a key held (the key already in Builder Script's name).</summary>
+    sealed record KeyNode(string Key) : Node;
+    /// <summary>mousex, time, scenew… — a value of the world.</summary>
+    sealed record WorldNode(WorldValue What) : Node;
+    /// <summary>count:list — how many items a list variable has.</summary>
+    sealed record CountNode(string List) : Node;
+    /// <summary>local.x — the object's own variable.</summary>
+    sealed record LocalNode(string Name) : Node;
+    /// <summary>self.x / Player.health — a property of an object (<see cref="Who"/> is ignored for self).</summary>
+    sealed record PropNode(bool Self, string Who, Prop Prop, string Name) : Node;
+    /// <summary>score, item:wood — a global variable.</summary>
+    sealed record VarNode(string Name) : Node;
+    sealed record CallNode(Fn Fn, Node[] Args) : Node;
     sealed record UnNode(char Op, Node A) : Node;
-    sealed record BinNode(string Op, Node A, Node B) : Node;
+    sealed record BinNode(BinOp Op, Node A, Node B) : Node;
+
+    enum WorldValue { MouseX, MouseY, MouseScreenX, MouseScreenY, Time, SceneWidth, SceneHeight }
+    enum Prop { X, Y, Vx, Vy, Width, Height, Cx, Cy, Rot, Facing, Opacity, Scale, Speed, Health, MaxHealth, Grounded, Dead, Exists, Other }
+    enum Fn { Abs, Min, Max, Floor, Ceil, Round, Sqrt, Sign, Sin, Cos, Atan2, Clamp, Rand, Randi, Dist, Unknown }
+    enum BinOp { Or, And, Add, Sub, Mul, Div, Mod, Ge, Le, Gt, Lt, Eq, Ne }
 
     readonly Dictionary<string, Node> _formulas = new();
 
@@ -40,7 +57,22 @@ public sealed partial class EasyCompat
         switch (n)
         {
             case NumNode num: return num.V;
-            case NameNode name: return Resolve(w, name.Name, self);
+            case VarNode v: return w.Globals.TryGetValue(v.Name, out var gv) ? Number(gv) : 0;
+            case PropNode p: return Property(w, p, self);
+            case KeyNode k: return w.KeysDown.Contains(k.Key) ? 1 : 0;
+            case WorldNode wv:
+                return wv.What switch
+                {
+                    WorldValue.MouseX => w.MouseX,
+                    WorldValue.MouseY => w.MouseY,
+                    WorldValue.MouseScreenX => w.MouseViewX,
+                    WorldValue.MouseScreenY => w.MouseViewY,
+                    WorldValue.Time => w.Time,
+                    WorldValue.SceneWidth => w.SceneWidth,
+                    _ => w.SceneHeight,
+                };
+            case CountNode c: return w.Globals.TryGetValue(c.List, out var lv) && lv is List<object?> list ? list.Count : 0;
+            case LocalNode l: return self != null ? Number(Local(self, l.Name)) : 0;
             case UnNode u:
             {
                 double a = Value(w, u.A, self, depth + 1);
@@ -48,116 +80,165 @@ public sealed partial class EasyCompat
             }
             case BinNode b:
             {
-                if (b.Op == "or") return Value(w, b.A, self, depth + 1) != 0 || Value(w, b.B, self, depth + 1) != 0 ? 1 : 0;
-                if (b.Op == "and") return Value(w, b.A, self, depth + 1) != 0 && Value(w, b.B, self, depth + 1) != 0 ? 1 : 0;
+                if (b.Op == BinOp.Or) return Value(w, b.A, self, depth + 1) != 0 || Value(w, b.B, self, depth + 1) != 0 ? 1 : 0;
+                if (b.Op == BinOp.And) return Value(w, b.A, self, depth + 1) != 0 && Value(w, b.B, self, depth + 1) != 0 ? 1 : 0;
                 double x = Value(w, b.A, self, depth + 1), y = Value(w, b.B, self, depth + 1);
                 return b.Op switch
                 {
-                    "+" => x + y, "-" => x - y, "*" => x * y,
-                    "/" => y == 0 ? 0 : x / y, "%" => y == 0 ? 0 : x % y,
-                    ">=" => x >= y ? 1 : 0, "<=" => x <= y ? 1 : 0, ">" => x > y ? 1 : 0, "<" => x < y ? 1 : 0,
-                    "==" => Math.Abs(x - y) < 1e-6 ? 1 : 0, "!=" => Math.Abs(x - y) >= 1e-6 ? 1 : 0,
+                    BinOp.Add => x + y, BinOp.Sub => x - y, BinOp.Mul => x * y,
+                    BinOp.Div => y == 0 ? 0 : x / y, BinOp.Mod => y == 0 ? 0 : x % y,
+                    BinOp.Ge => x >= y ? 1 : 0, BinOp.Le => x <= y ? 1 : 0, BinOp.Gt => x > y ? 1 : 0, BinOp.Lt => x < y ? 1 : 0,
+                    BinOp.Eq => Math.Abs(x - y) < 1e-6 ? 1 : 0, BinOp.Ne => Math.Abs(x - y) >= 1e-6 ? 1 : 0,
                     _ => 0,
                 };
             }
             case CallNode c:
             {
-                var a = new double[c.Args.Length];
-                for (int i = 0; i < a.Length; i++) a[i] = Value(w, c.Args[i], self, depth + 1);
-                return Call(w, c.Name, a);
+                int count = c.Args.Length;
+                Span<double> a = count <= 8 ? stackalloc double[8] : new double[count];
+                a = a[..count];
+                for (int i = 0; i < count; i++) a[i] = Value(w, c.Args[i], self, depth + 1);
+                return Call(w, c.Fn, a);
             }
         }
         return 0;
     }
 
-    static double Call(World w, string name, double[] a)
+    static double Call(World w, Fn fn, ReadOnlySpan<double> a)
     {
-        double A(int i) => i < a.Length ? a[i] : 0;
-        switch (name.ToLowerInvariant())
+        double A(ReadOnlySpan<double> s, int i) => i < s.Length ? s[i] : 0;
+        switch (fn)
         {
-            case "abs": return Math.Abs(A(0));
-            case "min": return a.Length == 0 ? 0 : a.Min();
-            case "max": return a.Length == 0 ? 0 : a.Max();
-            case "floor": return Math.Floor(A(0));
-            case "ceil": return Math.Ceiling(A(0));
-            case "round": return Math.Round(A(0));
-            case "sqrt": return A(0) <= 0 ? 0 : Math.Sqrt(A(0));
-            case "sign": return Math.Sign(A(0));
-            case "sin": return Math.Sin(A(0));
-            case "cos": return Math.Cos(A(0));
-            case "atan2": return Math.Atan2(A(0), A(1));
-            case "clamp": return A(1) > A(2) ? A(1) : Math.Clamp(A(0), A(1), A(2));
-            case "rand": return a.Length >= 2 ? A(0) + w.Rng.NextDouble() * (A(1) - A(0)) : w.Rng.NextDouble();
-            case "randi": return a.Length >= 2 ? w.Rng.Next((int)A(0), (int)Math.Max(A(0), A(1)) + 1) : w.Rng.Next();
-            case "dist": return a.Length >= 4 ? Math.Sqrt((A(2) - A(0)) * (A(2) - A(0)) + (A(3) - A(1)) * (A(3) - A(1))) : 0;
+            case Fn.Abs: return Math.Abs(A(a, 0));
+            case Fn.Min: return a.Length == 0 ? 0 : MinOf(a);
+            case Fn.Max: return a.Length == 0 ? 0 : MaxOf(a);
+            case Fn.Floor: return Math.Floor(A(a, 0));
+            case Fn.Ceil: return Math.Ceiling(A(a, 0));
+            case Fn.Round: return Math.Round(A(a, 0));
+            case Fn.Sqrt: return A(a, 0) <= 0 ? 0 : Math.Sqrt(A(a, 0));
+            case Fn.Sign: return Math.Sign(A(a, 0));
+            case Fn.Sin: return Math.Sin(A(a, 0));
+            case Fn.Cos: return Math.Cos(A(a, 0));
+            case Fn.Atan2: return Math.Atan2(A(a, 0), A(a, 1));
+            case Fn.Clamp: return A(a, 1) > A(a, 2) ? A(a, 1) : Math.Clamp(A(a, 0), A(a, 1), A(a, 2));
+            case Fn.Rand: return a.Length >= 2 ? A(a, 0) + w.Rng.NextDouble() * (A(a, 1) - A(a, 0)) : w.Rng.NextDouble();
+            case Fn.Randi: return a.Length >= 2 ? w.Rng.Next((int)A(a, 0), (int)Math.Max(A(a, 0), A(a, 1)) + 1) : w.Rng.Next();
+            case Fn.Dist: return a.Length >= 4 ? Math.Sqrt((A(a, 2) - A(a, 0)) * (A(a, 2) - A(a, 0)) + (A(a, 3) - A(a, 1)) * (A(a, 3) - A(a, 1))) : 0;
             default: return 0;
         }
     }
 
-    /// <summary>A name in a formula: a key held (key:E), the mouse, the time, obj.prop, local.x, or a variable.</summary>
-    double Resolve(World w, string name, GameObject? self)
+    // min / max the way LINQ's do (what EasyCompat used before): a NaN wins min and loses max.
+    static double MinOf(ReadOnlySpan<double> a)
     {
-        if (name.Length > 4 && name.StartsWith("key:", StringComparison.OrdinalIgnoreCase))
-            return w.KeysDown.Contains(Key(name[4..])) ? 1 : 0;
+        double v = a[0];
+        if (double.IsNaN(v)) return v;
+        for (int i = 1; i < a.Length; i++)
+        {
+            double x = a[i];
+            if (x < v) v = x;
+            else if (double.IsNaN(x)) return x;
+        }
+        return v;
+    }
+
+    static double MaxOf(ReadOnlySpan<double> a)
+    {
+        int i = 0;
+        double v = a[0];
+        while (double.IsNaN(v))
+        {
+            if (++i >= a.Length) return v;
+            v = a[i];
+        }
+        for (i++; i < a.Length; i++) if (a[i] > v) v = a[i];
+        return v;
+    }
+
+    static Fn FnOf(string name) => name.ToLowerInvariant() switch
+    {
+        "abs" => Fn.Abs, "min" => Fn.Min, "max" => Fn.Max, "floor" => Fn.Floor, "ceil" => Fn.Ceil, "round" => Fn.Round,
+        "sqrt" => Fn.Sqrt, "sign" => Fn.Sign, "sin" => Fn.Sin, "cos" => Fn.Cos, "atan2" => Fn.Atan2, "clamp" => Fn.Clamp,
+        "rand" => Fn.Rand, "randi" => Fn.Randi, "dist" => Fn.Dist,
+        _ => Fn.Unknown,
+    };
+
+    /// <summary>A name in a formula, sorted out once: a key held (key:E), the mouse, the time, obj.prop, local.x, or a variable.</summary>
+    static Node NameNode(string name)
+    {
+        if (name.Length > 4 && name.StartsWith("key:", StringComparison.OrdinalIgnoreCase)) return new KeyNode(Key(name[4..]));
         switch (name.ToLowerInvariant())
         {
-            case "mousex": return w.MouseX;
-            case "mousey": return w.MouseY;
-            case "mousescreenx": return w.MouseViewX;
-            case "mousescreeny": return w.MouseViewY;
-            case "time": return w.Time;
-            case "true": return 1;
-            case "false": return 0;
-            case "pi": return Math.PI;
-            case "scenew": case "scenewidth": return w.SceneWidth;
-            case "sceneh": case "sceneheight": return w.SceneHeight;
+            case "mousex": return new WorldNode(WorldValue.MouseX);
+            case "mousey": return new WorldNode(WorldValue.MouseY);
+            case "mousescreenx": return new WorldNode(WorldValue.MouseScreenX);
+            case "mousescreeny": return new WorldNode(WorldValue.MouseScreenY);
+            case "time": return new WorldNode(WorldValue.Time);
+            case "true": return new NumNode(1);
+            case "false": return new NumNode(0);
+            case "pi": return new NumNode(Math.PI);
+            case "scenew": case "scenewidth": return new WorldNode(WorldValue.SceneWidth);
+            case "sceneh": case "sceneheight": return new WorldNode(WorldValue.SceneHeight);
         }
-        if (name.StartsWith("count:", StringComparison.OrdinalIgnoreCase))
-            return w.Globals.TryGetValue(name[6..], out var lv) && lv is List<object?> list ? list.Count : 0;
+        if (name.StartsWith("count:", StringComparison.OrdinalIgnoreCase)) return new CountNode(name[6..]);
         int dot = name.IndexOf('.');
         if (dot > 0)
         {
             string who = name[..dot], prop = name[(dot + 1)..];
-            if (who.Equals("local", StringComparison.OrdinalIgnoreCase)) return self != null ? Number(Local(self, prop)) : 0;
-            var e = who.Equals("self", StringComparison.OrdinalIgnoreCase) ? self : FindNamed(w, who);
-            if (e == null) return 0;
-            switch (prop.ToLowerInvariant())
-            {
-                case "x": return e.X;
-                case "y": return e.Y;
-                case "vx": return e.Vx;
-                case "vy": return e.Vy;
-                case "w": case "width": return e.Width;
-                case "h": case "height": return e.Height;
-                case "cx": return e.X + e.Width / 2;
-                case "cy": return e.Y + e.Height / 2;
-                case "rot": return e.Angle;
-                case "facing": return e.FlipX ? -1 : 1;
-                case "opacity": case "alpha": return e.Opacity;
-                case "scale": return 1;
-                case "speed": return SpeedScale(e);
-                case "health": case "hp": return Number(HealthVar(e, "hp"));
-                case "maxhealth": case "maxhp": return Number(HealthVar(e, "max_health"));
-                case "grounded": return e.OnGround ? 1 : 0;
-                case "dead": return e.Destroyed ? 1 : 0;
-                case "exists": return 1;
-                default: return e == self ? Number(Local(e, prop)) : 0;
-            }
+            if (who.Equals("local", StringComparison.OrdinalIgnoreCase)) return new LocalNode(prop);
+            return new PropNode(who.Equals("self", StringComparison.OrdinalIgnoreCase), who, PropOf(prop), prop);
         }
-        return w.Globals.TryGetValue(name, out var v) ? Number(v) : 0;
+        return new VarNode(name);
     }
 
-    static object? HealthVar(GameObject g, string var) =>
-        g.Mechanisms.FirstOrDefault(m => m.Def.Name == "EasyHealth") is { } h && h.Vars.TryGetValue(var, out var v) ? v : null;
-
-    internal static double Number(object? v) => v switch
+    static Prop PropOf(string prop) => prop.ToLowerInvariant() switch
     {
-        double d => d,
-        bool b => b ? 1 : 0,
-        string s => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : 0,
-        List<object?> l => l.Count,
-        _ => 0,
+        "x" => Prop.X, "y" => Prop.Y, "vx" => Prop.Vx, "vy" => Prop.Vy,
+        "w" or "width" => Prop.Width, "h" or "height" => Prop.Height, "cx" => Prop.Cx, "cy" => Prop.Cy,
+        "rot" => Prop.Rot, "facing" => Prop.Facing, "opacity" or "alpha" => Prop.Opacity, "scale" => Prop.Scale,
+        "speed" => Prop.Speed, "health" or "hp" => Prop.Health, "maxhealth" or "maxhp" => Prop.MaxHealth,
+        "grounded" => Prop.Grounded, "dead" => Prop.Dead, "exists" => Prop.Exists,
+        _ => Prop.Other,
     };
+
+    double Property(World w, PropNode p, GameObject? self)
+    {
+        var e = p.Self ? self : FindNamed(w, p.Who);
+        if (e == null) return 0;
+        return p.Prop switch
+        {
+            Prop.X => e.X,
+            Prop.Y => e.Y,
+            Prop.Vx => e.Vx,
+            Prop.Vy => e.Vy,
+            Prop.Width => e.Width,
+            Prop.Height => e.Height,
+            Prop.Cx => e.X + e.Width / 2,
+            Prop.Cy => e.Y + e.Height / 2,
+            Prop.Rot => e.Angle,
+            Prop.Facing => e.FlipX ? -1 : 1,
+            Prop.Opacity => e.Opacity,
+            Prop.Scale => 1,
+            Prop.Speed => SpeedScale(e),
+            Prop.Health => Number(HealthVar(e, "hp")),
+            Prop.MaxHealth => Number(HealthVar(e, "max_health")),
+            Prop.Grounded => e.OnGround ? 1 : 0,
+            Prop.Dead => e.Destroyed ? 1 : 0,
+            Prop.Exists => 1,
+            _ => e == self ? Number(Local(e, p.Name)) : 0,
+        };
+    }
+
+    /// <summary>A variable of the object's EasyHealth mechanism (null when it has none).</summary>
+    static object? HealthVar(GameObject g, string var)
+    {
+        foreach (var m in g.Mechanisms)
+            if (m.Def.Name == "EasyHealth") return m.Vars.TryGetValue(var, out var v) ? v : null;
+        return null;
+    }
+
+    /// <summary>A value as a number, the way the runtime reads one (a text that isn't a number is 0), a list as its length.</summary>
+    internal static double Number(object? v) => v is List<object?> l ? l.Count : World.TryNumber(v, out var d) ? d : 0;
 
     /// <summary>Reads a formula the way EasyEngine's Expr.cs does (tolerant: trailing text is ignored).</summary>
     sealed class FormulaReader(string s)
@@ -169,30 +250,30 @@ public sealed partial class EasyCompat
         Node Or()
         {
             var a = And();
-            while (Match("||") || Word("or")) a = new BinNode("or", a, And());
+            while (Match("||") || Word("or")) a = new BinNode(BinOp.Or, a, And());
             return a;
         }
 
         Node And()
         {
             var a = Compare();
-            while (Match("&&") || Word("and")) a = new BinNode("and", a, Compare());
+            while (Match("&&") || Word("and")) a = new BinNode(BinOp.And, a, Compare());
             return a;
         }
 
         Node Compare()
         {
             var a = Add();
-            if (Match(">=")) return new BinNode(">=", a, Add());
-            if (Match("<=")) return new BinNode("<=", a, Add());
-            if (Match("==")) return new BinNode("==", a, Add());
-            if (Match("!=")) return new BinNode("!=", a, Add());
-            if (Match("=>")) return new BinNode(">=", a, Add());
-            if (Match("=<")) return new BinNode("<=", a, Add());
-            if (Match("<>")) return new BinNode("!=", a, Add());
-            if (Match(">")) return new BinNode(">", a, Add());
-            if (Match("<")) return new BinNode("<", a, Add());
-            if (Match("=")) return new BinNode("==", a, Add());
+            if (Match(">=")) return new BinNode(BinOp.Ge, a, Add());
+            if (Match("<=")) return new BinNode(BinOp.Le, a, Add());
+            if (Match("==")) return new BinNode(BinOp.Eq, a, Add());
+            if (Match("!=")) return new BinNode(BinOp.Ne, a, Add());
+            if (Match("=>")) return new BinNode(BinOp.Ge, a, Add());
+            if (Match("=<")) return new BinNode(BinOp.Le, a, Add());
+            if (Match("<>")) return new BinNode(BinOp.Ne, a, Add());
+            if (Match(">")) return new BinNode(BinOp.Gt, a, Add());
+            if (Match("<")) return new BinNode(BinOp.Lt, a, Add());
+            if (Match("=")) return new BinNode(BinOp.Eq, a, Add());
             return a;
         }
 
@@ -201,8 +282,8 @@ public sealed partial class EasyCompat
             var a = Mul();
             while (true)
             {
-                if (Match("+")) a = new BinNode("+", a, Mul());
-                else if (Match("-")) a = new BinNode("-", a, Mul());
+                if (Match("+")) a = new BinNode(BinOp.Add, a, Mul());
+                else if (Match("-")) a = new BinNode(BinOp.Sub, a, Mul());
                 else return a;
             }
         }
@@ -212,9 +293,9 @@ public sealed partial class EasyCompat
             var a = Unary();
             while (true)
             {
-                if (Match("*")) a = new BinNode("*", a, Unary());
-                else if (Match("/")) a = new BinNode("/", a, Unary());
-                else if (Match("%")) a = new BinNode("%", a, Unary());
+                if (Match("*")) a = new BinNode(BinOp.Mul, a, Unary());
+                else if (Match("/")) a = new BinNode(BinOp.Div, a, Unary());
+                else if (Match("%")) a = new BinNode(BinOp.Mod, a, Unary());
                 else return a;
             }
         }
@@ -258,9 +339,9 @@ public sealed partial class EasyCompat
                         while (Match(",")) args.Add(Or());
                     }
                     Match(")");
-                    return new CallNode(name, args.ToArray());
+                    return new CallNode(FnOf(name), args.ToArray());
                 }
-                return new NameNode(name);
+                return NameNode(name);
             }
             return new NumNode(0);
         }
