@@ -55,7 +55,7 @@ sealed class PlayerWindow : Window
         AddHandler(KeyDownEvent, OnKey, RoutingStrategies.Tunnel);
         Opened += (_, _) =>
         {
-            if (_project != null) StartScene(NewWorld(), _project.Scenes[0]);
+            if (_project != null) StartScene(NewWorld(), EasyCompat.FirstScene(_project)); // an EasyEngine project starts in its start scene
             if (snapPng != null) _ = SnapAndClose(snapPng, snapMenu);
         };
         Closed += (_, _) => { _play?.Halt(); _audio.Dispose(); };
@@ -83,7 +83,7 @@ sealed class PlayerWindow : Window
         w.SoundControl += r =>
         {
             if (r.VolumeOnly) { _audio.SetVolume(r.Name, r.Volume); return; }
-            if (r.Stop) { _audio.StopLoop(r.Name); return; }
+            if (r.Stop) { _audio.StopLoop(r.Name); if (Sounds.Resolve(_dir!, r.Name) is { } one) _audio.StopFile(one); return; } // a one-shot of that file too
             if (Sounds.Resolve(_dir!, r.Name) is { } path) _audio.Loop(r.Name, path, r.Volume);
             else _missingSounds.Add(r.Name);
         };

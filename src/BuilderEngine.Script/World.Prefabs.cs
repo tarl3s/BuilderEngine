@@ -47,6 +47,14 @@ public sealed partial class World
     public GameObject? SpawnPrefab(string name, double x, double y, int line = 0)
     {
         if (!Prefabs.TryGetValue(name.Trim(), out var t)) return null;
+        var o = SpawnTemplate(name, t, x, y, line);
+        o.Prefab = string.IsNullOrEmpty(t.Prefab) ? name.Trim() : t.Prefab; // (the template's own prefab link wins, as before)
+        return o;
+    }
+
+    /// <summary>A copy of a template (a prefab's, or a scene object's — EasyEngine spawns copies of those too) at x, y.</summary>
+    internal GameObject SpawnTemplate(string name, SceneObject t, double x, double y, int line = 0)
+    {
         var names = new List<string>();
         var overrides = new Dictionary<string, Dictionary<string, object?>>(StringComparer.OrdinalIgnoreCase);
         foreach (var m in t.Mechanisms)
@@ -60,14 +68,15 @@ public sealed partial class World
                 if (def.Params.FirstOrDefault(p => string.Equals(p.Name, k, StringComparison.OrdinalIgnoreCase)) is { } p) ov[p.Name] = ConvertParam(v, p.Type);
             overrides[def.Name] = ov;
         }
+        AddEasyMechanisms(t, names, overrides); // its EasyEngine behaviors, as EasyKit mechanisms (World.EasyCompat.cs)
         var o = Spawn(name.Trim(), x, y, names, overrides, t.Tags.ToArray());
         o.Width = t.Width;
         o.Height = t.Height;
         o.Color = t.Color;
         if (!string.IsNullOrWhiteSpace(t.Image)) o.Image = t.Image.Trim();
         if (o.Tags.Contains("ui")) o.Ui = true;
-        o.Prefab = name.Trim();
         LoadAnimations(o, t);
+        EasyObjectMade(o, t);
         foreach (var inst in o.AllMechanisms()) ResolveObjectParams(inst);
         return o;
     }

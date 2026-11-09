@@ -73,6 +73,7 @@ public sealed partial class World
     void UpdateScreen(double realDt)
     {
         if (FlashAmount > 0) FlashAmount = Math.Max(0, FlashAmount - realDt / FlashTime);
+        UpdateBars(realDt); // cinema bars (World.View.cs)
         if (_slowLeft > 0)
         {
             _slowLeft -= realDt;

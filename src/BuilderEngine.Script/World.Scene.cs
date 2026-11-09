@@ -13,9 +13,11 @@ public sealed partial class World
         var map = new Dictionary<GameObject, SceneObject>();
         SetSceneSize(scene.Width, scene.Height);
         LoadTiles(scene); // World.Tiles.cs
+        EasySceneStarting(scene); // EasyEngine behaviors played here: the scene's variables, its objects (World.EasyCompat.cs)
         PrepareSystems(scene); // the systems' 'includes' settings, before any object is made (World.Systems.cs)
         foreach (var so in scene.Objects)
         {
+            if (EasySkips(so)) continue; // turned off in EasyEngine ("Active" off, or its layer off): not in the game
             var names = new List<string>();
             var overrides = new Dictionary<string, Dictionary<string, object?>>(StringComparer.OrdinalIgnoreCase);
             foreach (var m in so.Mechanisms)
@@ -38,6 +40,7 @@ public sealed partial class World
                 }
                 overrides[def.Name] = ov;
             }
+            AddEasyMechanisms(so, names, overrides); // its EasyEngine behaviors, as EasyKit mechanisms (World.EasyCompat.cs)
 
             GameObject o;
             try { o = Spawn(so.Name, so.X, so.Y, names, overrides, so.Tags.ToArray()); }
@@ -51,6 +54,7 @@ public sealed partial class World
             if (!string.IsNullOrWhiteSpace(so.Image)) o.Image = so.Image.Trim();
             o.Color = so.Color;
             LoadAnimations(o, so); // named animations + default one, prefab link (World.Prefabs.cs)
+            EasyObjectMade(o, so); // EasyEngine looks (opacity) and what its behaviors need (World.EasyCompat.cs)
             if (o.Tags.Contains("ui")) o.Ui = true;
             map[o] = so;
         }

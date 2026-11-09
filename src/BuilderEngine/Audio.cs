@@ -13,6 +13,8 @@ interface IAudio : IDisposable
     /// <summary>Starts a sound that repeats until <see cref="StopLoop"/> (the same key again restarts it at the new volume).</summary>
     void Loop(string key, string path, double volume);
     void StopLoop(string key);
+    /// <summary>Stops the one-shot sounds playing this file ('stop sound "x"' stops a long one-shot too).</summary>
+    void StopFile(string path);
     /// <summary>The volume (0..1) of one loop, or of every sound when <paramref name="key"/> is "".</summary>
     void SetVolume(string key, double volume);
 }
@@ -28,6 +30,7 @@ sealed class SilentAudio : IAudio
     public void StopAll() { }
     public void Loop(string key, string path, double volume) { }
     public void StopLoop(string key) { }
+    public void StopFile(string path) { }
     public void SetVolume(string key, double volume) { }
     public void Dispose() { }
 }
@@ -52,6 +55,7 @@ sealed class WinMmAudio : IAudio
     readonly BlockingCollection<Action> _queue = new();
     readonly Thread _thread;
     readonly bool[] _open = new bool[Voices];
+    readonly string?[] _paths = new string?[Voices]; // the file each voice plays (StopFile)
     int _next;
 
     public WinMmAudio()
@@ -77,6 +81,7 @@ sealed class WinMmAudio : IAudio
             if (MciSendString($"open \"{path}\" type mpegvideo alias {alias}", null, 0, IntPtr.Zero) == 0)
             {
                 _open[v] = true;
+                _paths[v] = path;
                 if (_master < 0.999) MciSendString($"setaudio {alias} volume to {(int)(_master * 1000)}", null, 0, IntPtr.Zero);
                 MciSendString("play " + alias, null, 0, IntPtr.Zero);
             }
@@ -107,6 +112,20 @@ sealed class WinMmAudio : IAudio
     public void StopLoop(string key)
     {
         if (!_queue.IsAddingCompleted) _queue.Add(() => CloseLoop(key));
+    }
+
+    public void StopFile(string path)
+    {
+        if (_queue.IsAddingCompleted) return;
+        _queue.Add(() =>
+        {
+            for (int v = 0; v < Voices; v++)
+                if (_open[v] && string.Equals(_paths[v], path, StringComparison.OrdinalIgnoreCase))
+                {
+                    MciSendString("close bevoice" + v, null, 0, IntPtr.Zero);
+                    _open[v] = false;
+                }
+        });
     }
 
     public void SetVolume(string key, double volume)

@@ -187,6 +187,7 @@ sealed partial class PlaySurface : Control, ICustomHitTest
             DrawHudItems(ctx, anchored: false, area, scale);
             DrawHotbar(ctx, area, scale);
             DrawMinimap(ctx, area, scale); // PlaySurface.Minimap.cs
+            DrawBars(ctx, area); // cinema bars (PlaySurface.Bars.cs)
             DrawOverlay(ctx, area, _world.FadeAmount, _world.FadeColor, _fadeBrush);
             DrawOverlay(ctx, area, _world.FlashAmount, _world.FlashColor, _flashBrush);
             DrawDialogue(ctx, area, scale);
@@ -240,6 +241,18 @@ sealed partial class PlaySurface : Control, ICustomHitTest
     }
 
     void DrawObject(DrawingContext ctx, GameObject o)
+    {
+        if (o.Angle % 360 != 0) // turned (self.angle, degrees): drawn rotated round its centre
+        {
+            double cx = o.X + o.Width / 2, cy = o.Y + o.Height / 2;
+            using (ctx.PushTransform(Matrix.CreateTranslation(-cx, -cy) * Matrix.CreateRotation(o.Angle * Math.PI / 180) * Matrix.CreateTranslation(cx, cy)))
+                DrawObjectBox(ctx, o);
+            return;
+        }
+        DrawObjectBox(ctx, o);
+    }
+
+    void DrawObjectBox(DrawingContext ctx, GameObject o)
     {
         var r = new Rect(o.X, o.Y, Math.Max(0, o.Width), Math.Max(0, o.Height));
         if (_images.Get(o.Image) is { } bmp) DrawPicture(ctx, bmp, r, o.SheetFrames, o.SheetFrame, o.FlipX);

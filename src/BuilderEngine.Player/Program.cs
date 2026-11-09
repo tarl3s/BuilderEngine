@@ -36,7 +36,7 @@ public static class Program
         if (dir == null || !Project.Exists(dir)) { Console.Error.WriteLine("No game folder."); return 100; }
         var p = Project.Load(dir);
         var w = GameBoot.NewWorld(p, dir, Path.Combine(Path.GetTempPath(), "BuilderEngine_player_check"));
-        w.LoadScene(p.Scenes[0]);
+        w.LoadScene(EasyCompat.FirstScene(p));
         w.RunFor(2);
         foreach (var e in w.Errors) Console.Error.WriteLine(e);
         Console.WriteLine($"{p.Name}: {w.Objects.Count} objects, {w.Errors.Count} errors");
