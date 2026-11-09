@@ -259,6 +259,7 @@ public sealed partial class World
             "color" => g.Color ?? "",
             "caption" => g.Caption ?? "",
             "layer" or "z" => g.Z,
+            "angle" or "rotation" => g.Angle,
             "opacity" => g.Opacity,
             "picture" or "image" => g.Image ?? "",
             "light" => g.LightRadius,
@@ -289,6 +290,7 @@ public sealed partial class World
             case "color": g.Color = v is string s && s.Length > 0 ? s : null; break;
             case "caption": g.Caption = ToText(v); g.CaptionTemplate = null; break;
             case "layer" or "z": g.Z = ToNumber(v, line); break;
+            case "angle" or "rotation": g.Angle = ToNumber(v, line) is var a && double.IsFinite(a) ? a % 360 : 0; break;
             case "opacity": g.Opacity = Math.Clamp(ToNumber(v, line), 0, 1); break;
             case "picture" or "image": g.Image = ToText(v) is { Length: > 0 } p ? p : null; break;
             case "light": g.LightRadius = Math.Max(0, ToNumber(v, line)); break;

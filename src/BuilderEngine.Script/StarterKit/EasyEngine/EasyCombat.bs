@@ -1,0 +1,130 @@
+# EasyKit: EasyEngine's combat behaviors (health, hazards, guns, spawners), written as mechanisms.
+# A hit is told to the object hit: tell who "easy hurt" [damage, knockback, x of the middle of what hit it].
+
+mechanism EasyHealth
+    # Health: hit points with a moment of safety after each hit. At 0: back to the last checkpoint (or the start), or gone.
+    # Signals for Custom rules: hurt, died.
+    param max_health: number = 3
+    param invincible: number = 1
+    param respawn: yesno = true
+    param var: text = "health"
+    param publish: yesno = true
+    param heavy: yesno = false
+
+    when start
+        hp = max(1, max_health)
+        home_x = self.x
+        home_y = self.y
+        if publish and var != "": easy_set var, hp
+
+    when tick
+        if safe > 0: safe -= dt
+        if hp < 0: hp = 0
+        if easy_fell()
+            if respawn
+                hp -= 1
+                back_home
+                safe = 1
+            else
+                hp = 0
+                self.vx = 0
+                self.vy = 0
+        if publish and var != "": easy_set var, hp
+        if hp <= 0
+            emit died
+            if respawn
+                hp = max(1, max_health)
+                back_home
+                safe = max(0.5, invincible)
+            else
+                destroy self
+
+    when told "easy hurt" hit
+        if safe > 0: stop
+        hp -= hit[0]
+        hits += 1
+        safe = max(0.3, invincible)
+        emit hurt
+        if not heavy and hit[1] > 0: easy_knock hit[1], hit[2]
+
+    when told "easy heal" amount
+        hp = min(hp + amount, max(1, max_health))
+
+    when told "easy checkpoint" spot
+        home_x = spot[0]
+        home_y = spot[1]
+
+    to back_home
+        self.x = home_x
+        self.y = home_y
+        self.vx = 0
+        self.vy = 0
+
+mechanism EasyDamager
+    # Damager / Hazard: hurts the target that touches it, pushing it away; 'vanish' = used up by its hit (a bullet).
+    param damage: number = 1
+    param knockback: number = 320
+    param vanish: yesno = false
+    param target: text = "Player"
+    param cond: text = ""
+
+    when tick
+        if not easy_on(cond): stop
+        who = easy_hurtable(target)
+        if not who or not easy_contact(self, who): stop
+        if who.EasyHealth.safe > 0: stop
+        tell who "easy hurt" [damage, knockback, self.x + self.width / 2]
+        if vanish: destroy self
+
+mechanism EasyShooter
+    # Shooter: fires bullets when a key is pressed — or, with no key, by itself every 'cooldown' seconds.
+    param key: text = "t"
+    param directions: number = 8
+    param speed: number = 420
+    param cooldown: number = 0.3
+    param life: number = 2
+    param bullet: text = "Bullet"
+    param aim: text = ""
+    param cond: text = ""
+
+    when tick
+        if wait_left > 0: wait_left -= dt
+        if not easy_on(cond) or wait_left > 0: stop
+        if key == "" or easy_key(key)
+            easy_shoot directions, speed, life, bullet, aim
+            wait_left = max(0.05, cooldown)
+
+mechanism EasySpawner
+    # Spawner: makes copies of an object or prefab — every 'interval' seconds, or each time a key is pressed. max 0 = no limit.
+    param target: text = "Enemy"
+    param interval: number = 1.5
+    param max_count: number = 10
+    param key: text = ""
+    param spawn_at: text = "self"
+    param cond: text = ""
+
+    when tick
+        if not easy_on(cond): stop
+        room = max_count <= 0 or made < max_count
+        if key != ""
+            down = easy_key(key)
+            if down and not was and room
+                easy_spawn target, spawn_at
+                made += 1
+            was = down
+        else
+            clock += dt
+            if clock >= max(0.05, interval) and room
+                clock = 0
+                easy_spawn target, spawn_at
+                made += 1
+
+mechanism EasyDestroyOffscreen
+    # Destroy Off-screen: removed when it leaves what the camera shows (by more than 'margin' pixels).
+    param margin: number = 120
+
+    when tick
+        view_left = camera_x - view_width / 2 - margin
+        view_top = camera_y - view_height / 2 - margin
+        if self.x + self.width < view_left or self.x > view_left + view_width + 2 * margin or self.y + self.height < view_top or self.y > view_top + view_height + 2 * margin
+            destroy self

@@ -99,6 +99,7 @@ public sealed partial class World
     void SayCommand(CommandContext c, bool narrator)
     {
         GameObject? speaker = c.Self;
+        string? speakerName = null;
         object? text;
         int forAt = IndexOfWord(c, "for");
         int count = forAt >= 0 ? forAt : c.Args.Count;
@@ -106,14 +107,16 @@ public sealed partial class World
         else if (count >= 2)
         {
             speaker = ObjectAt(c, 0);
-            if (speaker == null) throw c.Error($"There's no object called '{DescribeArg(c, 0)}' to speak.");
+            // say "Old man" "Hello" — a name in quotes (or a text value) that is no object's: just the name on the panel
+            if (speaker == null && c.Args[0] is string name && name.Trim().Length > 0) speakerName = name.Trim();
+            else if (speaker == null) throw c.Error($"There's no object called '{DescribeArg(c, 0)}' to speak.");
             text = c.Args[1];
         }
         else text = count == 1 ? c.Args[0] : null;
         if (text == null) throw c.Error(narrator ? "'narrate' needs a text: narrate \"Long ago...\"." : "'say' needs a text: say \"Hello!\" or say Boss \"You came...\".");
         var d = new Dialogue
         {
-            Speaker = speaker?.Name ?? "",
+            Speaker = speakerName ?? speaker?.Name ?? "",
             SpeakerObject = speaker,
             Text = Interpolate(ToText(text), c.Mechanism, c.Locals),
             AutoClose = NumberAfterWord(c, "for") ?? 0,

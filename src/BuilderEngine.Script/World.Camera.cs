@@ -134,8 +134,8 @@ public sealed partial class World
         cam.MoveTween++;
         cam.ZoomTween++;
         cam.ShakeLeft = cam.ShakeX = cam.ShakeY = 0;
-        cam.BaseWidth = Math.Min(SceneWidth, Camera.MaxViewWidth);
-        cam.BaseHeight = Math.Min(SceneHeight, Camera.MaxViewHeight);
+        cam.BaseWidth = Math.Min(SceneWidth, ViewMaxWidth); // 'camera size' (World.View.cs)
+        cam.BaseHeight = Math.Min(SceneHeight, ViewMaxHeight);
         LimitCameraToScene();
     }
 

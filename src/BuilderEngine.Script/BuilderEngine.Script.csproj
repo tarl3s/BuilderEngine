@@ -16,6 +16,11 @@
   <ItemGroup>
     <EmbeddedResource Include="StarterKit\*.bs" LogicalName="StarterKit.%(Filename).bs" />
   </ItemGroup>
+  <!-- EasyKit (StarterKit/EasyEngine/*.bs): EasyEngine's behaviors written as mechanisms, loaded only into worlds that
+       play an EasyEngine project (EasyCompat.cs). Not part of the starter kit: they don't show in the library. -->
+  <ItemGroup>
+    <EmbeddedResource Include="StarterKit\EasyEngine\*.bs" LogicalName="EasyKit.%(Filename).bs" />
+  </ItemGroup>
   <!-- Starter systems (Systems/*.bs): sets of mechanisms that work together (Systems.cs). -->
   <ItemGroup>
     <EmbeddedResource Include="Systems\*.bs" LogicalName="Systems.%(Filename).bs" />

@@ -385,14 +385,27 @@ public sealed partial class MainWindow
         if (!EasyLink.HasEasyBehaviors(o)) return;
         var body = new StackPanel { Spacing = 6 };
         body.Children.Add(new TextBlock { Text = "Built on EasyEngine", FontWeight = FontWeight.SemiBold, Foreground = Palette.Accent });
-        var names = EasyLink.EasyBehaviors(o).Select(Words).Distinct().ToList();
-        string list = names.Count <= 6 ? string.Join(", ", names) : string.Join(", ", names.Take(6)) + $" and {names.Count - 6} more";
-        body.Children.Add(new TextBlock { Text = "Behaviors: " + list, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Text, FontSize = 12 });
+        // One line per behavior: does it play here when you press Play? (EasyCompat.cs; the same table is in docs/EASYENGINE-LINK.md)
+        foreach (var kind in EasyLink.EasyBehaviors(o).Distinct())
+        {
+            var s = EasyCompat.SupportOf(kind);
+            string line = s.Level switch
+            {
+                EasyCompat.Level.Runs => $"✓ {Words(kind)} — runs here",
+                EasyCompat.Level.Partly => $"◐ {Words(kind)} — runs here, partly: {s.Note}",
+                _ => $"✗ {Words(kind)} — doesn't run here yet (play it in EasyEngine)",
+            };
+            body.Children.Add(new TextBlock
+            {
+                Text = line, TextWrapping = TextWrapping.Wrap, FontSize = 12,
+                Foreground = s.Level == EasyCompat.Level.No ? Palette.TextDim : Palette.Text,
+            });
+        }
         body.Children.Add(new TextBlock
         {
             Text = o.Mechanisms.Count == 0
-                ? "BuilderEngine shows this object and keeps its behaviors exactly as they are, but doesn't run them: edit and play them in EasyEngine."
-                : "It also has BuilderEngine mechanisms: here only the mechanisms run; EasyEngine runs its behaviors and the mechanisms.",
+                ? "BuilderEngine keeps its behaviors exactly as EasyEngine saved them and plays them as EasyKit mechanisms when you press Play: edit them in EasyEngine."
+                : "It also has BuilderEngine mechanisms: here they run together with its behaviors, like in EasyEngine.",
             TextWrapping = TextWrapping.Wrap, Foreground = Palette.TextDim, FontSize = 12
         });
         if (_eeproj != null && FindEasyEngine() != null)

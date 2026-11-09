@@ -173,11 +173,13 @@ BuilderEngine doesn't add its starter sounds to an EasyEngine project.
   common fields and, in Behaviors, a single read-only card **"Built on BuilderEngine"** (open it there to edit). It is
   not given EasyEngine behaviors. When EasyEngine plays, its mechanisms **run for real** through the bridge (below).
 - An object **with EasyEngine behaviors**: BuilderEngine's inspector shows the common fields and a read-only card
-  **"Built on EasyEngine"** (the behavior names, and **Open in EasyEngine** when EasyEngine is found). BuilderEngine keeps
-  its data untouched; when BuilderEngine plays, those objects appear (picture, colour) but their EasyEngine behaviors
-  don't run there (play it in EasyEngine).
+  **"Built on EasyEngine"**: one line per behavior saying whether it runs in BuilderEngine (✓ runs here, ◐ runs here
+  partly — and what's missing, ✗ doesn't run here yet), and **Open in EasyEngine** when EasyEngine is found.
+  BuilderEngine keeps its data untouched; when BuilderEngine plays, its behaviors **run** as EasyKit mechanisms (see
+  *Playing EasyEngine behaviors in BuilderEngine*).
 - **Both**: giving a mechanism to an object with EasyEngine behaviors asks first (once per object). It then has both:
-  BuilderEngine runs only its mechanisms; EasyEngine runs its behaviors and, through the bridge, its mechanisms.
+  BuilderEngine runs its mechanisms and its behaviors (as EasyKit mechanisms); EasyEngine runs its behaviors and,
+  through the bridge, its mechanisms.
 - Both empty: a plain object either engine can give behaviour to.
 
 **Open in EasyEngine** saves, then starts EasyEngine (the `EASYENGINE_EXE` variable, else its Start-menu shortcut
@@ -221,6 +223,68 @@ BuilderEngine objects' positions/size/visibility/picture back to their EasyEngin
 errors go to EasyEngine's F1 console. Commands that need BuilderEngine's own screen (dialogue boxes, HUD) are mapped
 to EasyEngine's equivalents where one exists, otherwise logged once as "not available in EasyEngine".
 
+## Playing EasyEngine behaviors in BuilderEngine (EasyCompat)
+
+Pressing Play in BuilderEngine on an EasyEngine project plays its behaviors the way EasyEngine does. This is
+**EasyCompat** (`src/BuilderEngine.Script/EasyCompat*.cs`, `World.EasyCompat.cs`) and the **EasyKit** mechanisms
+(`src/BuilderEngine.Script/StarterKit/EasyEngine/*.bs`, Builder Script, embedded as `EasyKit.*.bs`).
+
+**How it works.** `GameBoot.UseProject` — the one place a world gets ready for a project, shared by the editor's Play
+and exported games — calls `EasyCompat.Use`: for a project with EasyEngine behaviors it loads EasyKit into the world,
+EasyEngine's view size (`ScreenWidth` × `ScreenHeight`, 960 × 540) and the project's variables. When a scene loads
+(`World.LoadScene`, and `SpawnTemplate` for prefabs and copies), each object's EasyEngine behaviors become EasyKit
+mechanisms with the behavior's settings as params (`Platformer` → `EasyPlatformer speed 260 jump 640 …`), added to the
+running object only. **Nothing is added to the project**: the saved object keeps its behaviors and no mechanisms, so
+EasyEngine still owns it and saving is unchanged. Objects turned off (`Active` false, or on a layer turned off) aren't
+created; an exported EasyEngine game starts in its `StartScene`.
+
+**Why Builder Script.** Each behavior is a short mechanism anyone can open and read (the same language the person
+learns), and the engine features they needed were added as generic, tested Builder Script features instead of C# per
+behavior: `camera size`, `camera smooth`, `camera hold`, `bars on/off` (cinema bars), `self.angle` (drawn rotated),
+`say "Name" "line"` (a speaker that is just a name), `scene_width`/`scene_height`/`camera_x`/`camera_y`/`view_width`/
+`view_height`, and `stop sound` also stopping a long one-shot sound. What is EasyEngine's own way of doing things
+(objects found by name, its formula language, its variables with `:` in their names, one key press per Interact, its
+dialogue queue, knockback, automatic idle/walk/jump animations) is a small set of `easy_…` functions and commands in
+C# (`World.EasyCompat.cs`; hidden from the AI's vocabulary).
+
+**Custom rules** (`when → do`) are translated into a Builder Script mechanism per set of rules (`EasyRules_<hash>`),
+running them as EasyEngine's `RunCustom` does: every frame the rules started by a moment (key press, timer, after,
+touch, click, landed, hurt, interact, key near, key idle…) are decided first, then the rules run in order; a block with
+several WHEN rows fires when any of them does and runs its DO rows in order; "when it dies" runs at once, before the
+object goes; guards (`cond`, the old `if/ifop/ifval`) and "↔ reverse" work. Numbers stay numbers; anything written as a
+formula stays an EasyEngine formula (`easy_value("…")`, EasyEngine's Expr ported: `key:E`, `Player.x`, `local.hp`,
+`item:wood`, and/or/not, `=`/`<>`). EasyEngine variables are BuilderEngine globals of the same name (`{score}` shows in
+captions; `global musicIsPlaying` in the translated rules). **Covered:** every event of the block palette but the
+mouse wheel; every action but particles (`emit`), `setactive`, `breaktile` and `settime`. Looping tweens play once.
+**Cutscenes** are translated the same way (`EasyCutscene_<hash>`): the triggers (scene start, someone walks in, a
+variable turns on, a key), once, lock, cinema bars, "camera stops", and the steps say, title, fade out/in, bars,
+camera to an object or point, camera back, shake, move (waiting or not), face, show/hide, control the player / press a
+key, play an animation (once/loop/auto/pause/resume), lock/unlock, set/add variables, texts, colours, lists, play
+sound, go to a scene, destroy, spawn; at the end it gives back the keys, the bars, the camera and a fade it left on. The
+generated Builder Script is kept in `EasyCompat.Generated` (the snap writes it to `compat_generated.txt`).
+
+What can't play yet is said **once** in the console (`ℹ EasyEngine: not supported yet: …`), never as an error.
+
+| EasyEngine behavior | In BuilderEngine |
+|---|---|
+| Platformer | ✓ `EasyPlatformer`: EasyEngine's speed, jump speed, gravity 2000, max fall 1500, coyote 0.1 s, buffer 0.12 s, variable jump (×0.45), double / wall jump, dash, extra keys, "Only while" |
+| Top-Down | ✓ `EasyTopDown` |
+| Solid | ✓ `EasySolid` (one-way too); physics "Static" is a solid, "Dynamic" falls (`EasyBody`) |
+| Follow Camera | ✓ `EasyFollowCamera`: EasyEngine's per-frame smoothing as `camera smooth`, the scene clamp |
+| Stay Inside | ✓ `EasyStayInside` (after physics, like EasyEngine): scene or screen, stop / bounce / wrap, sides |
+| Custom | ◐ translated rules (above) |
+| Cutscene | ◐ translated steps (above); no skip key; dialogue looks and fonts are the default ones |
+| Interact | ◐ `EasyInteract`: say (line by line, freeze), set / add a variable, go to a scene, once, one press per object; default dialogue box |
+| Go To Scene | ✓ `EasyGoToScene` (with "Only while", e.g. `key:E >= 1`) |
+| Sound | ◐ `EasySound`: on start, once or looping; "only heard nearby" and left/right panning aren't there yet |
+| Light | ◐ `EasyLight`: a round light (flicker); beam / half / area / bar shapes shine as a circle |
+| Day / Night | ◐ `EasyDayNight`: the light level and isDay / isNight / timeOfDay / dayness; no sun and moon, no darker underground |
+| Spin, Projectile, Patrol, Chase, Health, Damager, Collectible, Checkpoint, Shooter, Spawner, Bar, Trigger Area, Ability Pickup, Gate, Switch, Spring, Parallax, Destroy Off-screen | ✓ `Easy<Kind>` |
+| Label | ◐ `EasyLabel`: the text in the object; no text effects |
+| Smart Chase | ◐ plays as Chase (straight at the target) |
+| Tilemap | ✓ a tile layer (see *Tilemaps*) |
+| Boss AI, Lives, Advanced Patrol, UI Button, Shop, Pushable, Particles, Hotbar, Use Item, Harvestable, Terrain, Minimap, Generator, Test Checklist | ✗ not yet (said once in the console; the object still appears) |
+
 ## Tests
 
 `tests/BuilderEngine.Tests/LinkTests.cs` round-trips every EasyEngine project it finds (`Desktop\Jogos\*`,
@@ -233,3 +297,9 @@ with tilemaps and, in the one with the most, paints a cell with the tile brush, 
 (`tiles_checks.txt`, `tiles_*.png`). `tests/BuilderEngine.Tests/TileLinkTests.cs`: tilemaps read as layers, one edited
 cell = one changed number, new kinds added to a palette, a body landing on a converted tile, a BuilderEngine layer read
 by EasyEngine's strict model, old `Builder.extra.tileLayers`, and a Mistify copy (when found).
+`tests/BuilderEngine.Tests/EasyCompatTests.cs`: each mapped behavior on small hand-made `.eeproj` projects played
+headless (platformer feel, solids, patrol, health/damage, interact + scene change, a cutscene's steps in order to its end,
+custom rules with blocks, stay inside, follow camera, labels, pickups, gate, chase, shooter, spawner, top-down), and a
+Mistify copy: every scene plays with scripted keys with no script errors, the music box toggles, its cutscenes reach
+their end and change scene. Before the link snap, the `--snap` run above also plays the start scene and the first
+scene with a cutscene to its end (`compat_checks.txt`, `compat_*.png`, `compat_generated.txt`).

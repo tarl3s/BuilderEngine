@@ -142,11 +142,14 @@ game goes on. Named values come after words like `to`, `in`, `at`, `by`, `with`,
 | Camera | `camera follow Boss` · `camera follow player` | follow an object (by default the camera follows the object tagged "player", inside the scene) |
 | | `camera move to 600, 300 in 2` · `camera zoom 2 in 1` · `camera shake 6 for 0.5` | pan, zoom, shake |
 | | `camera limits` · `camera limits Room` · `camera limits 0, 0, 1600, 450` · `camera limits off` · `camera reset` | where the camera may go |
+| | `camera size 960, 540` · `camera smooth 8` · `camera hold` | the most of the scene shown at zoom 1 (800 × 450 by default) / how fast it catches up (per second; 0 = sticks) / stop following and stay |
 | Dialogue | `say Boss "You came..."` · `say "Hi!"` · `narrate "Long ago..."` · `say Boss "Run!" for 1.5` | a line that types out and waits for space / enter / E / Z / X / a click |
 | | `ask "Join me?" "Yes", "No"` | a choice (arrows + enter, a number key or a click); then `answer` is the chosen text |
+| | `say "Old man" "Hello"` | a speaker that is just a name (no object called that) |
 | | `notify "Checkpoint!"` | a message that goes away by itself |
 | Screen | `fade out in 1` · `fade in in 1` · `fade out in 1 with "white"` | fade the whole screen (waits) |
 | | `flash` · `flash "red"` | a quick flash of colour |
+| | `bars on` · `bars off` · `bars on in 0.4` | cinema bars slide in from the top and the bottom |
 | | `slow motion 0.3 for 2` · `slow motion off` · `pause game` · `resume game` | game speed (`for` counts real seconds); a paused game still gets keys |
 | Control | `lock controls` · `unlock controls` | while locked, `key()` is false and `when key` doesn't fire; cutscene lines still run |
 | HUD | `show text "Score: {score}" at 16, 16 with "#E8B04B", 24` · `hide text "Score: {score}"` | a text on the screen; `{name}` shows a variable or any value, updated every frame; `at self` = on an object |
@@ -154,6 +157,7 @@ game goes on. Named values come after words like `to`, `in`, `at`, `by`, `with`,
 | Pictures | `look "hero.png"` · `look Boss "angry.png"` · `look none` | the object's picture (from the project's `images/` folder), drawn in its box |
 | | `animate "walk" at 8` · `animate "run.png" with 6` · `animate "attack" once` · `animate none` | numbered pictures (`walk1.png, walk2.png…`) or a strip of frames; `once` waits until it's done |
 | | `face left` · `face right` · `face player` · `layer 2` | mirror the picture, turn towards an object, draw above lower layers |
+| | `self.angle = 45` · `self.angle += 90 * dt` | turn the object (degrees, clockwise); it is drawn rotated round its centre |
 | Saves | `save game` · `load game` · `save "coins", 12` · `saved("coins")` · `clear save` | keep the global variables and values on disk (`saves/` in the project); `loaded` tells if a load found a save |
 
 Starter kit: `Cutscene` (an invisible zone that plays once), `Npc` (says its lines when the player walks up),

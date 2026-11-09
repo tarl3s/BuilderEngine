@@ -1,0 +1,110 @@
+# EasyKit: EasyEngine's camera, sound, light and HUD behaviors, written as mechanisms.
+
+mechanism EasyFollowCamera
+    # Follow Camera: the camera follows this object, catching up smoothly; 'clamp' keeps the view inside the scene.
+    # 'rate' is EasyEngine's smoothing (a share of the way each frame) as a speed per second.
+    param rate: number = 7.7
+    param clamp: yesno = true
+
+    when start
+        camera follow self
+        camera smooth rate
+        if clamp
+            camera limits
+        else
+            camera limits off
+
+    when told "easy camera back"
+        camera follow self
+
+mechanism EasySound
+    # Sound: plays a sound file when the scene starts (once or looping).
+    param asset: text = ""
+    param volume: number = 0.8
+    param on_start: yesno = true
+    param loop: yesno = false
+
+    when start
+        if not on_start or asset == "": stop
+        if loop
+            play asset loop with volume
+        else
+            play asset with volume
+
+mechanism EasyLight
+    # Light: lights up the darkness around it (it shows only where the scene is dark: night, a low ambient light).
+    param radius: number = 200
+    param color: text = "#FFA040"
+    param flicker: number = 0
+
+    when start
+        light radius with color, flicker
+
+mechanism EasyDayNight
+    # Day / Night cycle: the scene dims at night and brightens by day; sets isDay, isNight, timeOfDay and dayness.
+    param day: number = 60
+    param night: number = 60
+    param fade: number = 4
+    param day_light: number = 1
+    param night_light: number = 0.25
+    param start_at_night: yesno = false
+    param color: text = "#0A1030"
+
+    when start
+        day_len = max(0.5, day)
+        night_len = max(0.5, night)
+        total = day_len + night_len
+        trans = clamp(fade, 0, min(day_len, night_len) / 2)
+        t = trans
+        if start_at_night: t = day_len
+        repeat forever
+            t += dt
+            if t >= total: t -= total * floor(t / total)
+            is_night = t >= day_len
+            k = 1
+            if is_night
+                k = 0
+            else if trans > 0 and t < trans
+                k = t / trans
+            else if trans > 0 and t > day_len - trans
+                k = (day_len - t) / trans
+            k = clamp(k, 0, 1)
+            lit = night_light + (day_light - night_light) * k
+            darkness clamp(1 - lit, 0, 1) with color
+            easy_set "isNight", is_night
+            easy_set "isDay", not is_night
+            easy_set "timeOfDay", t / total
+            easy_set "dayness", k
+
+mechanism EasyLabel
+    # Label / HUD text: a text on the object; {name} shows a variable (updated by itself).
+    param text: text = "Score: {score}"
+    param color: text = "#FFFFFF"
+    param font_size: number = 20
+
+    when start
+        caption text with color, font_size
+
+mechanism EasyBar
+    # Bar: fills with a variable (var / max) — a health bar on the screen, or above an object.
+    param var: text = "health"
+    param max_value: number = 3
+    param max_var: text = ""
+    param color: text = "#3BC97A"
+    param on_screen: yesno = true
+
+    when start
+        visible = false
+        if not on_screen
+            show bar easy_var(var) of easy_bar_max(max_var, max_value) at self with color
+        else
+            show bar easy_var(var) of easy_bar_max(max_var, max_value) at self.x, self.y with color size self.width, self.height
+
+mechanism EasyAutoAnim
+    # EasyEngine picks an object's animation by itself: jump (in the air), walk (moving), idle — unless a rule plays one.
+    param idle: text = ""
+    param walk: text = ""
+    param jump: text = ""
+
+    when tick
+        easy_auto_anim idle, walk, jump

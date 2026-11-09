@@ -223,6 +223,7 @@ public static class GameBoot
     {
         w.ProjectFolder = projectDir;
         w.SaveFolder = saveFolder ?? Path.Combine(projectDir, Project.SavesFolder);
+        EasyCompat.Use(w, p); // an EasyEngine project: its behaviors play as EasyKit mechanisms (EasyCompat.cs)
         w.UsePrefabs(p.Prefabs); // spawn "Slime" finds the project's prefabs (Prefabs.cs), in the editor and in exported games
     }
 

@@ -49,11 +49,12 @@ public static class AiKnowledge
         if (_vocabulary != null) return _vocabulary;
         var w = new World();
         w.UseScenes(["Level 1"]);
-        var engine = w.Commands.Keys.Order(StringComparer.OrdinalIgnoreCase);
+        // (easy_… are EasyCompat's own, for EasyEngine projects: not words to teach — World.EasyCompat.cs)
+        var engine = w.Commands.Keys.Where(k => !World.IsEasyWord(k)).Order(StringComparer.OrdinalIgnoreCase);
         var sb = new StringBuilder();
         sb.Append("WORDS: ").AppendLine(string.Join(" ", Parser.Keywords));
         sb.Append("COMMANDS: ").AppendLine(string.Join(", ", World.BuiltInCommands.Concat(engine).Distinct(StringComparer.OrdinalIgnoreCase)));
-        sb.Append("FUNCTIONS: ").AppendLine(string.Join(", ", World.BuiltInFunctions.Concat(w.Functions.Keys).Distinct(StringComparer.OrdinalIgnoreCase)));
+        sb.Append("FUNCTIONS: ").AppendLine(string.Join(", ", World.BuiltInFunctions.Concat(w.Functions.Keys.Where(k => !World.IsEasyWord(k))).Distinct(StringComparer.OrdinalIgnoreCase)));
         return _vocabulary = sb.ToString();
     }
 
