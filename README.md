@@ -45,6 +45,30 @@ mechanism Coin
         destroy self
 ```
 
+## Optional FMOD audio
+
+BuilderEngine plays sounds with Windows' own player. If **FMOD** is on the computer it can use it instead — more
+sounds at once, ogg/flac, exact volumes and loops — and play **FMOD Studio** events (adaptive music, parameters, 3D).
+FMOD is **not included** and is not MIT: it has its own licence (free for small indie games, see
+[fmod.com/licensing](https://www.fmod.com/licensing)). Without it everything works exactly as before.
+
+- **Enable it**: install the *FMOD Engine* from [fmod.com/download](https://www.fmod.com/download) (free account), or put
+  `fmod.dll` (and `fmodstudio.dll` for events) next to `BuilderEngine.exe`. **Project ▸ Sound engine…** picks
+  Automatic (FMOD when found — the default), FMOD or Classic (the `audioBackend` setting in `settings.json`) and shows
+  what plays now, e.g. *Sound: FMOD 2.03.15 ✓* or *Sound: Classic (fmod.dll not found)*. A new choice applies when the
+  game stops.
+- **FMOD Studio**: make a Studio project, set its built banks folder (Edit ▸ Preferences ▸ Build) to your game's
+  `<project>\fmod` folder and **Build**. Then pick events in the starter kit's **FmodEmitter** (plays its event at its
+  object, follows it, stops when the object is destroyed) or in code:
+  `play event "event:/Music/Forest" as "music" with 0.5` · `play event "SFX/Fire" at self` ·
+  `set event "music", "danger" to 0.8` · `set fmod "time_of_day" to 1` · `place event "music" at 400, 300` ·
+  `stop event "music"` (fades) · `stop event "music" now` · `stop events`. The listener is the camera's centre.
+  Sound engine… opens FMOD Studio, reloads the banks after a new build and counts the project's banks and events.
+  Without FMOD Studio the commands do nothing (the console says why once).
+- **Export**: *Include FMOD* (off by default) copies your `fmod.dll` / `fmodstudio.dll` next to the game — then you
+  must follow FMOD's licence. Off, the game uses the classic sound unless its player has FMOD installed. The `fmod`
+  bank folder always goes with the game.
+
 ## Build and run
 
 ```bash
@@ -60,6 +84,6 @@ dotnet run --project tests/BuilderEngine.Tests      # language/runtime tests
 | `src/BuilderEngine.Script` (also) | the EasyEngine link: `EasyLink` (`.eeproj` ⇄ project, used by both engines), `LiveLink` (watching the project file) and `EasyCompat` + `StarterKit/EasyEngine/*.bs` (EasyEngine behaviors playing here) — see [docs/EASYENGINE-LINK.md](docs/EASYENGINE-LINK.md) |
 | `src/BuilderEngine.Plugin` | the plugin SDK: `IBuilderPlugin`, `IPluginHost`, `IPluginCommand`, `IPluginObject` (no dependencies) |
 | `src/BuilderEngine` | the editor (Avalonia: Windows now, Mac/Linux later; the code view is AvaloniaEdit, coloured by `SyntaxColors` from the language's own lexer) |
-| `src/BuilderEngine.Player` | the player of exported games: only the game window. It compiles the editor's `PlaySurface*.cs`, `TileDraw.cs`, `ImageCache.cs`, `Palette.cs`, `Audio.cs` and `GameDraw.cs` as linked files, so a game plays the same in both. Releases ship it built in `player/`; from the source, Export builds it with `dotnet publish` |
+| `src/BuilderEngine.Player` | the player of exported games: only the game window. It compiles the editor's `PlaySurface*.cs`, `TileDraw.cs`, `ImageCache.cs`, `Palette.cs`, `Audio.cs`, `FmodAudio.cs` and `GameDraw.cs` as linked files, so a game plays the same in both. Releases ship it built in `player/`; from the source, Export builds it with `dotnet publish` |
 | `samples/HelloPlugin` | a sample plugin (`confetti 20`, `wave(time)`) |
 | `tests/BuilderEngine.Tests` | test runner, no NuGet packages |

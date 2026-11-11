@@ -523,6 +523,7 @@ public sealed partial class MainWindow
         world.UseScenes(_project.Scenes.Select(s => s.Name));
         world.SoundPlayed += PlayGameSound;
         world.SoundControl += OnGameSound; // loops, stop sound, volume (MainWindow.GameAudio.cs)
+        FmodGameStart(world); // FMOD Studio events (MainWindow.Fmod.cs)
         world.SceneRequested += name => Dispatcher.UIThread.Post(() => PlaySwitchScene(name));
         StartPlaySurface(world, _scene.Clone()); // the game plays a copy: the edited scene stays exactly as it was
         RebuildInspector();
@@ -566,6 +567,7 @@ public sealed partial class MainWindow
         _play = null;
         DebugStop();
         _playSceneName = null;
+        FmodGameStop();
         _audio.StopAll();
         _sceneHost.Content = _canvas;
         _sceneBar.Content = _editBar;

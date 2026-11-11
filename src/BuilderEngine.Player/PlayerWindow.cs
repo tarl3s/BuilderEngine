@@ -24,10 +24,15 @@ sealed class PlayerWindow : Window
     readonly TextBlock _menuNote = new() { Foreground = Palette.TextDim, FontSize = 12, TextWrapping = TextWrapping.Wrap, MaxWidth = 260, HorizontalAlignment = HorizontalAlignment.Center };
     PlaySurface? _play;
     readonly HashSet<string> _missingSounds = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The game's FMOD Studio events (optional FMOD audio; ignored without FMOD Studio or banks).</summary>
+    FmodEventHost? _fmod;
+    DispatcherTimer? _fmodTimer;
+    readonly bool _mute;
 
     public PlayerWindow(string? gameDir, bool mute, string? snapPng, bool snapMenu = false)
     {
         _dir = gameDir;
+        _mute = mute;
         _audio = Audio.Create(mute);
         Background = Palette.Bg0;
         Width = 1280; Height = 720;
@@ -58,7 +63,7 @@ sealed class PlayerWindow : Window
             if (_project != null) StartScene(NewWorld(), EasyCompat.FirstScene(_project)); // an EasyEngine project starts in its start scene
             if (snapPng != null) _ = SnapAndClose(snapPng, snapMenu);
         };
-        Closed += (_, _) => { _play?.Halt(); _audio.Dispose(); };
+        Closed += (_, _) => { _play?.Halt(); _fmodTimer?.Stop(); _fmod?.Dispose(); _audio.Dispose(); };
     }
 
     void SetIcon()
@@ -88,7 +93,19 @@ sealed class PlayerWindow : Window
             else _missingSounds.Add(r.Name);
         };
         w.SceneRequested += name => Dispatcher.UIThread.Post(() => SwitchScene(name));
+        StartFmod(w);
         return w;
+    }
+
+    /// <summary>FMOD Studio events (play event "…"): one host for the whole game (the next scenes keep it), updated ~60 times a second.</summary>
+    void StartFmod(World w)
+    {
+        FmodLibrary.Log ??= m => System.Diagnostics.Trace.WriteLine(m); // no console in an exported game
+        _fmod = new FmodEventHost(_dir!, silent: _mute);
+        w.FmodControl += _fmod.Handle;
+        var host = _fmod;
+        _fmodTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Background, (_, _) => host.Update());
+        _fmodTimer.Start();
     }
 
     void StartScene(World world, Scene scene)

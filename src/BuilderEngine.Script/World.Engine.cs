@@ -37,6 +37,7 @@ public sealed partial class World
         UpdateMouse(realDt); // hover, dragging, glides (World.Mouse.cs)
         Step(Paused ? 0 : realDt * TimeScale);
         UpdateCamera(realDt);
+        UpdateFmodEvents(); // FMOD Studio events follow their objects, the listener the camera (World.FmodEvents.cs)
         UpdateAnimations();
         UpdateHud();
         UpdateEffects(realDt); // screen noise, live captions (World.Screens.cs)

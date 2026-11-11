@@ -39,7 +39,9 @@ public static class AiKnowledge
         "look \"hero.png\" · animate \"walk\" at 8 · face left · face player · layer 2 · play \"coin.wav\"\n" +
         "spawn Coin here · spawn Bullet self.x, self.y · destroy self · destroy other · goto_scene \"Level 2\" · save game · load game · save \"coins\", 12 · saved(\"coins\")\n" +
         "nearest(\"enemy\") · all(\"coin\") · count(\"enemy\") · find(\"Boss\") · distance(self, other) · random(1, 6) · min(a, b) · length(list) · add x to list\n" +
-        "set_tile x, y to \"dirt\" · darkness 0.9 · light 140 · when clicked · draggable to \"slot\" · give \"wood\", 3 · has(\"wood\", 2) · shuffle deck\n";
+        "set_tile x, y to \"dirt\" · darkness 0.9 · light 140 · when clicked · draggable to \"slot\" · give \"wood\", 3 · has(\"wood\", 2) · shuffle deck\n" +
+        "FMOD Studio events (optional): play event \"event:/Music/Forest\" as \"music\" with 0.5 · play event \"SFX/Fire\" at self (follows it) · " +
+        "set event \"music\", \"danger\" to 0.8 · set fmod \"time\" to 1 · place event \"music\" at 400, 300 · stop event \"music\" · stop event \"music\" now · stop events\n";
 
     static string? _vocabulary;
 
@@ -147,6 +149,7 @@ public static class AiKnowledge
         (["turn", "turns", "rounds"], "TurnManager"),
         (["security", "cameras", "monitor", "watch", "cctv"], "CameraMonitor"),
         (["topdown", "zelda", "rpg"], "TopDown"),
+        (["fmod", "studio", "adaptive", "emitter"], "FmodEmitter"),
     ];
 
     /// <summary>Portuguese / Spanish words a request may still have (when the translation was skipped) → English.</summary>

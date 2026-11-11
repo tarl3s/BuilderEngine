@@ -76,6 +76,7 @@ public sealed partial class World
         w.Loops = Loops;
         w.MasterVolume = MasterVolume;
         w.SoundControl = SoundControl;
+        PassFmodTo(w); // FMOD Studio events: the same host; music plays on (World.FmodEvents.cs)
         w.Rng = Rng;
         w._seed = _seed;
         return w;

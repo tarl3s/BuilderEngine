@@ -436,7 +436,7 @@ public sealed partial class Parser
                 throw new ScriptError($"'{t.Text}' needs its own lines: put it on a new line with its block indented under it.", t.Line);
             case "else": throw new ScriptError("'else' goes right after the lines of an 'if', lined up with that 'if'.", t.Line);
             case "wait": _p++; s = ParseWait(t.Line); break;
-            case "stop" when Peek(1).Kind == Tok.Ident && Peek(1).Text is "sound" or "sounds": s = ParseCommand(); break; // stop sound "rain.wav" (World.Audio.cs)
+            case "stop" when Peek(1).Kind == Tok.Ident && Peek(1).Text is "sound" or "sounds" or "event" or "events": s = ParseCommand(); break; // stop sound "rain.wav" (World.Audio.cs), stop event "music" (World.FmodEvents.cs)
             case "stop": _p++; s = new StopStmt(t.Line); break;
             case "return":
                 _p++;

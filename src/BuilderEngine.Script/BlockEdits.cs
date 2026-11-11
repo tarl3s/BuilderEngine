@@ -410,6 +410,7 @@ public static class BlockEdits
         ("set", "set variable"), ("change", "change variable"),
         ("listadd", "add to list"), ("listremove", "remove from list"),
         ("print", "print"), ("play", "play"), ("spawn", "spawn"), ("destroy", "destroy"), ("move", "move"), ("goto", "goto"),
+        ("playevent", "play event"), ("setevent", "set event"), ("stopevent", "stop event"), // FMOD Studio (World.FmodEvents.cs)
     ];
 
     /// <summary>A new statement with sensible starting values (palette ids from <see cref="StatementKinds"/>).</summary>
@@ -441,6 +442,9 @@ public static class BlockEdits
         "destroy" => new CommandStmt("destroy", [new NameExpr(["self"], 0)], 0),
         "move" => new CommandStmt("move", [new NumberExpr(10, 0), new NumberExpr(0, 0)], 0),
         "goto" => new CommandStmt("goto", [new NumberExpr(0, 0), new NumberExpr(0, 0)], 0),
+        "playevent" => new CommandStmt("play", [new NameExpr(["event"], 0), new StringExpr("event:/Music", 0)], 0, new() { ["as"] = [new StringExpr("music", 0)] }),
+        "setevent" => new CommandStmt("set", [new NameExpr(["event"], 0), new StringExpr("music", 0), new StringExpr("intensity", 0)], 0, new() { ["to"] = [new NumberExpr(1, 0)] }),
+        "stopevent" => new CommandStmt("stop", [new NameExpr(["event"], 0), new StringExpr("music", 0)], 0),
         _ => throw new ArgumentException($"Unknown block '{id}'.")
     };
 
@@ -492,11 +496,12 @@ public static class BlockEdits
 
     /// <summary>
     /// Null when a command block may have these values; else why not. A 'stop' command is 'stop sound "x"' / 'stop sounds'
-    /// (World.Audio.cs): without that first word the code reads a plain 'stop' with values left over, which doesn't parse.
+    /// (World.Audio.cs) or 'stop event "x"' / 'stop events' (World.FmodEvents.cs): without that first word the code reads a
+    /// plain 'stop' with values left over, which doesn't parse.
     /// </summary>
     public static string? CheckCommandValues(string command, List<Expr> values) =>
-        command == "stop" && values is not [NameExpr { Path: ["sound" or "sounds"] }, ..]
-            ? "This block stops sounds: its values start with 'sound' (stop sound \"rain.wav\") or are just 'sounds'."
+        command == "stop" && values is not [NameExpr { Path: ["sound" or "sounds" or "event" or "events"] }, ..]
+            ? "This block stops sounds: its values start with 'sound' (stop sound \"rain.wav\") or are just 'sounds' — or 'event' / 'events' for FMOD Studio events (stop event \"music\")."
             : null;
 
     /// <summary>Reads an event from its kind and the text after the event word (<c>"damage" amount</c>).</summary>

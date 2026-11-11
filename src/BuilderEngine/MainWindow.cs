@@ -85,7 +85,7 @@ public sealed partial class MainWindow : Window
         ShowTab(scene: true);
         SetMode("both");
         Closing += (_, e) => SceneOnClosing(e);
-        Closed += (_, _) => _audio.Dispose();
+        Closed += (_, _) => { _fmodHost?.Dispose(); _audio.Dispose(); };
     }
 
     // ---------------- Shared helpers for feature files ----------------

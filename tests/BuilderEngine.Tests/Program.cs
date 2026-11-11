@@ -1274,6 +1274,8 @@ SyntaxTests.Run(Test); // the code editor's colours: same pieces as the lexer, k
 EasyCompatTests.Run(Test); // EasyEngine behaviors playing in BuilderEngine: each behavior, rules, cutscenes, the owner's Mistify (EasyCompatTests.cs)
 BehaviorPackageTests.Run(Test); // behavior packages (.behavior): read, validate, write back, run, discover (BehaviorPackageTests.cs)
 PackageTests.Run(Test); // behavior packages in use: shipped ones, EasyCompat plays like before, precedence, export, Save as (PackageTests.cs)
+FmodTests.Run(Test); // optional FMOD audio: finding fmod.dll, the setting, the fallback; silent smoke tests where FMOD is installed (FmodTests.cs)
+FmodLangTests.Run(Test, RoundTrip); // FMOD Studio in the language, the FmodEmitter, the Sound engine setting, the export option (FmodLangTests.cs)
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;

@@ -335,8 +335,8 @@ public static class Printer
     {
         var sb = new StringBuilder(c.Name);
         int start = 0;
-        // 'stop sound "rain.wav"' (World.Audio.cs): the word 'sound' reads as part of the command, not as a value.
-        if (c.Name == "stop" && c.Args.Count > 0 && c.Args[0] is NameExpr { Path: [("sound" or "sounds") and var word] })
+        // 'stop sound "rain.wav"' (World.Audio.cs), 'stop event "music"' (World.FmodEvents.cs): that word reads as part of the command, not as a value.
+        if (c.Args.Count > 0 && c.Args[0] is NameExpr { Path: [var word] } && (c.Name == "stop" && word is "sound" or "sounds" || World.FmodCommands.Contains(c.Name + " " + word)))
         {
             sb.Append(' ').Append(word);
             start = 1;

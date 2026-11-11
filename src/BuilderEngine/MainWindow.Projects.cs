@@ -43,7 +43,7 @@ public sealed partial class MainWindow
             readOnly: _projectFromArg && !_appDataRedirected);
         _myLibrary = new MechanismLibrary(_settings.LibraryFolder);
         if (_appDataRedirected) BehaviorPackage.InstalledFolder = Path.Combine(_settings.Folder, "Behaviors"); // installed behavior packages live with the moved app data
-        _audio = Audio.Create(mute: _snapMode || Environment.GetCommandLineArgs().Contains("--mute"));
+        _audio = CreateAudio(); // FMOD or the classic player, by the Sound engine setting (MainWindow.Fmod.cs)
     }
 
     /// <summary>Where "New project" makes folders: Documents\BuilderEngine Projects (inside the app-data folder when it was moved).</summary>
@@ -103,6 +103,7 @@ public sealed partial class MainWindow
         f.Items.Add(new Separator());
         f.Items.Add(Item("Save", SceneSave, new KeyGesture(Key.S, KeyModifiers.Control)));
         f.Items.Add(Item("Import sound…", () => _ = ImportSoundsAsync()));
+        f.Items.Add(Item("Sound engine…", ShowSoundEngineWindow)); // FMOD or classic, FMOD Studio (MainWindow.Fmod.cs)
         f.Items.Add(Item("Plugins…", ShowPluginsWindow)); // MainWindow.Plugins.cs
         f.Items.Add(Item("Export game…", () => _ = ExportGameAsync())); // MainWindow.Export.cs
         f.Items.Add(Item("Show the project folder", () => OpenFolder(_projectDir)));

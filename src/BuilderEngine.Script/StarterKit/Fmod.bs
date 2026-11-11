@@ -1,0 +1,14 @@
+# FMOD Studio (optional): events from your FMOD Studio project, built into this project's "fmod" folder.
+# Without FMOD Studio installed the game plays on silently (the console says why once).
+
+mechanism FmodEmitter
+    param event: FmodEvent = ""
+    param volume: number = 1
+    param follow: yesno = true
+
+    when start
+        if event == "": stop
+        if follow
+            play event event with volume at self
+        else
+            play event event with volume

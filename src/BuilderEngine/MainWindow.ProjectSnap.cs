@@ -77,6 +77,13 @@ public sealed partial class MainWindow
                 Check("audio: Windows can open and play the generated wav (silent check)", a.Contains("length") && !a.Contains("error"));
                 Check("audio: a path with accents works too", b.Contains("length") && !b.Contains("error"));
             }
+            // Optional FMOD audio (MainWindow.Fmod.cs): Project ▸ Sound engine… and the FmodEvent picker build (with or without FMOD).
+            var soundEngine = SoundEngineWindow();
+            var seTexts = Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(soundEngine).ToList();
+            Check("Sound engine…: the choice, what plays now and the FMOD Studio part", seTexts.OfType<ComboBox>().Count() == 1
+                && seTexts.OfType<TextBlock>().Any(t => t.Text?.StartsWith("Sound: ") == true)
+                && seTexts.OfType<Button>().Any(x => Equals(x.Content, "Reload banks")));
+            Check("a FmodEvent param is a dropdown of the project's FMOD Studio events", FmodEventPicker("", _ => { }) is Control);
             Select(0);
 
             // ---- My Library ----
