@@ -45,6 +45,7 @@ public sealed partial class MainWindow
     {
         FmodGameStop();
         ApplyAudioBackend();
+        FmodLibrary.ResetLog(); // a new game console shows FMOD messages again
         _fmodHost = new FmodEventHost(_projectDir, silent: AudioMuted);
         world.FmodControl += _fmodHost.Handle;
         var host = _fmodHost;

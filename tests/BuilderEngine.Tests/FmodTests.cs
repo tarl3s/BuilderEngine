@@ -44,7 +44,8 @@ static class FmodTests
             {
                 Check(FmodLibrary.Find([Path.Combine(dir, "fmod.dll")]) == null, "nothing there");
                 File.WriteAllText(Path.Combine(dir, "fmod.dll"), "not really a dll");
-                Check(FmodLibrary.Find([Path.Combine(dir, "nope.dll"), Path.Combine(dir, "fmod.dll")]) is { } f && f.EndsWith("fmod.dll"), "the first that exists");
+                if (!FmodLibrary.Disabled) // FMOD_DLL=none: Find never finds anything (checked below)
+                    Check(FmodLibrary.Find([Path.Combine(dir, "nope.dll"), Path.Combine(dir, "fmod.dll")]) is { } f && f.EndsWith("fmod.dll"), "the first that exists");
                 FmodLibrary.ForceMissing = true;
                 try
                 {

@@ -42,6 +42,8 @@ public static class FmodLibrary
         lock (Logged) if (!Logged.Add(message)) return;
         try { Log?.Invoke(message); } catch { }
     }
+    /// <summary>Forgets which messages were written, so a new game (a new console) shows them again.</summary>
+    public static void ResetLog() { lock (Logged) Logged.Clear(); }
 
     /// <summary>Tests: behave as if FMOD weren't installed (also <c>FMOD_DLL=none</c>).</summary>
     public static bool ForceMissing { get; set; }

@@ -90,6 +90,9 @@ public sealed class FmodEventHost : IDisposable
         catch (Exception e) { FmodLibrary.LogOnce("FMOD Studio: " + e.Message); }
     }
 
+    /// <summary>The playing instance with this name (or event path), to set its volume or position directly.</summary>
+    public bool TryGet(string name, out FmodEvent ev) => _named.TryGetValue(name, out ev);
+
     /// <summary>Whether the instance with this name (or event path) is still playing.</summary>
     public bool IsPlaying(string name) => _studio != null && _named.TryGetValue(name, out var ev) && _studio.IsPlaying(ev);
 
