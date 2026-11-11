@@ -1273,6 +1273,7 @@ AuditLangTests.Run(Test); // audit: lexer/parser edge cases, comments kept, corp
 SyntaxTests.Run(Test); // the code editor's colours: same pieces as the lexer, keywords, names, texts while typing (SyntaxTests.cs)
 EasyCompatTests.Run(Test); // EasyEngine behaviors playing in BuilderEngine: each behavior, rules, cutscenes, the owner's Mistify (EasyCompatTests.cs)
 BehaviorPackageTests.Run(Test); // behavior packages (.behavior): read, validate, write back, run, discover (BehaviorPackageTests.cs)
+FmodTests.Run(Test); // optional FMOD audio: finding fmod.dll, the setting, the fallback; silent smoke tests where FMOD is installed (FmodTests.cs)
 Console.WriteLine();
 Console.WriteLine($"{pass} passed, {fail} failed");
 return fail;
