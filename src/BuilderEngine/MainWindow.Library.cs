@@ -7,7 +7,7 @@ using BuilderEngine.Script;
 
 namespace BuilderEngine;
 
-enum LibSection { Project, Mine, Starter, Systems }
+enum LibSection { Project, Mine, Starter, Systems, Behaviors }
 
 /// <summary>A row of the mechanism library: a section header, or a mechanism in one of the three sections.</summary>
 sealed record LibItem(string Name, LibSection Section, string? Header = null, string? Badge = null)
@@ -46,6 +46,7 @@ public sealed partial class MainWindow
         if (item.IsHeader)
             return new TextBlock { Text = item.Header, FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = Palette.TextDim, LetterSpacing = 1 };
         if (item.Section == LibSection.Systems) return SystemLibraryRow(item); // MainWindow.Systems.cs
+        if (item.Section == LibSection.Behaviors) return BehaviorLibraryRow(item); // MainWindow.Behaviors.cs
         if (item.Name.Length == 0) // an empty section's hint
             return new TextBlock { Text = item.Badge, FontSize = 11, Foreground = Palette.TextDim, TextWrapping = TextWrapping.Wrap, FontStyle = FontStyle.Italic };
         var row = new DockPanel { Background = Brushes.Transparent };
@@ -79,13 +80,13 @@ public sealed partial class MainWindow
             menu.Items.Add(Item("Open", () => OpenMechanism(item.Name)));
             menu.Items.Add(Item("Save to My Library", () => _ = SaveToLibraryAsync(item.Name)));
             menu.Items.Add(Item("Make a variant…", () => _ = MakeVariantAsync(item.Name))); // MainWindow.Variants.cs
+            menu.Items.Add(Item("Save as behavior…", () => _ = SaveAsBehaviorAsync(item.Name))); // MainWindow.BehaviorDialogs.cs
         }
         return menu;
     }
 
-    /// <summary>Is this mechanism the project's own (new, or a starter one that was edited)?</summary>
-    bool IsProjectMechanism(string name) =>
-        _sources.TryGetValue(name, out var src) && (!_starterSources.TryGetValue(name, out var kit) || Normalize(kit) != Normalize(src));
+    /// <summary>Is this mechanism the project's own (new, or a starter one that was edited)? A behavior package isn't.</summary>
+    bool IsProjectMechanism(string name) => IsOwnMechanism(name) && !IsPackage(name);
 
     internal void RefreshLibrary()
     {
@@ -95,7 +96,7 @@ public sealed partial class MainWindow
         var items = new List<object>();
         var own = _sources.Keys.Where(IsProjectMechanism).Order(StringComparer.OrdinalIgnoreCase).ToList();
         var mine = _myLibrary.Names().Where(n => !IsLibrarySystem(n)).ToList(); // systems are listed in SYSTEMS (MainWindow.Systems.cs)
-        var kit = _sources.Keys.Where(n => !IsProjectMechanism(n)).Order(StringComparer.OrdinalIgnoreCase).ToList();
+        var kit = _sources.Keys.Where(n => !IsProjectMechanism(n) && !IsPackage(n)).Order(StringComparer.OrdinalIgnoreCase).ToList();
 
         items.Add(new LibItem("", LibSection.Project, Header: "THIS PROJECT"));
         foreach (var n in own) items.Add(new LibItem(n, LibSection.Project, Badge: _starterSources.ContainsKey(n) ? "edited" : null));
@@ -112,6 +113,7 @@ public sealed partial class MainWindow
         if (mine.Count == 0) items.Add(new LibItem("", LibSection.Mine, Badge: "Empty — right-click a mechanism → Save to My Library."));
 
         LibrarySystemsSection(items); // SYSTEMS (MainWindow.Systems.cs)
+        LibraryBehaviorsSection(items); // BEHAVIORS: behavior packages (MainWindow.Behaviors.cs)
 
         items.Add(new LibItem("", LibSection.Starter, Header: "STARTER KIT"));
         foreach (var n in kit) items.Add(new LibItem(n, LibSection.Starter));
@@ -142,6 +144,7 @@ public sealed partial class MainWindow
     {
         if (item.IsHeader || item.Name.Length == 0) return;
         if (item.Section == LibSection.Systems) { OnSystemRowClicked(item); return; } // MainWindow.Systems.cs
+        if (item.Section == LibSection.Behaviors) { OnBehaviorRowClicked(item); return; } // MainWindow.Behaviors.cs
         if (item.Section == LibSection.Mine) _ = UseFromLibraryAsync(item.Name, open: true);
         else OpenMechanism(item.Name);
     }

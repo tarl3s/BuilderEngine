@@ -1,0 +1,35 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "Parallax",
+  "replaces": "Parallax",
+  "icon": "🏔",
+  "category": "Looks",
+  "description": "A background that scrolls slower than the camera, so it looks far away.",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "params": [
+    {
+      "name": "factor",
+      "label": "Depth (0 = far, 1 = near)",
+      "type": "number",
+      "default": 0.5,
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "help": "0 = very far (it stays put on the screen), 1 = as near as the scene (it scrolls with it)."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "parallax",
+      "background",
+      "far away",
+      "mountains",
+      "fundo"
+    ],
+    "guide": "Add Parallax to a background picture so it scrolls slower than the camera. 'factor' 0 = far away, 1 = near."
+  },
+  "script": "mechanism Parallax\n    # Parallax: a background that scrolls slower than the camera (0 = far away, 1 = moves with the scene).\n    param factor: number = 0.5\n\n    when start\n        home_x = self.x\n        home_y = self.y\n        repeat forever\n            k = 1 - clamp(factor, 0, 1)\n            self.x = home_x + (camera_x - view_width / 2) * k\n            self.y = home_y + (camera_y - view_height / 2) * k\n"
+}

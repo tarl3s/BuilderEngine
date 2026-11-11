@@ -82,7 +82,7 @@ public sealed partial class World
         {
             var kind = ParamTypes.Kind(p.Type);
             if (kind == ParamKind.Object && inst.Vars.TryGetValue(p.Name, out var v) && v is string name)
-                inst.Vars[p.Name] = ObjectNamed(name) ?? (object?)name;
+                inst.Vars[p.Name] = (Easy != null && Easy.Plays(inst.Def.Name) ? EasyCompat.FindNamed(this, name) : ObjectNamed(name)) ?? (object?)name; // an EasyEngine behavior names objects, never tags
             else if (kind == ParamKind.List && ParamTypes.Kind(ParamTypes.ItemType(p.Type)) == ParamKind.Object
                      && inst.Vars.TryGetValue(p.Name, out var lv) && lv is List<object?> list)
                 for (int i = 0; i < list.Count; i++)

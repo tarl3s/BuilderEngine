@@ -1,0 +1,76 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "Spawner",
+  "replaces": "Spawner",
+  "icon": "✨",
+  "category": "Level",
+  "description": "Creates copies of an object (or a prefab): every 'interval' seconds, or each time a key is pressed. Give the copy physics to make it fall.",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "repeatable": true,
+  "params": [
+    {
+      "name": "target",
+      "label": "What to spawn",
+      "type": "Object",
+      "default": "Enemy",
+      "help": "An object of this scene or a prefab, by name."
+    },
+    {
+      "name": "interval",
+      "label": "Every (s)",
+      "type": "seconds",
+      "default": 1.5,
+      "min": 0.05,
+      "max": 3600,
+      "step": 0.5,
+      "showIf": "key == \"\""
+    },
+    {
+      "name": "max_count",
+      "label": "Max (0 = unlimited)",
+      "type": "number",
+      "default": 10,
+      "easyKey": "max",
+      "min": 0,
+      "max": 100000,
+      "step": 1
+    },
+    {
+      "name": "key",
+      "label": "Spawn when this key is pressed (none = on a timer)",
+      "type": "Key",
+      "default": ""
+    },
+    {
+      "name": "spawn_at",
+      "label": "Where",
+      "type": "Choice \"self\", \"top\"",
+      "default": "self",
+      "easyKey": "at",
+      "help": "self = at this object; top = falling from the top of the screen (anywhere along it)."
+    },
+    {
+      "name": "cond",
+      "label": "Only while",
+      "type": "text",
+      "default": "",
+      "help": "A formula: it works only while this is true (empty = always)."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "spawner",
+      "spawn",
+      "generate",
+      "waves",
+      "rain",
+      "gerar",
+      "criar inimigos"
+    ],
+    "guide": "Add Spawner to make copies of an object or prefab every few seconds (or on a key); 'max_count' 0 = no limit."
+  },
+  "script": "mechanism Spawner\n    # Spawner: makes copies of an object or prefab — every 'interval' seconds, or each time a key is pressed. max 0 = no limit.\n    param target: Object = \"Enemy\"\n    param interval: seconds = 1.5\n    param max_count: number = 10\n    param key: Key = \"\"\n    param spawn_at: Choice \"self\", \"top\" = \"self\"\n    param cond: text = \"\"\n\n    when tick\n        if not easy_on(cond): stop\n        room = max_count <= 0 or made < max_count\n        if key != \"\"\n            down = easy_key(key)\n            if down and not was and room\n                easy_spawn target, spawn_at\n                made += 1\n            was = down\n        else\n            clock += dt\n            if clock >= max(0.05, interval) and room\n                clock = 0\n                easy_spawn target, spawn_at\n                made += 1\n"
+}

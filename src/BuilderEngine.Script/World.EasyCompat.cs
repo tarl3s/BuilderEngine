@@ -7,12 +7,18 @@ namespace BuilderEngine.Script;
 /// The world's side of EasyCompat (EasyCompat.cs): the scene-loading hooks and the <c>easy_…</c> functions and commands
 /// the EasyKit mechanisms and the translated rules and cutscenes use for what is EasyEngine's own way of doing things
 /// (objects found by name, its formulas, its variables, its dialogue queue, one key press per Interact…). They are
-/// there in every world but do nothing useful outside an EasyEngine project.
+/// there in every world; outside an EasyEngine project the ones the shipped behavior packages use (variables, spawning,
+/// "only while") work on a small stand-in (<see cref="EasyOrLite"/>), so those packages play in any project.
 /// </summary>
 public sealed partial class World
 {
     /// <summary>EasyEngine behaviors played here, or null (set by <see cref="GameBoot.UseProject"/>; kept by <see cref="ForNextScene"/>).</summary>
     public EasyCompat? Easy { get; internal set; }
+
+    EasyCompat? _easyLite;
+
+    /// <summary>EasyCompat, or in a project without EasyEngine behaviors a stand-in with no project (variables are globals).</summary>
+    internal EasyCompat EasyOrLite => Easy ?? (_easyLite ??= EasyCompat.Lite());
 
     void EasySceneStarting(Scene scene) => Easy?.SceneStarting(this, scene);
 
@@ -186,7 +192,7 @@ public sealed partial class World
     [ModuleInitializer]
     internal static void InstallEasyCompat() => Installers.Add(w =>
     {
-        EasyCompat E() => w.Easy ?? throw new ScriptError("This only works in an EasyEngine project.", 0);
+        EasyCompat E() => w.EasyOrLite;
         GameObject Me() => w.CallingInst?.Owner ?? throw new ScriptError("This needs an object.", 0);
         string Arg(List<object?> a, int i) => i < a.Count ? ToText(a[i]) : "";
 
@@ -251,8 +257,8 @@ public sealed partial class World
         };
 
         // commands
-        w.Commands["easy_set"] = c => c.World.Easy?.SetVar(c.World, c.Self, ToText(c.Arg(0)), c.Arg(1), add: false);
-        w.Commands["easy_add"] = c => c.World.Easy?.SetVar(c.World, c.Self, ToText(c.Arg(0)), c.Arg(1), add: true);
+        w.Commands["easy_set"] = c => c.World.EasyOrLite.SetVar(c.World, c.Self, ToText(c.Arg(0)), c.Arg(1), add: false);
+        w.Commands["easy_add"] = c => c.World.EasyOrLite.SetVar(c.World, c.Self, ToText(c.Arg(0)), c.Arg(1), add: true);
         w.Commands["easy_set_local"] = c => c.World.Easy?.SetLocal(c.Self, ToText(c.Arg(0)), c.Arg(1), add: false);
         w.Commands["easy_add_local"] = c => c.World.Easy?.SetLocal(c.Self, ToText(c.Arg(0)), c.Arg(1), add: true);
         w.Commands["easy_unlatch"] = c => c.World.Easy?.State(c.Self).Latched.Remove(c.World.EasyKey(ToText(c.Arg(0))));
@@ -300,7 +306,7 @@ public sealed partial class World
             if (o != null) c.World.EasyAnimate(o, ToText(c.Arg(1)).Trim(), ToText(c.Arg(2)).Trim().ToLowerInvariant());
         };
         w.Commands["easy_auto_anim"] = c => { if (c.World.Easy != null) c.World.EasyAutoAnimate(c.Self, ToText(c.Arg(0)), ToText(c.Arg(1)), ToText(c.Arg(2))); };
-        w.Commands["easy_spawn"] = c => c.World.Easy?.Spawn(c.World, c.Self, ToText(c.Arg(0)), ToText(c.Arg(1)), c.Args.Count > 3 ? c.Number(c.Arg(2)) : null, c.Args.Count > 3 ? c.Number(c.Arg(3)) : null);
+        w.Commands["easy_spawn"] = c => c.World.EasyOrLite.Spawn(c.World, c.Self, ToText(c.Arg(0)), ToText(c.Arg(1)), c.Args.Count > 3 ? c.Number(c.Arg(2)) : null, c.Args.Count > 3 ? c.Number(c.Arg(3)) : null);
         w.Commands["easy_shoot"] = c => c.World.Easy?.Shoot(c.World, c.Self, (int)Math.Round(c.Number(c.Arg(0))), c.Number(c.Arg(1)), c.Number(c.Arg(2)), ToText(c.Arg(3)), ToText(c.Arg(4)));
         w.Commands["easy_speed"] = c => c.World.Easy?.Speed(c.Self, c.Number(c.Arg(0)), multiply: ToText(c.Arg(1)) == "boost");
         w.Commands["easy_ability"] = c =>

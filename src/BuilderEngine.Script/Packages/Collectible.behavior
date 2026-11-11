@@ -1,0 +1,75 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "Collectible",
+  "replaces": "Collectible",
+  "icon": "⭐",
+  "category": "Items",
+  "description": "Disappears when the Player touches it. It can add points to a variable (a coin worth 10 adds 10 to score).",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "params": [
+    {
+      "name": "collector",
+      "label": "Picked up by",
+      "type": "Object",
+      "default": "Player",
+      "help": "Who picks it up (an object's name)."
+    },
+    {
+      "name": "var",
+      "label": "Adds the points to",
+      "type": "text",
+      "default": "",
+      "help": "A variable, like score. Empty = no points."
+    },
+    {
+      "name": "points",
+      "label": "Points it gives",
+      "type": "number",
+      "default": 1,
+      "min": -100000,
+      "max": 100000,
+      "step": 1,
+      "showIf": "var != \"\""
+    },
+    {
+      "name": "item",
+      "label": "Item it gives",
+      "type": "text",
+      "default": "",
+      "help": "An item to put in the inventory (empty = none)."
+    },
+    {
+      "name": "amount",
+      "label": "How many",
+      "type": "number",
+      "default": 1,
+      "min": 1,
+      "max": 100000,
+      "step": 1,
+      "showIf": "item != \"\""
+    },
+    {
+      "name": "cond",
+      "label": "Only while",
+      "type": "text",
+      "default": "",
+      "help": "A formula: it works only while this is true (empty = always)."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "collectible",
+      "coin",
+      "pickup",
+      "collect",
+      "gem",
+      "moeda",
+      "coletar"
+    ],
+    "guide": "Add Collectible to a coin: it disappears when the Player touches it and adds 'points' to the variable 'var' (e.g. score)."
+  },
+  "script": "mechanism Collectible\n    # Collectible: disappears when the collector touches it, adding its points to a variable (and an item, if it is one).\n    param collector: Object = \"Player\"\n    param var: text = \"\"\n    param points: number = 1\n    param item: text = \"\"\n    param amount: number = 1\n    param cond: text = \"\"\n\n    when tick\n        if not easy_on(cond): stop\n        who = easy_find(collector)\n        if not who or not easy_touching(self, who): stop\n        if item != \"\": easy_add \"item:\" + item, amount\n        if var != \"\": easy_add var, points\n        destroy self\n"
+}

@@ -10,7 +10,7 @@ namespace BuilderEngine.Script;
 /// reader/writer/validator; BuilderEngine and EasyEngine (through the DLL) never parse the file themselves.
 /// Unknown properties are kept when the package is written back.
 /// </summary>
-public sealed class BehaviorPackage
+public sealed partial class BehaviorPackage
 {
     public const string FormatName = "builderengine.behavior";
     public const int FormatVersion = 1;
@@ -49,6 +49,13 @@ public sealed class BehaviorPackage
         public string Help { get; set; } = "";
         /// <summary>A Builder Script condition over the other params; the field is hidden while it is false.</summary>
         public string? ShowIf { get; set; }
+        /// <summary>
+        /// The key of this setting in an EasyEngine behavior's Nums/Texts when it isn't <see cref="Name"/> (EasyEngine's
+        /// "to" and "max" can't be Builder Script names). Only read for a package with <see cref="Replaces"/>.
+        /// </summary>
+        public string? EasyKey { get; set; }
+        /// <summary>Where an EasyEngine behavior keeps this setting: <see cref="EasyKey"/>, else the name.</summary>
+        public string EasyEngineKey => EasyKey is { Length: > 0 } k ? k : Name;
         public ParamKind Kind => ParamTypes.Kind(Type);
         /// <summary>The options of a <c>Choice "a", "b"</c> type (empty for other types).</summary>
         public List<string> Options => ChoiceOptions(Type);
@@ -103,6 +110,7 @@ public sealed class BehaviorPackage
                         Step = o["step"] is JsonValue ? Num(o, "step", 0) : null,
                         Help = Str(o, "help"),
                         ShowIf = o["showIf"] is JsonValue sv && sv.TryGetValue<string>(out var s) && s.Trim().Length > 0 ? s : null,
+                        EasyKey = o["easyKey"] is JsonValue ek && ek.TryGetValue<string>(out var eks) && eks.Trim().Length > 0 ? eks.Trim() : null,
                     });
         if (root["ai"] is JsonObject ai)
         {
@@ -237,6 +245,7 @@ public sealed class BehaviorPackage
             if (p.Step is { } st) o["step"] = st;
             if (p.Help.Length > 0) o["help"] = p.Help;
             if (p.ShowIf != null) o["showIf"] = p.ShowIf;
+            if (p.EasyKey != null) o["easyKey"] = p.EasyKey;
             ps.Add(o);
         }
         root["params"] = ps;
@@ -311,9 +320,14 @@ public sealed class BehaviorPackage
         return found.Values.ToList();
     }
 
-    /// <summary>The person's installed packages folder, shared by both engines (%APPDATA%\BuilderEngine\Behaviors).</summary>
-    public static string InstalledFolder =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BuilderEngine", "Behaviors");
+    /// <summary>The person's installed packages folder, shared by both engines (%APPDATA%\BuilderEngine\Behaviors).
+    /// The editor points it elsewhere when its app-data folder is moved (--appdata, --snap); tests use a temp folder.</summary>
+    public static string InstalledFolder
+    {
+        get => _installedFolder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BuilderEngine", "Behaviors");
+        set => _installedFolder = string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+    static string? _installedFolder;
 
     public const string ProjectFolderName = "behaviors";
 

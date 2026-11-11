@@ -9,7 +9,9 @@ namespace BuilderEngine.Script;
 /// EasyCompat: an EasyEngine project plays in BuilderEngine. When a world gets ready for a project with EasyEngine
 /// behaviors (<see cref="GameBoot.UseProject"/>, shared by the editor's Play and exported games), the EasyKit mechanisms
 /// (<c>StarterKit/EasyEngine/*.bs</c>, Builder Script) are loaded, and as each scene loads every object's EasyEngine
-/// behaviors become those mechanisms with the behavior's settings as params (<see cref="MechanismsFor"/>). Custom rules
+/// behaviors become those mechanisms with the behavior's settings as params (<see cref="MechanismsFor"/>). A behavior that a
+/// behavior package replaces (docs/BEHAVIOR-FORMAT.md, "replaces") plays as that package instead — the shipped packages
+/// play the simple behaviors (Spin, Gate, Spawner…), and a project's or installed one wins over those. Custom rules
 /// (<c>when → do</c>) and cutscene steps are translated into Builder Script mechanisms of their own
 /// (EasyCompat.Rules.cs, EasyCompat.Steps.cs). It happens only while playing: the project keeps EasyEngine's data
 /// exactly as it was (EasyEngine still owns it). What can't play yet is said once in the console
@@ -30,33 +32,34 @@ public sealed partial class EasyCompat
         new("TopDown", Level.Runs, "EasyTopDown"),
         new("Solid", Level.Runs, "EasySolid (one-way too)"),
         new("FollowCamera", Level.Runs, "EasyFollowCamera: same smoothing and scene clamp"),
-        new("StayInside", Level.Runs, "EasyStayInside: scene or screen, stop / bounce / wrap"),
+        new("StayInside", Level.Runs, "the StayInside behavior package: scene or screen, stop / bounce / wrap"),
         new("Custom", Level.Partly, "translated into a Builder Script mechanism; the few events/actions it can't do are listed in the console"),
         new("Cutscene", Level.Partly, "translated into a Builder Script mechanism; no skip key, dialogue box looks and fonts are the default ones"),
         new("Interact", Level.Partly, "EasyInteract: say / set / add / go to a scene; the dialogue box's look and font are the default ones"),
-        new("GoToScene", Level.Runs, "EasyGoToScene"),
+        new("GoToScene", Level.Runs, "the GoToScene behavior package"),
         new("SoundEmitter", Level.Partly, "EasySound: plays on start (once or looping); 'only heard nearby' and left/right panning aren't there yet"),
         new("LightSource", Level.Partly, "EasyLight: a round light; beam / half / area / bar shapes show as a circle"),
         new("DayNight", Level.Partly, "EasyDayNight: the light and isDay/isNight/timeOfDay; no sun and moon, no darker underground"),
-        new("Spin", Level.Runs, "EasySpin"),
-        new("Projectile", Level.Runs, "EasyProjectile"),
+        new("Spin", Level.Runs, "the Spin behavior package"),
+        new("Projectile", Level.Runs, "the Projectile behavior package"),
         new("Patrol", Level.Runs, "EasyPatrol"),
         new("Health", Level.Runs, "EasyHealth (signals hurt / died for rules)"),
         new("Damager", Level.Runs, "EasyDamager"),
         new("Chase", Level.Runs, "EasyChase"),
-        new("Collectible", Level.Runs, "EasyCollectible"),
+        new("Collectible", Level.Runs, "the Collectible behavior package"),
         new("Checkpoint", Level.Runs, "EasyCheckpoint"),
         new("Shooter", Level.Runs, "EasyShooter"),
-        new("Spawner", Level.Runs, "EasySpawner"),
+        new("Spawner", Level.Runs, "the Spawner behavior package"),
         new("Label", Level.Partly, "EasyLabel: the text in the object; no text effects"),
         new("Bar", Level.Runs, "EasyBar"),
-        new("Area", Level.Runs, "EasyArea"),
-        new("AbilityPickup", Level.Runs, "EasyAbilityPickup"),
-        new("Gate", Level.Runs, "EasyGate"),
-        new("Switch", Level.Runs, "EasySwitch"),
-        new("Spring", Level.Runs, "EasySpring"),
-        new("Parallax", Level.Runs, "EasyParallax"),
-        new("DestroyOffscreen", Level.Runs, "EasyDestroyOffscreen"),
+        new("Area", Level.Runs, "the TriggerArea behavior package"),
+        new("AbilityPickup", Level.Runs, "the AbilityPickup behavior package"),
+        new("Gate", Level.Runs, "the Gate behavior package"),
+        new("Switch", Level.Runs, "the Switch behavior package"),
+        new("Spring", Level.Runs, "the Spring behavior package"),
+        new("Parallax", Level.Runs, "the Parallax behavior package"),
+        new("DestroyOffscreen", Level.Runs, "the DestroyOffscreen behavior package"),
+        new("Package", Level.Runs, "a behavior package (.behavior): its mechanism, with the behavior's settings"),
         new("Tilemap", Level.Runs, "its tiles become a tile layer when the project opens"),
         new("PathChase", Level.Partly, "plays as Chase (straight at the target, no path round walls)"),
         new("AdvancedPatrol", Level.No, ""),
@@ -93,6 +96,10 @@ public sealed partial class EasyCompat
         var e = new EasyCompat(p);
         w.Easy = e;
         foreach (var (_, src) in KitSources()) w.Load(src);
+        // The simple behaviors are shipped behavior packages ("replaces"): make sure each has one, even in a world that
+        // didn't load packages (GameBoot.UseProject loads the project's and the installed ones first: those win).
+        foreach (var sp in BehaviorPackage.Shipped())
+            if (sp.Replaces != null && w.PackageReplacing(sp.Replaces) == null) w.UsePackages([sp]);
         if (p.Easy is JsonObject pe)
         {
             e.SeedVariables(w, pe, overwrite: true);
@@ -124,6 +131,9 @@ public sealed partial class EasyCompat
 
     readonly Project _project;
     EasyCompat(Project p) { _project = p; }
+
+    /// <summary>A stand-in for a world without EasyEngine behaviors: the easy_ words packages use work on plain globals.</summary>
+    internal static EasyCompat Lite() => new(new Project());
 
     /// <summary>The project's scene names (goto_scene checks them).</summary>
     internal IEnumerable<string> SceneNames => _project.Scenes.Select(s => s.Name);
@@ -174,7 +184,9 @@ public sealed partial class EasyCompat
         void Add(string mech, Dictionary<string, object?> ps, string? cond = null)
         {
             if (cond is { Length: > 0 }) ps["cond"] = cond;
-            list.Add((Repeat(w, mech, count), ps));
+            string name = Repeat(w, mech, count);
+            _plays.Add(name);
+            list.Add((name, ps));
         }
 
         for (int bi = 0; bi < behaviors.Count; bi++)
@@ -182,6 +194,19 @@ public sealed partial class EasyCompat
             var b = behaviors[bi];
             string kind = kinds[bi];
             string cond = T(b, "cond", "").Trim();
+            // A behavior package: one of kind "Package" (its name in Texts["package"]), or the package that replaces this
+            // built-in (shipped ones replace the simple behaviors; a project's or an installed one wins over those).
+            bool isPackage = kind.Equals("Package", StringComparison.OrdinalIgnoreCase);
+            if ((isPackage ? w.Package(T(b, "package", "")) : w.PackageReplacing(kind)) is { } pkg)
+            {
+                Add(pkg.Name, PackageParams(pkg, b, builtIn: !isPackage), pkg.Param("cond") != null ? cond : null);
+                continue;
+            }
+            if (isPackage)
+            {
+                Note(w, $"a behavior package called “{T(b, "package", "").Trim()}” (it isn't in the project's behaviors folder)");
+                continue;
+            }
             switch (kind)
             {
                 case "Platformer":
@@ -211,12 +236,6 @@ public sealed partial class EasyCompat
                     Add("EasyFollowCamera", new() { ["rate"] = s >= 0.999 ? 0 : -Math.Log(1 - s) * 60, ["clamp"] = On(b, "clamp", 1) });
                     break;
                 }
-                case "StayInside":
-                    Add("EasyStayInside", new() { ["area"] = T(b, "area", "scene"), ["sides"] = T(b, "sides", "all"), ["edge"] = T(b, "edge", "stop") });
-                    break;
-                case "GoToScene":
-                    Add("EasyGoToScene", new() { ["scene"] = T(b, "scene", ""), ["trigger"] = T(b, "trigger", "Player") }, cond);
-                    break;
                 case "Interact":
                 {
                     string action = T(b, "action", "say").ToLowerInvariant();
@@ -230,14 +249,6 @@ public sealed partial class EasyCompat
                     }, cond);
                     break;
                 }
-                case "Area":
-                    Add("EasyArea", new()
-                    {
-                        ["action"] = T(b, "action", "goscene").ToLowerInvariant(), ["scene"] = T(b, "scene", ""), ["var"] = T(b, "var", ""),
-                        ["set_to"] = N(b, "to", 1), ["amount"] = N(b, "amount", 1), ["text"] = Text(T(b, "text", "")),
-                        ["target"] = T(b, "target", "Player"), ["once"] = On(b, "once", 1),
-                    }, cond);
-                    break;
                 case "SoundEmitter":
                     if (On(b, "range", 0)) Note(w, "Sound: 'only heard nearby' (it plays at its own volume)");
                     if (On(b, "pan", 0)) Note(w, "Sound: left / right in the headphones");
@@ -260,12 +271,6 @@ public sealed partial class EasyCompat
                         ["day_light"] = N(b, "dayLight", 1), ["night_light"] = N(b, "nightLight", 0.25), ["start_at_night"] = On(b, "startAtNight", 0),
                         ["color"] = On(b, "trueBlack", 0) ? "#000000" : T(b, "nightColor", "#0A1030"),
                     });
-                    break;
-                case "Spin":
-                    Add("EasySpin", new() { ["speed"] = N(b, "speed", 90) });
-                    break;
-                case "Projectile":
-                    Add("EasyProjectile", new() { ["speed"] = N(b, "speed", 420), ["angle"] = N(b, "angle", 0), ["life"] = N(b, "life", 3) });
                     break;
                 case "Patrol":
                     Add("EasyPatrol", new()
@@ -291,13 +296,6 @@ public sealed partial class EasyCompat
                 case "Damager":
                     Add("EasyDamager", new() { ["damage"] = N(b, "damage", 1), ["knockback"] = N(b, "knockback", 320), ["vanish"] = On(b, "vanish", 0), ["target"] = T(b, "target", "Player") }, cond);
                     break;
-                case "Collectible":
-                    Add("EasyCollectible", new()
-                    {
-                        ["collector"] = T(b, "collector", "Player"), ["var"] = T(b, "var", ""), ["points"] = N(b, "points", 1),
-                        ["item"] = T(b, "item", ""), ["amount"] = N(b, "amount", 1),
-                    }, cond);
-                    break;
                 case "Checkpoint":
                     Add("EasyCheckpoint", new() { ["target"] = T(b, "target", "Player") });
                     break;
@@ -306,13 +304,6 @@ public sealed partial class EasyCompat
                     {
                         ["key"] = Key(T(b, "key", "T")), ["directions"] = N(b, "directions", 8), ["speed"] = N(b, "speed", 420),
                         ["cooldown"] = N(b, "cooldown", 0.3), ["life"] = N(b, "life", 2), ["bullet"] = T(b, "bullet", "Bullet"), ["aim"] = T(b, "aim", ""),
-                    }, cond);
-                    break;
-                case "Spawner":
-                    Add("EasySpawner", new()
-                    {
-                        ["target"] = T(b, "target", "Enemy"), ["interval"] = N(b, "interval", 1.5), ["max_count"] = N(b, "max", 10),
-                        ["key"] = Key(T(b, "key", "")), ["spawn_at"] = T(b, "at", "self"),
                     }, cond);
                     break;
                 case "Label":
@@ -325,28 +316,6 @@ public sealed partial class EasyCompat
                         ["var"] = T(b, "var", "health"), ["max_value"] = N(b, "max", 3), ["max_var"] = T(b, "maxVar", ""),
                         ["color"] = T(b, "color", "#3BC97A"), ["on_screen"] = so.Tags.Contains(EasyLink.UiTag, StringComparer.OrdinalIgnoreCase),
                     });
-                    break;
-                case "AbilityPickup":
-                    Add("EasyAbilityPickup", new() { ["var"] = T(b, "var", "hasDoubleJump"), ["collector"] = T(b, "collector", "Player"), ["grant"] = T(b, "grant", "none") }, cond);
-                    break;
-                case "Gate":
-                    Add("EasyGate", new() { ["var"] = T(b, "var", "hasKey"), ["op"] = T(b, "op", ">="), ["value"] = N(b, "value", 1), ["item"] = T(b, "item", "") }, cond);
-                    break;
-                case "Switch":
-                    Add("EasySwitch", new()
-                    {
-                        ["var"] = T(b, "var", "switch1"), ["mode"] = T(b, "mode", "click").ToLowerInvariant(), ["trigger"] = T(b, "trigger", "Player"),
-                        ["key"] = Key(T(b, "key", "E")), ["stay_on"] = On(b, "stayOn", 0),
-                    }, cond);
-                    break;
-                case "Spring":
-                    Add("EasySpring", new() { ["force"] = N(b, "force", 820), ["dir"] = T(b, "dir", "up").ToLowerInvariant() }, cond);
-                    break;
-                case "Parallax":
-                    Add("EasyParallax", new() { ["factor"] = N(b, "factor", 0.5) });
-                    break;
-                case "DestroyOffscreen":
-                    Add("EasyDestroyOffscreen", new() { ["margin"] = N(b, "margin", 120) });
                     break;
                 case "Custom":
                     if (RulesMechanism(w, so, T(b, "script", "[]")) is { } rules) list.Add((rules, new()));
@@ -380,6 +349,46 @@ public sealed partial class EasyCompat
         string name = $"{mech}_{k}";
         if (!w.Library.ContainsKey(name)) w.Load($"mechanism {name} from {mech}\n");
         return name;
+    }
+
+    /// <summary>The mechanisms EasyCompat gave objects (EasyKit, packages, translated rules): EasyEngine's ways apply to them.</summary>
+    readonly HashSet<string> _plays = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Is this a mechanism EasyCompat gave an object for one of its EasyEngine behaviors (objects found by name only…)?</summary>
+    internal bool Plays(string mechanism) => _plays.Contains(mechanism);
+
+    /// <summary>
+    /// A behavior package's params from an EasyEngine behavior: each setting from the behavior's Nums (numbers, yes/no) or
+    /// Texts (the rest), by its name — or, for a built-in the package replaces, by its EasyEngine key ("to", "max").
+    /// Keys become Builder Script key names, a Choice takes the option it names (any case), texts show {name} parts.
+    /// </summary>
+    static Dictionary<string, object?> PackageParams(BehaviorPackage pkg, JsonObject b, bool builtIn)
+    {
+        var ps = new Dictionary<string, object?>();
+        foreach (var pp in pkg.AllParams())
+        {
+            string key = builtIn ? pp.EasyEngineKey : pp.Name;
+            object? def = Project.Value(pp.Default);
+            string defText = World.ToText(def);
+            ps[pp.Name] = pp.Kind switch
+            {
+                ParamKind.Number => N(b, key, World.TryNumber(def, out var d) ? d : 0),
+                ParamKind.Bool => On(b, key, World.Truthy(def) ? 1 : 0),
+                ParamKind.Key => Key(T(b, key, defText)),
+                ParamKind.Choice => Choose(T(b, key, defText), pp.Options),
+                ParamKind.Text when pp.Name != "cond" => Text(T(b, key, defText)),
+                ParamKind.List or ParamKind.Path => T(b, key, def == null ? "[]" : pp.Default!.ToJsonString()),
+                _ => T(b, key, defText),
+            };
+        }
+        return ps;
+    }
+
+    /// <summary>The option a value names, whatever its capital letters ("Click" → "click"); the value itself when none does.</summary>
+    static string Choose(string value, List<string> options)
+    {
+        string v = value.Trim();
+        return options.FirstOrDefault(o => string.Equals(o, v, StringComparison.OrdinalIgnoreCase)) ?? value;
     }
 
     /// <summary>The idle / walk / jump animations EasyEngine would pick by itself, or null when it has no walk or jump one.</summary>

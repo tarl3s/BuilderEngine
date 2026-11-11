@@ -10,7 +10,7 @@ namespace BuilderEngine.Script;
 /// My Game/
 ///     My Game.exe          the player (BuilderEngine.Player, renamed): only the game window, no editor
 ///     …                    the player's files (.NET included, nothing to install)
-///     game/                a copy of the project: project.json, mechanisms/, images/, sounds/ (no saves, no plugins)
+///     game/                a copy of the project: project.json, mechanisms/, behaviors/, images/, sounds/ (no saves, no plugins)
 ///     README.txt
 /// </code>
 /// and optionally <c>My Game.zip</c> next to it. The player comes from a prebuilt <c>player/</c> folder next to
@@ -217,27 +217,42 @@ public static class GameBoot
     /// <summary>
     /// THE place where a world gets ready for a project — used by the editor's Play (MainWindow.UseProjectFiles) and by
     /// exported games (<see cref="NewWorld"/>): the project's folders (pictures, sounds, saves). Anything else a project
-    /// gives every world it plays in (prefabs…) belongs here, so the editor and the player stay the same.
+    /// gives every world it plays in (prefabs, behavior packages…) belongs here, so the editor and the player stay the same.
+    /// Called after the starter kit and the project's mechanisms are loaded.
     /// </summary>
     public static void UseProject(World w, Project p, string projectDir, string? saveFolder = null)
     {
         w.ProjectFolder = projectDir;
         w.SaveFolder = saveFolder ?? Path.Combine(projectDir, Project.SavesFolder);
-        EasyCompat.Use(w, p); // an EasyEngine project: its behaviors play as EasyKit mechanisms (EasyCompat.cs)
+        UsePackages(w, p, projectDir);
+        EasyCompat.Use(w, p); // an EasyEngine project: its behaviors play as EasyKit mechanisms and packages (EasyCompat.cs)
         w.UsePrefabs(p.Prefabs); // spawn "Slime" finds the project's prefabs (Prefabs.cs), in the editor and in exported games
+    }
+
+    /// <summary>
+    /// Behavior packages (docs/BEHAVIOR-FORMAT.md): the project's own (<c>behaviors/</c>, copied into exported games),
+    /// the installed ones and the shipped ones, first wins; a mechanism of the project with the same name wins over a
+    /// package. A broken package file is said once in the console, never thrown.
+    /// </summary>
+    static void UsePackages(World w, Project p, string projectDir)
+    {
+        var problems = new List<string>();
+        var packages = BehaviorPackage.DiscoverAll(projectDir, problems);
+        w.UsePackages(packages, p.SplitMechanismFiles().Select(m => m.Name));
+        foreach (var problem in problems) w.PackageProblem(problem);
     }
 
     /// <summary>A fresh world with every mechanism loaded (a broken one is reported in Errors and skipped).</summary>
     public static World NewWorld(Project p, string projectDir, string? saveFolder = null)
     {
         var w = new World();
-        UseProject(w, p, projectDir, saveFolder);
         StarterKit.LoadInto(w);
         foreach (var (name, src) in p.Mechanisms)
         {
             try { w.Load(src); }
             catch (ScriptError e) { w.Errors.Add($"{name}: {e.Message}"); }
         }
+        UseProject(w, p, projectDir, saveFolder);
         w.Globals["score"] = 0.0;
         w.UseScenes(p.Scenes.Select(s => s.Name));
         return w;

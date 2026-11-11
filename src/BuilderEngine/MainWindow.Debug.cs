@@ -95,6 +95,7 @@ public sealed partial class MainWindow
     internal void OpenMechanismAt(string mechanism, int line)
     {
         if (!_sources.ContainsKey(mechanism)) { SetStatus(false, $"There's no mechanism called “{mechanism}” to open."); return; }
+        if (IsPackage(mechanism)) { OpenMechanism(mechanism); return; } // a behavior package opens read-only
         if (_current != mechanism || _sceneTab) OpenMechanism(mechanism);
         _debugLineMech = mechanism;
         _debugLine = line;

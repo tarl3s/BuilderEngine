@@ -53,7 +53,7 @@ UTF-8 JSON, extension `.behavior`. Unknown properties are kept when the file is 
 | `icon`, `category`, `description` | what the inspector and the behavior picker show (`description` is also what the AI reads) |
 | `author`, `license`, `packageVersion` | free text, shown in the package's details |
 | `repeatable` | `true` when two of it on one object make sense (like EasyEngine's Interact, Sound…) |
-| `params` | one entry per setting, in the order shown. `type` is a **Builder Script param type** (`number`, `seconds`, `bool`, `text`, `Sound`, `Image`, `Color`, `Key`, `Object`, `Scene`, `Path`, `animation`, `List of …`, `Choice "a", "b"`), so every setting gets a picker (owner rule: picked, not typed). `default` is a JSON value. `min`/`max`/`step` for numbers, `help` a tooltip, `showIf` a Builder Script condition over the other params (the field is hidden while it is false) |
+| `params` | one entry per setting, in the order shown. `type` is a **Builder Script param type** (`number`, `seconds`, `bool`, `text`, `Sound`, `Image`, `Color`, `Key`, `Object`, `Scene`, `Path`, `animation`, `List of …`, `Choice "a", "b"`), so every setting gets a picker (owner rule: picked, not typed). `default` is a JSON value. `min`/`max`/`step` for numbers, `help` a tooltip, `showIf` a Builder Script condition over the other params (the field is hidden while it is false; `BehaviorPackage.Shows` works it out — names, literals, `not`/`and`/`or`, comparisons, `+ - * /`; one it can't work out shows the field). `easyKey` (optional, only read for a package with `replaces`): the key of this setting in the EasyEngine built-in's `Nums`/`Texts` when it can't be the param's name — EasyEngine's `to` and `max` are Builder Script words, so Trigger Area's `set_to` has `"easyKey": "to"` and Spawner's `max_count` has `"easyKey": "max"` |
 | `ai` | optional words that make the AI think of it, and a short how-to for Learn mode |
 | `script` | the Builder Script source: exactly one `mechanism` whose name is `name` and whose `param`s are the `params` (same names and types). It may `uses` starter-kit mechanisms |
 
@@ -70,9 +70,53 @@ wrong; `name` is missing or not a valid name; `script` doesn't parse; it doesn't
 |---|---|
 | `<project>/behaviors/*.behavior` | the project's own and every package it uses (copied in, so a shared game works anywhere) |
 | `%APPDATA%\BuilderEngine\Behaviors\*.behavior` | the person's installed packages, offered in **both** engines |
-| shipped with BuilderEngine (embedded) | the official packages (e.g. the simple EasyEngine behaviors rewritten in this format) |
+| shipped with BuilderEngine (embedded) | the official packages (`src/BuilderEngine.Script/Packages/*.behavior`, embedded as `Packages.<Name>.behavior`; `BehaviorPackage.Shipped()`) |
 
-A project copy wins over an installed one with the same `name`; an installed one wins over a shipped one.
+A project copy wins over an installed one with the same `name`; an installed one wins over a shipped one
+(`BehaviorPackage.DiscoverAll(projectDir)` returns them in that order, each with its `Origin`). A mechanism of the
+project with the same name wins over any package. `GameBoot.UseProject` — the editor's Play and exported games — loads
+them all into the world (`World.Packages`; a broken file is said once in the console, never thrown), and an exported
+game copies the project's `behaviors/` folder.
+
+## Shipped packages
+
+The simple EasyEngine behaviors, rewritten as packages (each `replaces` its built-in; settings with EasyEngine's names,
+defaults and labels). They play in any BuilderEngine project too.
+
+| Package | Replaces (EasyEngine) | What it does |
+|---|---|---|
+| `Spin` ↻ | Spin | turns on its own (degrees per second) |
+| `Projectile` ➤ | Projectile | flies in a direction, disappears after a while |
+| `Parallax` 🏔 | Parallax | a background that scrolls slower than the camera |
+| `DestroyOffscreen` 🗑 | DestroyOffscreen | removed when it leaves the screen |
+| `StayInside` 🔲 | StayInside | kept inside the scene or the screen: stops, bounces or wraps |
+| `Collectible` ⭐ | Collectible | picked up on touch: points to a variable, an item |
+| `Gate` 🚧 | Gate | solid until a variable meets a condition (or the player has an item) |
+| `Switch` 🎚 | Switch | flips a variable: click, touch or a key |
+| `Spring` 🔼 | Spring | launches what lands on it |
+| `TriggerArea` 🟦 | Area | an invisible zone: go to a scene, set / add a variable, say |
+| `GoToScene` 🚪 | GoToScene | a door to another scene |
+| `AbilityPickup` 🗝 | AbilityPickup | turns a variable on (and a platformer ability) on touch |
+| `Spawner` ✨ | Spawner | copies of an object or prefab, on a timer or a key |
+
+They use a few `easy_…` words (objects found by name, EasyEngine's variables and "only while" formulas); outside an
+EasyEngine project those work on plain global variables. Their `cond` setting ("Only while") is EasyEngine's formula.
+
+## Making and sharing one
+
+- **In BuilderEngine**: right-click a mechanism in the library → **Save as behavior…**: a name, an icon (picked from a
+  list), a category, a description and a label and help for each setting. It is saved as `behaviors/<Name>.behavior`
+  (`BehaviorPackage.FromMechanism` + `Save`) and from then on the mechanism *is* the behavior (it isn't saved in
+  `mechanisms/` any more). Add `min`/`max`/`step`/`showIf` by editing the file if you need them.
+- **The BEHAVIORS section** of the library lists the project's, installed and shipped packages (icon, name, where it
+  comes from; the tooltip is its description). Drag one onto the scene or an object like a mechanism — an installed or
+  shipped one is first copied into the project's `behaviors/`. Right-click: **Open its code** (read-only, with **Make a
+  copy to edit**: a project mechanism `Spin2` you can change), **Install** (copies it to the installed folder: every
+  project and EasyEngine get it), **Export…** (a `.behavior` file to send), **Import .behavior…** (checks it and copies
+  it into the project; a broken one is refused with the reasons), **Remove** / **Uninstall**.
+- **Its card in the inspector** shows the package's labels (above each field), help as tooltips, spinners limited to
+  `min`/`max` and stepping by `step`, and hides a field while its `showIf` is false.
+- **By hand**: write the JSON above (or export one and change it); `BehaviorPackage.Validate` lists what is wrong.
 
 ## How each engine stores its use
 
@@ -80,10 +124,22 @@ A project copy wins over an installed one with the same `name`; an installed one
   mechanism's source (kept in `behaviors/`, not `mechanisms/`).
 - **EasyEngine**: a behavior of kind `Package` with `Texts["package"] = name`; numeric settings in `Nums`, the others in
   `Texts` (lists/paths as JSON text) — the same bags as every EasyEngine behavior, so old EasyEngine versions keep the
-  data untouched. In BuilderEngine (via the link) such a behavior is the package's mechanism with those params.
+  data untouched. In BuilderEngine (via the link) such a behavior is the package's mechanism with those params (a
+  setting it doesn't have keeps the package's default; a package that isn't there is said once in the console).
 
 ## Complex built-ins
 
 EasyEngine behaviors that are big or speed-critical (Platformer, Boss, Day/Night "Blocks" lighting, Terrain, Infinite
 World…) stay **hand-translated** in BuilderEngine's `EasyCompat` — they don't need to become packages. Simple ones move
-to packages over time; once a built-in has a package with `replaces`, EasyCompat uses the package instead of its own code.
+to packages over time; once a built-in has a package with `replaces`, EasyCompat uses the package instead of its own code
+— the project's or an installed one first, then the shipped one (`World.PackageReplacing(kind)`). The built-in's settings
+become the package's params by name (or `easyKey`): numbers and yes/no from `Nums`, the rest from `Texts`; a `Key`
+becomes Builder Script's key name, a `Choice` the option it names in any case, a `text` shows `{name}` parts. A package
+param called `cond` gets the behavior's "Only while" formula (and "turn a behavior on/off" rules switch it).
+
+Still hand-made in EasyCompat, and why: Platformer, Top-Down, Body, Patrol, Chase / Smart Chase (the movers share the
+mover rules: who steers, knockback, speed boosts, Patrol giving way to Chase), Health, Damager, Shooter, Checkpoint (the
+combat chain: hits, invincibility, knockback, respawn points, the health variable one object owns, and the "hurt"/"died"
+rule events), Interact (one key press per object, the rules' "interact" event, dialogue looks), Solid and Follow Camera
+(added for physics modes and used by cutscenes), Bar (it reads the object's UI layer), Label, Sound, Light, Day / Night
+(only partly supported: their notes in the console), Custom rules and Cutscene (translated per project), Tilemap.

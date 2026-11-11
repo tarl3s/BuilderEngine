@@ -16,7 +16,7 @@ $exe = Join-Path $out 'BuilderEngine.exe'
 
 # name -> sample to build first ('' = an empty folder, i.e. the demo project), extra args, checks files, minimum PASS lines
 $modes = [ordered]@{
-    snap       = @{ sample = '';               args = @();                        files = @('checks.txt', 'blocks_checks.txt'); min = 169 }
+    snap       = @{ sample = '';               args = @();                        files = @('checks.txt', 'blocks_checks.txt'); min = 192 }
     qol        = @{ sample = '';               args = @('--snap-only', 'qol');       files = @('checks.txt');           min = 32 }
     prefabs    = @{ sample = '';               args = @('--snap-only', 'prefabs');   files = @('prefab_checks.txt');    min = 16 }
     systems    = @{ sample = '';               args = @('--snap-only', 'systems');   files = @('checks.txt');           min = 19 }

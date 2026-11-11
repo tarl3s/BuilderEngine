@@ -1,0 +1,52 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "AbilityPickup",
+  "replaces": "AbilityPickup",
+  "icon": "🗝",
+  "category": "Items",
+  "description": "When the collector touches it, it sets a variable to 1 (an ability unlocked, a key found) and disappears. Pair it with a Gate that opens on that variable.",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "params": [
+    {
+      "name": "var",
+      "label": "Turns on variable",
+      "type": "text",
+      "default": "hasDoubleJump"
+    },
+    {
+      "name": "collector",
+      "label": "Picked up by",
+      "type": "Object",
+      "default": "Player"
+    },
+    {
+      "name": "grant",
+      "label": "Also unlocks",
+      "type": "Choice \"none\", \"doubleJump\", \"dash\", \"wallJump\"",
+      "default": "none",
+      "help": "A platformer ability it also gives: nothing else, double jump, dash or wall jump."
+    },
+    {
+      "name": "cond",
+      "label": "Only while",
+      "type": "text",
+      "default": "",
+      "help": "A formula: it works only while this is true (empty = always)."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "key",
+      "ability",
+      "power-up",
+      "unlock",
+      "chave",
+      "habilidade"
+    ],
+    "guide": "Add Ability Pickup to a key or a power-up: touching it sets 'var' to 1 (and can unlock double jump, dash or wall jump)."
+  },
+  "script": "mechanism AbilityPickup\n    # Ability / Key Pickup: when the collector touches it, a variable turns on (and maybe an ability), and it disappears.\n    param var: text = \"hasDoubleJump\"\n    param collector: Object = \"Player\"\n    param grant: Choice \"none\", \"doubleJump\", \"dash\", \"wallJump\" = \"none\"\n    param cond: text = \"\"\n\n    when tick\n        if not easy_on(cond): stop\n        who = easy_find(collector)\n        if not who or not easy_contact(self, who): stop\n        easy_set var, 1\n        if grant != \"none\": easy_ability who, grant, true\n        destroy self\n"
+}

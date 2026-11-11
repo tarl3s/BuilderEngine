@@ -38,12 +38,14 @@ public sealed partial class MainWindow
         if (_canvas is not null) _canvas.Images = Pictures; // follows a project switch
         _numX = _numY = _numW = _numH = null;
         _nameBox = null;
+        _showIfRows.Clear();
         _inspectorRoot.Children.Clear();
         if (_play != null) DebugPanel(); // MainWindow.Debug.cs
         else if (_canvas is not null && _canvas.SelectedIds.Count > 1) MultiInspector(); // MainWindow.InspectorQol.cs
         else if (Selected is { } o) ObjectInspector(o);
         else if (PrefabInspector()) { } // the prefab being edited (MainWindow.Prefabs.cs)
         else SceneSettings();
+        UpdateShowIf(); // package fields shown only "if…" (MainWindow.Behaviors.cs)
         UpdateCanvasOverlay(); // the selected object's paths (MainWindow.ParamPickers.cs)
     }
 
@@ -247,13 +249,14 @@ public sealed partial class MainWindow
     Control MechanismCard(SceneObject o, SceneMechanism m)
     {
         var body = new StackPanel { Spacing = 8 };
+        var pkg = PackageOf(m.Name); // a behavior package: its icon, labels, help, limits and "show if" (MainWindow.Behaviors.cs)
 
         var title = new Button
         {
-            Content = MechLabel(m.Name), Background = Brushes.Transparent, Foreground = Palette.Accent, FontWeight = FontWeight.SemiBold,
+            Content = pkg != null ? $"{pkg.Icon}  {pkg.Name}" : MechLabel(m.Name), Background = Brushes.Transparent, Foreground = Palette.Accent, FontWeight = FontWeight.SemiBold,
             BorderThickness = new Thickness(0), Padding = new Thickness(0), Cursor = new Cursor(StandardCursorType.Hand)
         };
-        ToolTip.SetTip(title, "Open this mechanism");
+        ToolTip.SetTip(title, pkg != null ? PackageTip(pkg) + "\n\nClick to see its code." : "Open this mechanism");
         title.Click += (_, _) => OpenMechanism(m.Name);
         var remove = new Button
         {
@@ -277,7 +280,12 @@ public sealed partial class MainWindow
             body.Children.Add(Note("Nothing to set.", Palette.TextDim));
         else
             foreach (var p in def.Params)
-                body.Children.Add(ParamRow(o, m, p));
+            {
+                var pp = pkg?.Param(p.Name);
+                var row = ParamRow(o, m, p, pp);
+                body.Children.Add(row);
+                if (pkg != null && pp?.ShowIf != null) _showIfRows.Add((row, pkg, pp, m));
+            }
         if (def?.IsSystem == true) body.Children.Add(SystemCardExtras(o, m, def)); // one card sets up the whole system (MainWindow.Systems.cs)
 
         return new Border
@@ -287,7 +295,8 @@ public sealed partial class MainWindow
         };
     }
 
-    Control ParamRow(SceneObject o, SceneMechanism m, ParamDef p)
+    /// <summary>One param's field. <paramref name="pp"/>: the behavior package's setting (its label, help, limits), or null.</summary>
+    Control ParamRow(SceneObject o, SceneMechanism m, ParamDef p, BehaviorPackage.PackageParam? pp = null)
     {
         object? def = ParamDefault(p);
         bool overridden = m.Params.ContainsKey(p.Name);
@@ -310,11 +319,11 @@ public sealed partial class MainWindow
             case "number" or "seconds":
             {
                 bool secs = type == "seconds";
-                var n = Num(World.ToNumber(current is double or bool ? current : 0.0, 0), secs ? 0.1 : 1, double.MinValue, v =>
+                var n = Num(World.ToNumber(current is double or bool ? current : 0.0, 0), pp?.Step is > 0 and var st ? st : secs ? 0.1 : 1, pp?.Min ?? double.MinValue, v =>
                 {
                     Checkpoint(key);
                     m.Params[p.Name] = v;
-                }, secs ? "0.###" : "0.##");
+                }, secs ? "0.###" : "0.##", pp?.Max);
                 showOverridden = on => n.Foreground = on ? Palette.Text : Palette.TextDim;
                 field = n;
                 reset.Click += (_, _) =>
@@ -450,8 +459,22 @@ public sealed partial class MainWindow
         reset.Click += (_, _) => { reset.IsVisible = false; showOverridden(false); };
         showOverridden(overridden);
 
-        var label = new TextBlock { Text = Pretty(p.Name), Foreground = Palette.TextDim, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-        ToolTip.SetTip(label, $"{p.Name}: {Printer.ParamType(p)}");
+        var label = new TextBlock { Text = pp is { Label.Length: > 0 } ? pp.Label : Pretty(p.Name), Foreground = Palette.TextDim, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+        ToolTip.SetTip(label, pp is { Help.Length: > 0 } ? $"{pp.Help}\n\n{p.Name}: {Printer.ParamType(p)}" : $"{p.Name}: {Printer.ParamType(p)}");
+        if (pp != null)
+        {
+            // A behavior package's setting: its own label above the field (labels are longer than param names), help as a tooltip.
+            label.TextWrapping = TextWrapping.Wrap;
+            ToolTip.SetTip(field, ToolTip.GetTip(label));
+            var top = new DockPanel();
+            DockPanel.SetDock(reset, Dock.Right);
+            top.Children.Add(reset);
+            top.Children.Add(label);
+            var stack = new StackPanel { Spacing = 3 };
+            stack.Children.Add(top);
+            stack.Children.Add(field);
+            return stack;
+        }
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("96,*,Auto") };
         row.Children.Add(label);
         Grid.SetColumn(field, 1);
@@ -476,7 +499,7 @@ public sealed partial class MainWindow
             if (EasyAsksFirst(o, name)) { Dispatcher.UIThread.Post(RebuildInspector); return; } // MainWindow.Link.cs
             Checkpoint();
             o.Mechanisms.Add(new SceneMechanism { Name = name });
-            Dispatcher.UIThread.Post(RebuildInspector);
+            Dispatcher.UIThread.Post(() => { EnsurePackageInProject(name); RebuildInspector(); }); // a shipped / installed behavior comes into the project (MainWindow.Behaviors.cs)
         };
         return combo;
     }
@@ -548,12 +571,14 @@ public sealed partial class MainWindow
         r["TextControlSelectionHighlightColor"] = Palette.AccentBorder;
     }
 
-    NumericUpDown Num(double value, double increment, double min, Action<double> set, string format = "0.##")
+    NumericUpDown Num(double value, double increment, double min, Action<double> set, string format = "0.##", double? max = null)
     {
+        double top = max is { } mx && mx < 1e9 ? mx : 1e9, bottom = Math.Max(min, -1e9);
+        if (top < bottom) top = bottom;
         var n = new NumericUpDown
         {
-            Value = (decimal)Math.Clamp(value, -1e9, 1e9), Increment = (decimal)increment, FormatString = format,
-            Minimum = min <= -1e9 ? -1_000_000_000m : (decimal)min, Maximum = 1_000_000_000m,
+            Value = (decimal)Math.Clamp(value, bottom, top), Increment = (decimal)increment, FormatString = format,
+            Minimum = min <= -1e9 ? -1_000_000_000m : (decimal)min, Maximum = (decimal)top,
             Background = Palette.Bg2, Foreground = Palette.Text, BorderBrush = Palette.Border,
             HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 0, FontSize = 13,
             ParsingNumberStyle = NumberStyles.Float

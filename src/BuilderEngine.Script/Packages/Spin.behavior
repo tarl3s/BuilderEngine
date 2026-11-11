@@ -1,0 +1,35 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "Spin",
+  "replaces": "Spin",
+  "icon": "↻",
+  "category": "Movement",
+  "description": "Rotates on its own. Decorative (a coin, a saw, a fan).",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "params": [
+    {
+      "name": "speed",
+      "label": "Degrees per second",
+      "type": "number",
+      "default": 90,
+      "min": -3600,
+      "max": 3600,
+      "step": 15,
+      "help": "How fast it turns. Negative turns the other way."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "spin",
+      "rotate",
+      "turn",
+      "girar",
+      "rodar"
+    ],
+    "guide": "Add Spin to make a coin or a saw turn. 'speed' is degrees per second; negative turns the other way."
+  },
+  "script": "mechanism Spin\n    # Spin: turns on its own, so many degrees per second (negative = the other way).\n    param speed: number = 90\n\n    when tick\n        self.angle += speed * dt\n"
+}

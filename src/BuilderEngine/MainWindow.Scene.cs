@@ -110,16 +110,17 @@ public sealed partial class MainWindow
     {
         foreach (var (name, src) in _project.SplitMechanismFiles())
             _sources[name] = src;
+        AdoptPackages(); // the behavior packages it can use (MainWindow.Behaviors.cs)
     }
 
     string ProjectNameFromFolder() => Path.GetFileName(_projectDir.TrimEnd('\\', '/')) is { Length: > 0 } n ? n : "My Game";
 
-    /// <summary>The project's own mechanisms: the ones that aren't in the starter kit, or that were edited.</summary>
+    /// <summary>The project's own mechanisms: the ones that aren't in the starter kit, or that were edited (behavior packages live in behaviors/).</summary>
     void SyncProjectMechanisms()
     {
         _project.Mechanisms.Clear();
         foreach (var (name, src) in _sources)
-            if (!_starterSources.TryGetValue(name, out var kit) || Normalize(kit) != Normalize(src))
+            if (IsProjectMechanism(name))
                 _project.Mechanisms[name] = src;
     }
 
@@ -392,6 +393,9 @@ public sealed partial class MainWindow
         if (name.StartsWith(SysDragTag)) { OnSystemDropped(name[SysDragTag.Length..], at); return; } // MainWindow.Systems.cs
         if (!_sources.ContainsKey(name) || _play != null) return;
         if (target != null && !target.Has(name) && EasyAsksFirst(target, name)) return; // it has EasyEngine behaviors (MainWindow.Link.cs)
+        int targetId = target?.Id ?? 0;
+        EnsurePackageInProject(name); // an installed or shipped behavior is copied into the project (MainWindow.Behaviors.cs)
+        if (targetId != 0) target = _scene.Find(targetId);
         if (target != null)
         {
             if (!target.Has(name))
@@ -454,6 +458,7 @@ public sealed partial class MainWindow
     {
         var now = DateTime.UtcNow;
         LinkTouched(); // live link: save soon (MainWindow.Link.cs)
+        if (_showIfRows.Count > 0) Dispatcher.UIThread.Post(UpdateShowIf); // after the edit: package fields shown "if…" (MainWindow.Behaviors.cs)
         if (key != null && key == _checkpointKey && (now - _checkpointTime).TotalSeconds < 1.5) { _checkpointTime = now; return; }
         _checkpointKey = key;
         _checkpointTime = now;

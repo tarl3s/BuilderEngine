@@ -94,6 +94,7 @@ public sealed partial class MainWindow : Window
     internal void OpenMechanism(string name)
     {
         if (!_sources.ContainsKey(name)) return;
+        if (IsPackage(name)) { _ = ShowPackageCodeAsync(name); return; } // a behavior package: its code, read-only (MainWindow.BehaviorDialogs.cs)
         _current = name;
         _loading = true;
         _code.Text = _sources[name]; // a fresh text: the caret at the top, the text undo starts over

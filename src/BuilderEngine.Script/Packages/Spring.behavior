@@ -1,0 +1,48 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "Spring",
+  "replaces": "Spring",
+  "icon": "🔼",
+  "category": "Movement",
+  "description": "Launches anything that falls and lands on it (a trampoline, a jump pad) up, down, left or right.",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "params": [
+    {
+      "name": "force",
+      "label": "Launch force",
+      "type": "number",
+      "default": 820,
+      "min": 0,
+      "max": 10000,
+      "step": 20
+    },
+    {
+      "name": "dir",
+      "label": "Launches",
+      "type": "Choice \"up\", \"down\", \"left\", \"right\"",
+      "default": "up"
+    },
+    {
+      "name": "cond",
+      "label": "Only while",
+      "type": "text",
+      "default": "",
+      "help": "A formula: it works only while this is true (empty = always)."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "spring",
+      "trampoline",
+      "bounce pad",
+      "jump pad",
+      "mola",
+      "trampolim"
+    ],
+    "guide": "Add Spring to a pad that launches whatever lands on it; 'force' is how hard, 'dir' which way."
+  },
+  "script": "mechanism Spring\n    # Spring / Bounce Pad: launches what lands on it (anything that falls) up, down, left or right.\n    param force: number = 820\n    param dir: Choice \"up\", \"down\", \"left\", \"right\" = \"up\"\n    param cond: text = \"\"\n\n    when start\n        solid\n\n    when tick\n        if not easy_on(cond): stop\n        for each o in easy_bodies()\n            if o != self and easy_near_pad(self, o, dir)\n                if dir == \"down\"\n                    o.vy = force\n                else if dir == \"left\"\n                    o.vx = -force\n                else if dir == \"right\"\n                    o.vx = force\n                else\n                    o.vy = -force\n"
+}

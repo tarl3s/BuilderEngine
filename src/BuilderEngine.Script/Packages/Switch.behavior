@@ -1,0 +1,67 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "Switch",
+  "replaces": "Switch",
+  "icon": "🎚",
+  "category": "Level",
+  "description": "Toggles a variable between 0 and 1: click it, touch it, or stand on it and press a key. 'Stay on' makes a one-time switch.",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "params": [
+    {
+      "name": "var",
+      "label": "Variable it turns on/off",
+      "type": "text",
+      "default": "switch1"
+    },
+    {
+      "name": "mode",
+      "label": "How it's flipped",
+      "type": "Choice \"click\", \"touch\", \"interact\"",
+      "default": "click",
+      "help": "click = click it; touch = the trigger touches it; interact = the trigger stands on it and presses the key."
+    },
+    {
+      "name": "trigger",
+      "label": "Who flips it",
+      "type": "Object",
+      "default": "Player",
+      "showIf": "mode != \"click\""
+    },
+    {
+      "name": "key",
+      "label": "Key",
+      "type": "Key",
+      "default": "e",
+      "showIf": "mode == \"interact\""
+    },
+    {
+      "name": "stayOn",
+      "label": "Stay on once flipped",
+      "type": "bool",
+      "default": false,
+      "help": "A one-time switch that can't turn back off."
+    },
+    {
+      "name": "cond",
+      "label": "Only while",
+      "type": "text",
+      "default": "",
+      "help": "A formula: it works only while this is true (empty = always)."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "switch",
+      "lever",
+      "toggle",
+      "button",
+      "alavanca",
+      "interruptor"
+    ],
+    "guide": "Add Switch to a lever: clicking, touching or pressing a key on it flips the variable 'var' between 0 and 1."
+  },
+  "script": "mechanism Switch\n    # Switch / Lever: flips a variable between 0 and 1 — clicked, touched, or stood on with a key.\n    param var: text = \"switch1\"\n    param mode: Choice \"click\", \"touch\", \"interact\" = \"click\"\n    param trigger: Object = \"Player\"\n    param key: Key = \"e\"\n    param stayOn: bool = false\n    param cond: text = \"\"\n\n    when clicked\n        if mode == \"click\" and easy_on(cond): flip\n\n    when tick\n        if mode == \"click\" or not easy_on(cond): stop\n        who = easy_find(trigger)\n        near = who and easy_contact(self, who)\n        active = near\n        if mode == \"interact\": active = near and easy_key(key)\n        go = active and not was\n        was = active\n        if go: flip\n\n    to flip\n        v = 1\n        if not stayOn and easy_var(var) >= 0.5: v = 0\n        easy_set var, v\n        if v >= 0.5\n            self.opacity = 1\n        else\n            self.opacity = 0.55\n"
+}

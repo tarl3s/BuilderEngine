@@ -1,0 +1,35 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "DestroyOffscreen",
+  "replaces": "DestroyOffscreen",
+  "icon": "🗑",
+  "category": "Level",
+  "description": "Removes the object when it leaves the visible area (bullets, falling things).",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "params": [
+    {
+      "name": "margin",
+      "label": "Margin",
+      "type": "number",
+      "default": 120,
+      "min": 0,
+      "max": 5000,
+      "step": 10,
+      "help": "How far outside the screen (in pixels) it may go before it is removed."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "offscreen",
+      "off-screen",
+      "leaves the screen",
+      "cleanup",
+      "fora da tela"
+    ],
+    "guide": "Add Destroy Off-screen to bullets or falling things so they are removed once they leave the screen."
+  },
+  "script": "mechanism DestroyOffscreen\n    # Destroy Off-screen: removed when it leaves what the camera shows (by more than 'margin' pixels).\n    param margin: number = 120\n\n    when tick\n        view_left = camera_x - view_width / 2 - margin\n        view_top = camera_y - view_height / 2 - margin\n        if self.x + self.width < view_left or self.x > view_left + view_width + 2 * margin or self.y + self.height < view_top or self.y > view_top + view_height + 2 * margin\n            destroy self\n"
+}

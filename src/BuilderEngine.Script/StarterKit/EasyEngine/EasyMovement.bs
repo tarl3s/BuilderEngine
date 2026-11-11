@@ -1,4 +1,6 @@
-# EasyKit: EasyEngine's movement behaviors, written as mechanisms so an EasyEngine project plays in BuilderEngine.
+# EasyKit: EasyEngine's movement behaviors (platformer, top-down, falling bodies, patrol, chase), written as mechanisms so an
+# EasyEngine project plays in BuilderEngine. The simple ones (Spin, Projectile, Stay Inside, Parallax) are shipped behavior
+# packages instead (Packages/*.behavior, "replaces").
 # EasyCompat (EasyCompat.cs) gives each EasyEngine behavior its mechanism here, with the behavior's settings as params,
 # when the game starts: the project itself keeps EasyEngine's data. EasyEngine's numbers: gravity 2000 px/s², a body
 # falls at most 1500 px/s, and a jump is a speed (640 = about 100 px high).
@@ -276,84 +278,3 @@ mechanism EasyChase
                 self.vy = dy / size * sp
         if dx < -1: face left
         if dx > 1: face right
-
-mechanism EasyProjectile
-    # Projectile: flies in a direction (degrees, 0 = right, 90 = down) and disappears after 'life' seconds (0 = never).
-    param speed: number = 420
-    param angle: number = 0
-    param life: number = 3
-
-    when start
-        if self.vx == 0 and self.vy == 0
-            self.vx = cos(angle) * speed
-            self.vy = sin(angle) * speed
-        if life > 0
-            wait life
-            destroy self
-
-mechanism EasyStayInside
-    # Stay Inside: kept inside the scene (or what the camera shows) after it moves: it stops, bounces or wraps around.
-    param area: text = "scene"
-    param sides: text = "all"
-    param edge: text = "stop"
-
-    when start
-        # a forever loop goes one round per frame, after physics — where EasyEngine keeps it inside
-        repeat forever
-            x0 = 0
-            y0 = 0
-            x1 = scene_width
-            y1 = scene_height
-            if area == "screen"
-                x0 = camera_x - view_width / 2
-                y0 = camera_y - view_height / 2
-                x1 = x0 + view_width
-                y1 = y0 + view_height
-            lr = sides == "all" or sides == "leftright" or sides == "notbottom"
-            top = sides == "all" or sides == "topbottom" or sides == "notbottom"
-            bottom = sides == "all" or sides == "topbottom"
-            if edge == "wrap"
-                if lr
-                    if self.x > x1
-                        self.x = x0 - self.width
-                    else if self.x + self.width < x0
-                        self.x = x1
-                if bottom and self.y > y1
-                    self.y = y0 - self.height
-                else if top and self.y + self.height < y0
-                    self.y = y1
-            else
-                k = 0
-                if edge == "bounce": k = -1
-                if lr
-                    if self.x < x0
-                        self.x = x0
-                        if self.vx < 0: self.vx *= k
-                    else if self.x + self.width > x1
-                        self.x = x1 - self.width
-                        if self.vx > 0: self.vx *= k
-                if top and self.y < y0
-                    self.y = y0
-                    if self.vy < 0: self.vy *= k
-                else if bottom and self.y + self.height > y1
-                    self.y = y1 - self.height
-                    if self.vy > 0: self.vy *= k
-
-mechanism EasySpin
-    # Spin: turns on its own (degrees per second).
-    param speed: number = 90
-
-    when tick
-        self.angle += speed * dt
-
-mechanism EasyParallax
-    # Parallax: a background that scrolls slower than the camera (0 = far away, 1 = moves with the scene).
-    param factor: number = 0.5
-
-    when start
-        home_x = self.x
-        home_y = self.y
-        repeat forever
-            k = 1 - clamp(factor, 0, 1)
-            self.x = home_x + (camera_x - view_width / 2) * k
-            self.y = home_y + (camera_y - view_height / 2) * k

@@ -1,0 +1,91 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "TriggerArea",
+  "replaces": "Area",
+  "icon": "🟦",
+  "category": "Level",
+  "description": "An invisible zone. When the target enters it: go to a scene, set or add to a variable, or show a message. Use it for level exits, cutscene triggers, hidden rooms.",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "repeatable": true,
+  "params": [
+    {
+      "name": "action",
+      "label": "What happens",
+      "type": "Choice \"goscene\", \"setvar\", \"addvar\", \"say\"",
+      "default": "goscene",
+      "help": "goscene = go to a scene; setvar = set a variable; addvar = add to a variable; say = show a message."
+    },
+    {
+      "name": "scene",
+      "label": "Scene",
+      "type": "Scene",
+      "default": "",
+      "showIf": "action == \"goscene\""
+    },
+    {
+      "name": "var",
+      "label": "Variable",
+      "type": "text",
+      "default": "",
+      "showIf": "action == \"setvar\" or action == \"addvar\""
+    },
+    {
+      "name": "set_to",
+      "label": "Set to",
+      "type": "number",
+      "default": 1,
+      "easyKey": "to",
+      "showIf": "action == \"setvar\""
+    },
+    {
+      "name": "amount",
+      "label": "Add",
+      "type": "number",
+      "default": 1,
+      "showIf": "action == \"addvar\""
+    },
+    {
+      "name": "text",
+      "label": "Message",
+      "type": "text",
+      "default": "",
+      "showIf": "action == \"say\"",
+      "help": "One line after another: a new line (or |) is the next thing said. {score} shows a variable."
+    },
+    {
+      "name": "target",
+      "label": "Who enters",
+      "type": "Object",
+      "default": "Player"
+    },
+    {
+      "name": "once",
+      "label": "Only once",
+      "type": "bool",
+      "default": true
+    },
+    {
+      "name": "cond",
+      "label": "Only while",
+      "type": "text",
+      "default": "",
+      "help": "A formula: it works only while this is true (empty = always)."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "trigger",
+      "zone",
+      "area",
+      "region",
+      "exit",
+      "zona",
+      "gatilho"
+    ],
+    "guide": "Add Trigger Area to an invisible box: when the Player walks in it goes to a scene, sets or adds to a variable, or says something."
+  },
+  "script": "mechanism TriggerArea\n    # Trigger Area / Zone: invisible; when the target enters — go to a scene, set or add to a variable, or say something.\n    param action: Choice \"goscene\", \"setvar\", \"addvar\", \"say\" = \"goscene\"\n    param scene: Scene = \"\"\n    param var: text = \"\"\n    param set_to: number = 1\n    param amount: number = 1\n    param text: text = \"\"\n    param target: Object = \"Player\"\n    param once: bool = true\n    param cond: text = \"\"\n\n    when start\n        self.opacity = 0\n\n    when tick\n        if not easy_on(cond): stop\n        who = easy_find(target)\n        inside = who and easy_contact(self, who)\n        fire = inside and not was\n        was = inside\n        if not fire or (once and fired): stop\n        fired = true\n        if action == \"goscene\"\n            easy_goto scene\n        else if action == \"setvar\"\n            easy_set var, set_to\n        else if action == \"addvar\"\n            easy_add var, amount\n        else if action == \"say\"\n            run easy_say text, \"\", false\n"
+}

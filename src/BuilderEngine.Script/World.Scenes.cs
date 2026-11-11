@@ -63,6 +63,7 @@ public sealed partial class World
         w.MaxLinesWithoutWait = MaxLinesWithoutWait;
         w.ViewMaxWidth = ViewMaxWidth; w.ViewMaxHeight = ViewMaxHeight; // 'camera size' (World.View.cs)
         w.Easy = Easy; // EasyEngine behaviors playing here (EasyCompat.cs)
+        w._packages.AddRange(_packages); // behavior packages (World.Packages.cs)
         foreach (var (k, v) in Prefabs) w.Prefabs[k] = v; // spawn "Slime" (World.Prefabs.cs)
         w.Printed = Printed;
         w.SoundPlayed = SoundPlayed;

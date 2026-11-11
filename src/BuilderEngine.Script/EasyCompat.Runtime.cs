@@ -304,6 +304,7 @@ public sealed partial class EasyCompat
     internal void Shoot(World w, GameObject self, int dirs, double speed, double life, string bullet, string aim)
     {
         dirs = Math.Max(1, dirs);
+        string proj = w.PackageReplacing("Projectile")?.Name ?? "EasyProjectile"; // the Projectile behavior package
         var target = aim.Trim().Length == 0 ? null : FindNamed(w, aim);
         if (target == self) target = null;
         double cx = self.X + self.Width / 2, cy = self.Y + self.Height / 2;
@@ -317,9 +318,9 @@ public sealed partial class EasyCompat
             if (b == null)
             {
                 // no bullet object: a small round one that flies and hurts what it was aimed at
-                b = w.Spawn("Bullet", 0, 0, ["EasyProjectile", "EasyDamager"], new()
+                b = w.Spawn("Bullet", 0, 0, [proj, "EasyDamager"], new()
                 {
-                    ["EasyProjectile"] = new() { ["life"] = life },
+                    [proj] = new() { ["life"] = life },
                     ["EasyDamager"] = new() { ["target"] = target?.Name ?? "Player", ["vanish"] = true },
                 });
                 b.Width = b.Height = 10;
@@ -330,7 +331,7 @@ public sealed partial class EasyCompat
             b.Vx = Math.Cos(ang) * speed;
             b.Vy = Math.Sin(ang) * speed;
             foreach (var m in b.AllMechanisms())
-                if (m.Def.Name == "EasyProjectile") m.Vars["life"] = life;
+                if (m.Def.Name == proj) m.Vars["life"] = life;
         }
     }
 
@@ -363,7 +364,7 @@ public sealed partial class EasyCompat
     /// <summary>"Turn one of its behaviors on or off": its mechanism rests while off (its 'cond' is never true).</summary>
     internal void SwitchBehavior(World w, GameObject o, string kind, bool on)
     {
-        string mech = "Easy" + kind.Trim();
+        string mech = w.PackageReplacing(kind)?.Name ?? "Easy" + kind.Trim(); // a behavior package, or its EasyKit mechanism
         bool found = false;
         foreach (var m in o.AllMechanisms())
         {

@@ -1,0 +1,61 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "Gate",
+  "replaces": "Gate",
+  "icon": "🚧",
+  "category": "Level",
+  "description": "A solid barrier that blocks the way until it opens: when its variable meets the condition (e.g. hasRedKey at least 1), or when the player has an item. When open it stops colliding and fades out.",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "params": [
+    {
+      "name": "var",
+      "label": "Opens when variable",
+      "type": "text",
+      "default": "hasKey"
+    },
+    {
+      "name": "op",
+      "label": "is",
+      "type": "Choice \">=\", \"==\", \">\", \"<=\", \"<\"",
+      "default": ">=",
+      "help": ">= at least, == exactly, > more than, <= at most, < less than."
+    },
+    {
+      "name": "value",
+      "label": "…this value",
+      "type": "number",
+      "default": 1,
+      "step": 1
+    },
+    {
+      "name": "item",
+      "label": "…or when the player has",
+      "type": "text",
+      "default": "",
+      "help": "An item (empty = the variable decides)."
+    },
+    {
+      "name": "cond",
+      "label": "Only while",
+      "type": "text",
+      "default": "",
+      "help": "A formula: it works only while this is true (empty = always)."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "gate",
+      "locked door",
+      "door",
+      "barrier",
+      "key",
+      "porta",
+      "portão"
+    ],
+    "guide": "Add Gate to a door that opens when a variable (like hasKey) reaches a value, or when the player has an item."
+  },
+  "script": "mechanism Gate\n    # Gate / Locked Door: solid until its variable meets the condition (or the player has the item); then it fades.\n    param var: text = \"hasKey\"\n    param op: Choice \">=\", \"==\", \">\", \"<=\", \"<\" = \">=\"\n    param value: number = 1\n    param item: text = \"\"\n    param cond: text = \"\"\n\n    when start\n        solid\n\n    when tick\n        if not easy_on(cond): stop\n        if item != \"\"\n            open = easy_var(\"item:\" + item) >= 1\n        else\n            open = easy_compare(easy_var(var), op, value)\n        solid not open\n        if open\n            self.opacity = 0.2\n        else\n            self.opacity = 1\n"
+}

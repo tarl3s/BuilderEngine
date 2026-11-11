@@ -1,0 +1,46 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "GoToScene",
+  "replaces": "GoToScene",
+  "icon": "🚪",
+  "category": "Level",
+  "description": "Switches to another scene when the trigger touches it. Great for doors and level exits.",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "params": [
+    {
+      "name": "scene",
+      "label": "Target scene",
+      "type": "Scene",
+      "default": ""
+    },
+    {
+      "name": "trigger",
+      "label": "Who uses it",
+      "type": "Object",
+      "default": "Player"
+    },
+    {
+      "name": "cond",
+      "label": "Only while",
+      "type": "text",
+      "default": "",
+      "help": "A formula: it works only while this is true (empty = always)."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "door",
+      "exit",
+      "next level",
+      "go to scene",
+      "portal",
+      "porta",
+      "próxima fase"
+    ],
+    "guide": "Add Go To Scene to a door: when the Player touches it the game goes to 'scene'."
+  },
+  "script": "mechanism GoToScene\n    # Go To Scene: when the trigger touches it, the game goes to the scene.\n    param scene: Scene = \"\"\n    param trigger: Object = \"Player\"\n    param cond: text = \"\"\n\n    when tick\n        if scene == \"\" or not easy_on(cond): stop\n        who = easy_find(trigger)\n        if who and easy_contact(self, who): easy_goto scene\n"
+}

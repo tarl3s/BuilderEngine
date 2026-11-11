@@ -1,0 +1,56 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "Projectile",
+  "replaces": "Projectile",
+  "icon": "➤",
+  "category": "Movement",
+  "description": "Flies in a direction at a speed and disappears after a while.",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "params": [
+    {
+      "name": "speed",
+      "label": "Speed",
+      "type": "number",
+      "default": 420,
+      "min": 0,
+      "max": 5000,
+      "step": 20,
+      "help": "Pixels per second."
+    },
+    {
+      "name": "angle",
+      "label": "Direction",
+      "type": "number",
+      "default": 0,
+      "min": 0,
+      "max": 359,
+      "step": 45,
+      "help": "Degrees: 0 = right, 45 = down-right, 90 = down, 180 = left, 270 = up. A thing that is already moving (a shot) keeps its own direction."
+    },
+    {
+      "name": "life",
+      "label": "Lifetime (s, 0 = forever)",
+      "type": "seconds",
+      "default": 3,
+      "min": 0,
+      "max": 600,
+      "step": 0.5,
+      "help": "It disappears after this many seconds; 0 = it never does."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "projectile",
+      "bullet",
+      "arrow",
+      "fireball",
+      "tiro",
+      "flecha"
+    ],
+    "guide": "Add Projectile to a bullet or an arrow: it flies at 'speed' in the 'angle' direction (0 = right, 90 = down) and goes away after 'life' seconds."
+  },
+  "script": "mechanism Projectile\n    # Projectile: flies in a direction (degrees: 0 = right, 90 = down, 180 = left, 270 = up) and disappears after 'life' seconds (0 = never).\n    param speed: number = 420\n    param angle: number = 0\n    param life: seconds = 3\n\n    when start\n        if self.vx == 0 and self.vy == 0\n            self.vx = cos(angle) * speed\n            self.vy = sin(angle) * speed\n        if life > 0\n            wait life\n            destroy self\n"
+}

@@ -185,7 +185,7 @@ static class EasyCompatTests
             var s = new Session(p, NewDir());
             True(s.World.Easy != null, "EasyCompat is on");
             Eq(0, s.AllErrors().Count, string.Join(" | ", s.AllErrors()));
-            foreach (var m in new[] { "EasyPlatformer", "EasySolid", "EasyHealth", "EasyInteract", "EasyDayNight", "EasyStayInside" })
+            foreach (var m in new[] { "EasyPlatformer", "EasySolid", "EasyHealth", "EasyInteract", "EasyDayNight", "StayInside" })
                 True(s.World.Library.ContainsKey(m), m + " is loaded");
             True(s.Find("Player").Mechanisms.Any(m => m.Def.Name == "EasyPlatformer"), "the player plays as EasyPlatformer");
             Eq(0, p.Scenes[0].Objects.First(o => o.Name == "Player").Mechanisms.Count, "nothing is added to the saved object");

@@ -21,6 +21,11 @@
   <ItemGroup>
     <EmbeddedResource Include="StarterKit\EasyEngine\*.bs" LogicalName="EasyKit.%(Filename).bs" />
   </ItemGroup>
+  <!-- Shipped behavior packages (Packages/*.behavior, docs/BEHAVIOR-FORMAT.md): offered in the library's BEHAVIORS
+       section and, with "replaces", what EasyCompat plays the simple EasyEngine behaviors with (BehaviorPackage.Shipped). -->
+  <ItemGroup>
+    <EmbeddedResource Include="Packages\*.behavior" LogicalName="Packages.%(Filename).behavior" />
+  </ItemGroup>
   <!-- Starter systems (Systems/*.bs): sets of mechanisms that work together (Systems.cs). -->
   <ItemGroup>
     <EmbeddedResource Include="Systems\*.bs" LogicalName="Systems.%(Filename).bs" />

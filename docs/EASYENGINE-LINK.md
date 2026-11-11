@@ -233,7 +233,12 @@ Pressing Play in BuilderEngine on an EasyEngine project plays its behaviors the 
 and exported games — calls `EasyCompat.Use`: for a project with EasyEngine behaviors it loads EasyKit into the world,
 EasyEngine's view size (`ScreenWidth` × `ScreenHeight`, 960 × 540) and the project's variables. When a scene loads
 (`World.LoadScene`, and `SpawnTemplate` for prefabs and copies), each object's EasyEngine behaviors become EasyKit
-mechanisms with the behavior's settings as params (`Platformer` → `EasyPlatformer speed 260 jump 640 …`), added to the
+mechanisms with the behavior's settings as params (`Platformer` → `EasyPlatformer speed 260 jump 640 …`) — or, for a
+behavior a **behavior package** replaces (docs/BEHAVIOR-FORMAT.md: `"replaces"`), that package's mechanism: **EasyCompat
+prefers a package over its own code**, the project's (`behaviors/`) or an installed one first, then the shipped ones that
+now play the simple behaviors (Spin, Projectile, Parallax, Destroy Off-screen, Stay Inside, Collectible, Gate, Switch,
+Spring, Trigger Area, Go To Scene, Ability Pickup, Spawner). A behavior of kind `Package` (`Texts["package"]`) is that
+package's mechanism with the behavior's `Nums`/`Texts` as params. The mechanisms are added to the
 running object only. **Nothing is added to the project**: the saved object keeps its behaviors and no mechanisms, so
 EasyEngine still owns it and saving is unchanged. Objects turned off (`Active` false, or on a layer turned off) aren't
 created; an exported EasyEngine game starts in its `StartScene`.
@@ -271,15 +276,17 @@ What can't play yet is said **once** in the console (`ℹ EasyEngine: not suppor
 | Top-Down | ✓ `EasyTopDown` |
 | Solid | ✓ `EasySolid` (one-way too); physics "Static" is a solid, "Dynamic" falls (`EasyBody`) |
 | Follow Camera | ✓ `EasyFollowCamera`: EasyEngine's per-frame smoothing as `camera smooth`, the scene clamp |
-| Stay Inside | ✓ `EasyStayInside` (after physics, like EasyEngine): scene or screen, stop / bounce / wrap, sides |
+| Stay Inside | ✓ the `StayInside` package (after physics, like EasyEngine): scene or screen, stop / bounce / wrap, sides |
 | Custom | ◐ translated rules (above) |
 | Cutscene | ◐ translated steps (above); no skip key; dialogue looks and fonts are the default ones |
 | Interact | ◐ `EasyInteract`: say (line by line, freeze), set / add a variable, go to a scene, once, one press per object; default dialogue box |
-| Go To Scene | ✓ `EasyGoToScene` (with "Only while", e.g. `key:E >= 1`) |
+| Go To Scene | ✓ the `GoToScene` package (with "Only while", e.g. `key:E >= 1`) |
 | Sound | ◐ `EasySound`: on start, once or looping; "only heard nearby" and left/right panning aren't there yet |
 | Light | ◐ `EasyLight`: a round light (flicker); beam / half / area / bar shapes shine as a circle |
 | Day / Night | ◐ `EasyDayNight`: the light level and isDay / isNight / timeOfDay / dayness; no sun and moon, no darker underground |
-| Spin, Projectile, Patrol, Chase, Health, Damager, Collectible, Checkpoint, Shooter, Spawner, Bar, Trigger Area, Ability Pickup, Gate, Switch, Spring, Parallax, Destroy Off-screen | ✓ `Easy<Kind>` |
+| Spin, Projectile, Parallax, Destroy Off-screen, Collectible, Gate, Switch, Spring, Trigger Area, Ability Pickup, Spawner | ✓ shipped behavior packages (`Spin`, `Projectile`, `Parallax`, `DestroyOffscreen`, `Collectible`, `Gate`, `Switch`, `Spring`, `TriggerArea`, `AbilityPickup`, `Spawner`) |
+| Patrol, Chase, Health, Damager, Checkpoint, Shooter, Bar | ✓ `Easy<Kind>` (hand-made: the mover rules and the combat chain) |
+| Package | ✓ the behavior package it names, with its settings |
 | Label | ◐ `EasyLabel`: the text in the object; no text effects |
 | Smart Chase | ◐ plays as Chase (straight at the target) |
 | Tilemap | ✓ a tile layer (see *Tilemaps*) |
@@ -303,3 +310,6 @@ custom rules with blocks, stay inside, follow camera, labels, pickups, gate, cha
 Mistify copy: every scene plays with scripted keys with no script errors, the music box toggles, its cutscenes reach
 their end and change scene. Before the link snap, the `--snap` run above also plays the start scene and the first
 scene with a cutscene to its end (`compat_checks.txt`, `compat_*.png`, `compat_generated.txt`).
+`tests/BuilderEngine.Tests/PackageTests.cs`: every shipped package validates; each behavior that moved to a shipped package
+plays frame for frame like the old hand-made mapping (the old EasyKit mechanisms are kept there and played through the
+same EasyCompat); project / installed / shipped precedence; a `Package` behavior; an exported game keeps `behaviors/`.

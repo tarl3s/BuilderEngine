@@ -1,4 +1,5 @@
-# EasyKit: EasyEngine's level behaviors (ground, doors, talking, pickups, switches), written as mechanisms.
+# EasyKit: EasyEngine's ground, talking and checkpoints, written as mechanisms. Its simple level behaviors (doors, zones,
+# pickups, switches, gates, springs) are shipped behavior packages instead (Packages/*.behavior, "replaces").
 # EasyEngine names objects, not tags: 'trigger', 'target', 'collector'… are object names ("Player"), found with
 # easy_find. "Touching" is EasyEngine's: overlapping, or resting against it when this object is solid (easy_contact).
 
@@ -11,17 +12,6 @@ mechanism EasySolid
             oneway
         else
             solid
-
-mechanism EasyGoToScene
-    # Go To Scene: when the trigger touches it, the game goes to the scene.
-    param scene: text = ""
-    param trigger: text = "Player"
-    param cond: text = ""
-
-    when tick
-        if scene == "" or not easy_on(cond): stop
-        who = easy_find(trigger)
-        if who and easy_contact(self, who): easy_goto scene
 
 mechanism EasyInteract
     # Interact (press a key): when the trigger is near and presses the key — say, set or add to a variable, go to a scene.
@@ -62,70 +52,6 @@ mechanism EasyInteract
         else if action == "goscene"
             easy_goto scene
 
-mechanism EasyArea
-    # Trigger Area / Zone: invisible; when the target enters — go to a scene, set or add to a variable, or say something.
-    param action: text = "goscene"
-    param scene: text = ""
-    param var: text = ""
-    param set_to: number = 1
-    param amount: number = 1
-    param text: text = ""
-    param target: text = "Player"
-    param once: yesno = true
-    param cond: text = ""
-
-    when start
-        self.opacity = 0
-
-    when tick
-        if not easy_on(cond): stop
-        who = easy_find(target)
-        inside = who and easy_contact(self, who)
-        fire = inside and not was
-        was = inside
-        if not fire or (once and fired): stop
-        fired = true
-        if action == "goscene"
-            easy_goto scene
-        else if action == "setvar"
-            easy_set var, set_to
-        else if action == "addvar"
-            easy_add var, amount
-        else if action == "say"
-            run easy_say text, "", false
-
-mechanism EasyCollectible
-    # Collectible: disappears when the collector touches it, adding its points to a variable.
-    param collector: text = "Player"
-    param var: text = ""
-    param points: number = 1
-    param item: text = ""
-    param amount: number = 1
-    param cond: text = ""
-
-    when tick
-        if not easy_on(cond): stop
-        who = easy_find(collector)
-        if not who or not easy_touching(self, who): stop
-        if item != "": easy_add "item:" + item, amount
-        if var != "": easy_add var, points
-        destroy self
-
-mechanism EasyAbilityPickup
-    # Ability / Key Pickup: when the collector touches it, a variable turns on (and maybe an ability), and it disappears.
-    param var: text = "hasDoubleJump"
-    param collector: text = "Player"
-    param grant: text = "none"
-    param cond: text = ""
-
-    when tick
-        if not easy_on(cond): stop
-        who = easy_find(collector)
-        if not who or not easy_contact(self, who): stop
-        easy_set var, 1
-        if grant != "none": easy_ability who, grant, true
-        destroy self
-
 mechanism EasyCheckpoint
     # Checkpoint: when the target touches it, it comes back here (standing on its bottom, centred) after dying.
     param target: text = "Player"
@@ -134,79 +60,3 @@ mechanism EasyCheckpoint
         who = easy_find(target)
         if who and easy_contact(self, who)
             tell who "easy checkpoint" [self.x + self.width / 2 - who.width / 2, self.y + self.height - who.height]
-
-mechanism EasyGate
-    # Gate / Locked Door: solid until its variable meets the condition (or the player has the item); then it fades.
-    param var: text = "hasKey"
-    param op: text = ">="
-    param value: number = 1
-    param item: text = ""
-    param cond: text = ""
-
-    when start
-        solid
-
-    when tick
-        if not easy_on(cond): stop
-        if item != ""
-            open = easy_var("item:" + item) >= 1
-        else
-            open = easy_compare(easy_var(var), op, value)
-        solid not open
-        if open
-            self.opacity = 0.2
-        else
-            self.opacity = 1
-
-mechanism EasySwitch
-    # Switch / Lever: flips a variable between 0 and 1 — clicked, touched, or stood on with a key.
-    param var: text = "switch1"
-    param mode: text = "click"
-    param trigger: text = "Player"
-    param key: text = "e"
-    param stay_on: yesno = false
-    param cond: text = ""
-
-    when clicked
-        if mode == "click" and easy_on(cond): flip
-
-    when tick
-        if mode == "click" or not easy_on(cond): stop
-        who = easy_find(trigger)
-        near = who and easy_contact(self, who)
-        active = near
-        if mode == "interact": active = near and easy_key(key)
-        go = active and not was
-        was = active
-        if go: flip
-
-    to flip
-        v = 1
-        if not stay_on and easy_var(var) >= 0.5: v = 0
-        easy_set var, v
-        if v >= 0.5
-            self.opacity = 1
-        else
-            self.opacity = 0.55
-
-mechanism EasySpring
-    # Spring / Bounce Pad: launches what lands on it (anything that falls) up, down, left or right.
-    param force: number = 820
-    param dir: text = "up"
-    param cond: text = ""
-
-    when start
-        solid
-
-    when tick
-        if not easy_on(cond): stop
-        for each o in easy_bodies()
-            if o != self and easy_near_pad(self, o, dir)
-                if dir == "down"
-                    o.vy = force
-                else if dir == "left"
-                    o.vx = -force
-                else if dir == "right"
-                    o.vx = force
-                else
-                    o.vy = -force

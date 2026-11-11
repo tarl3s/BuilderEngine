@@ -1,0 +1,47 @@
+{
+  "format": "builderengine.behavior",
+  "version": 1,
+  "name": "StayInside",
+  "replaces": "StayInside",
+  "icon": "🔲",
+  "category": "Movement",
+  "description": "Keeps this object from leaving the scene (or the part the camera shows). At the edge it stops, bounces back, or comes out the other side (like Pac-Man).",
+  "author": "BuilderEngine",
+  "license": "MIT",
+  "packageVersion": "1.0.0",
+  "params": [
+    {
+      "name": "area",
+      "label": "Area",
+      "type": "Choice \"scene\", \"screen\"",
+      "default": "scene",
+      "help": "scene = the whole scene; screen = what the camera shows."
+    },
+    {
+      "name": "sides",
+      "label": "Sides",
+      "type": "Choice \"all\", \"leftright\", \"topbottom\", \"notbottom\"",
+      "default": "all",
+      "help": "Which edges count: all, left and right only, top and bottom only, or all but the bottom (so it can still fall into a pit)."
+    },
+    {
+      "name": "edge",
+      "label": "At the edge",
+      "type": "Choice \"stop\", \"bounce\", \"wrap\"",
+      "default": "stop",
+      "help": "stop = it stops there; bounce = it bounces back; wrap = it comes out the other side."
+    }
+  ],
+  "ai": {
+    "keywords": [
+      "stay inside",
+      "edge",
+      "bounds",
+      "wrap around",
+      "bounce",
+      "borda"
+    ],
+    "guide": "Add Stay Inside so an object can't leave the scene or the screen; 'edge' picks stop, bounce or wrap around."
+  },
+  "script": "mechanism StayInside\n    # Stay Inside: kept inside the scene (or what the camera shows) after it moves: it stops, bounces or wraps around.\n    param area: Choice \"scene\", \"screen\" = \"scene\"\n    param sides: Choice \"all\", \"leftright\", \"topbottom\", \"notbottom\" = \"all\"\n    param edge: Choice \"stop\", \"bounce\", \"wrap\" = \"stop\"\n\n    when start\n        # a forever loop goes one round per frame, after physics — where EasyEngine keeps it inside\n        repeat forever\n            x0 = 0\n            y0 = 0\n            x1 = scene_width\n            y1 = scene_height\n            if area == \"screen\"\n                x0 = camera_x - view_width / 2\n                y0 = camera_y - view_height / 2\n                x1 = x0 + view_width\n                y1 = y0 + view_height\n            lr = sides == \"all\" or sides == \"leftright\" or sides == \"notbottom\"\n            top = sides == \"all\" or sides == \"topbottom\" or sides == \"notbottom\"\n            bottom = sides == \"all\" or sides == \"topbottom\"\n            if edge == \"wrap\"\n                if lr\n                    if self.x > x1\n                        self.x = x0 - self.width\n                    else if self.x + self.width < x0\n                        self.x = x1\n                if bottom and self.y > y1\n                    self.y = y0 - self.height\n                else if top and self.y + self.height < y0\n                    self.y = y1\n            else\n                k = 0\n                if edge == \"bounce\": k = -1\n                if lr\n                    if self.x < x0\n                        self.x = x0\n                        if self.vx < 0: self.vx *= k\n                    else if self.x + self.width > x1\n                        self.x = x1 - self.width\n                        if self.vx > 0: self.vx *= k\n                if top and self.y < y0\n                    self.y = y0\n                    if self.vy < 0: self.vy *= k\n                else if bottom and self.y + self.height > y1\n                    self.y = y1 - self.height\n                    if self.vy > 0: self.vy *= k\n"
+}

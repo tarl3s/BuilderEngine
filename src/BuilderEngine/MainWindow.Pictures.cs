@@ -30,6 +30,7 @@ public sealed partial class MainWindow
     void UseProjectFiles(World w)
     {
         SyncPrefabsNow(); // the inspector's pending prefab edits into the project first (MainWindow.Prefabs.cs)
+        SyncProjectMechanisms(); // so a mechanism of the project wins over a behavior package of the same name
         GameBoot.UseProject(w, _project, _projectDir);
     }
 

@@ -42,6 +42,7 @@ public sealed partial class MainWindow
         _settings = new AppSettings(_appDataRedirected ? Path.GetFullPath(dir!) : AppSettings.DefaultFolder,
             readOnly: _projectFromArg && !_appDataRedirected);
         _myLibrary = new MechanismLibrary(_settings.LibraryFolder);
+        if (_appDataRedirected) BehaviorPackage.InstalledFolder = Path.Combine(_settings.Folder, "Behaviors"); // installed behavior packages live with the moved app data
         _audio = Audio.Create(mute: _snapMode || Environment.GetCommandLineArgs().Contains("--mute"));
     }
 
