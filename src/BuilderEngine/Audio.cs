@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text;
+using BuilderEngine.Script;
 
 namespace BuilderEngine;
 
@@ -21,7 +22,30 @@ interface IAudio : IDisposable
 
 static class Audio
 {
-    public static IAudio Create(bool mute) => !mute && OperatingSystem.IsWindows() ? new WinMmAudio() : new SilentAudio();
+    /// <summary>
+    /// The audio player: FMOD (FmodAudio.cs) when the setting allows it and fmod.dll is found, else Windows' classic
+    /// player, exactly as before FMOD existed (silent when muted or not on Windows). <see cref="StatusLine"/> says which.
+    /// </summary>
+    public static IAudio Create(bool mute, AudioBackend backend = AudioBackend.Auto)
+    {
+        if (mute || !OperatingSystem.IsWindows())
+        {
+            StatusLine = mute ? "Sound: off (muted)" : "Sound: off";
+            return new SilentAudio();
+        }
+        string why = "";
+        if (FmodLibrary.WantsFmod(backend) && FmodAudio.TryCreate(out why) is { } fmod)
+        {
+            StatusLine = FmodSettings.StatusLine(backend, fmod.VersionText, "");
+            return fmod;
+        }
+        if (backend != AudioBackend.Classic && why.Length == 0 && FmodLibrary.Disabled) why = "FMOD is turned off (FMOD_DLL=none)";
+        StatusLine = FmodSettings.StatusLine(backend, null, why);
+        return new WinMmAudio();
+    }
+
+    /// <summary>Which audio the last <see cref="Create"/> picked: "Sound: FMOD 2.03.15 ✓", "Sound: Classic (fmod.dll not found)"…</summary>
+    public static string StatusLine { get; private set; } = "Sound: Classic";
 }
 
 sealed class SilentAudio : IAudio

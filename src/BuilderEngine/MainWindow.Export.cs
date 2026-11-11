@@ -72,6 +72,8 @@ public sealed partial class MainWindow
 
         var zip = new CheckBox { Content = "Also make a .zip (to send or upload)", IsChecked = true, Foreground = Palette.Text };
         root.Children.Add(zip);
+        var fmod = ExportFmodOption(); // optional FMOD audio (MainWindow.Fmod.cs)
+        root.Children.Add(fmod);
 
         GameExport.Options? result = null;
         var ok = AccentButton("Export");
@@ -80,7 +82,8 @@ public sealed partial class MainWindow
         {
             string outDir = (path.Text ?? "").Trim();
             if (outDir.Length == 0) return;
-            result = new GameExport.Options(_projectDir, outDir, null, zip.IsChecked == true, icon.SelectedIndex > 0 ? icon.SelectedItem as string : null);
+            result = new GameExport.Options(_projectDir, outDir, null, zip.IsChecked == true, icon.SelectedIndex > 0 ? icon.SelectedItem as string : null,
+                IncludeFmod: fmod.IsChecked == true);
             dlg.Close();
         };
         cancel.Click += (_, _) => dlg.Close();

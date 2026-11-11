@@ -1,7 +1,7 @@
 namespace BuilderEngine.Script;
 
 /// <summary>What the inspector shows for a param (its picker) and what the value is at runtime.</summary>
-public enum ParamKind { Any, Number, Bool, Text, Sound, Image, Scene, Object, Path, List, Color, Key, Choice, Animation }
+public enum ParamKind { Any, Number, Bool, Text, Sound, Image, Scene, Object, Path, List, Color, Key, Choice, Animation, FmodEvent }
 
 /// <summary>
 /// Param types (owner rule: values are picked, not typed). The value saved in project.json and the value a script sees:
@@ -38,6 +38,7 @@ public static class ParamTypes
         "key" => ParamKind.Key,
         "choice" => ParamKind.Choice,
         "animation" => ParamKind.Animation, // one of the object's animations (a dropdown)
+        "fmodevent" => ParamKind.FmodEvent, // an event of the project's FMOD Studio banks (a dropdown; FmodStudio.ListEvents)
         _ => ParamKind.Any
     };
 
@@ -56,7 +57,7 @@ public static class ParamTypes
     {
         ParamKind.Number => 0.0,
         ParamKind.Bool => false,
-        ParamKind.Text or ParamKind.Animation => "",
+        ParamKind.Text or ParamKind.Animation or ParamKind.FmodEvent => "",
         ParamKind.Path or ParamKind.List => new List<object?>(),
         _ => null
     };
@@ -82,7 +83,7 @@ public static class ParamTypes
                     string s => s.Trim().ToLowerInvariant() is "true" or "yes" or "1" or "on",
                     _ => false
                 };
-            case ParamKind.Text or ParamKind.Sound or ParamKind.Scene or ParamKind.Image or ParamKind.Color or ParamKind.Choice or ParamKind.Animation:
+            case ParamKind.Text or ParamKind.Sound or ParamKind.Scene or ParamKind.Image or ParamKind.Color or ParamKind.Choice or ParamKind.Animation or ParamKind.FmodEvent:
                 return World.ToText(value);
             case ParamKind.Key:
                 return World.ToText(value).Trim().ToLowerInvariant();

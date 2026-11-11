@@ -16,7 +16,7 @@ public sealed partial class MainWindow
     /// <summary>Creates the blocks view shown left of the code (called once).</summary>
     Control CreateBlocksView()
     {
-        _blocksView = new BlocksView { ProjectDefs = BlocksProjectDefs };
+        _blocksView = new BlocksView { ProjectDefs = BlocksProjectDefs, ProjectDir = () => _projectDir }; // ProjectDir: FMOD events (BlocksView.Fmod.cs)
         _blocksView.Edited += source =>
         {
             _blocksTimer?.Stop();

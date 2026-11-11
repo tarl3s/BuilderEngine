@@ -206,6 +206,7 @@ mechanism Guard
     param tint: Color = "#E05D5D"               # swatches
     param attack_key: Key = "space"             # click, then press the key
     param level: Choice "easy", "normal", "hard" = "normal"   # a dropdown of the options
+    param music: FmodEvent                      # a dropdown of the project's FMOD Studio events (optional FMOD audio)
 
     when start
         for each p in route
@@ -541,6 +542,7 @@ a menu with a button per recipe, dim when something is missing; click to craft).
 | `on_screen()` · `on_screen(Ghost)` | is it inside what the camera shows (for things that move only when nobody watches) |
 | `screen noise 0.3` · `screen noise 0.9 for 0.2` · `screen noise off` · `screen tint "#103018", 0.3` | static and a colour over the view (under the screen objects) |
 | `play "rain.wav" loop` · `play "music.mp3" loop with 0.4` · `stop sound "rain.wav"` · `stop sounds` · `volume 0.5` · `volume "rain.wav" 0.2` · `playing("rain.wav")` | looping sounds and volume |
+| `play event "event:/Music/Forest" as "music" with 0.5` · `play event "SFX/Fire" at self` · `set event "music", "danger" to 0.8` · `set fmod "time_of_day" to 1` · `place event "music" at 400, 300` · `stop event "music"` · `stop event "music" now` · `stop events` | FMOD Studio events (optional FMOD audio, see the README): named with `as` (else by path); `at self` follows the object and stops when it is destroyed; `now` = no fade; the listener is the camera. Starter kit: **FmodEmitter** |
 | `when key "1"` | the number keys (also on the numpad) |
 
 Starter kit: **CameraPoint** (a box a camera looks at), **CameraMonitor** (Tab opens the cameras, 1-6 switch, with

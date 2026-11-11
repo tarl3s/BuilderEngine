@@ -521,6 +521,8 @@ sealed partial class BlocksView : Border
         Add("listremove", BlockColors.List);
         Section("COMMANDS");
         foreach (var id in new[] { "print", "play", "spawn", "destroy", "move", "goto" }) Add(id, BlockColors.Command);
+        Section("FMOD STUDIO"); // optional FMOD audio (World.FmodEvents.cs)
+        foreach (var id in new[] { "playevent", "setevent", "stopevent" }) Add(id, BlockColors.Command);
         Section("MECHANISM");
         stack.Children.Add(PaletteItem("param", BlockColors.Setting, "param speed: number = 100", "param", _ => AddParam()));
         stack.Children.Add(PaletteItem("uses", BlockColors.Setting, "uses Health", "uses", _ => AddUses()));
@@ -1016,7 +1018,7 @@ sealed partial class BlocksView : Border
                 break;
             case CommandStmt c:
                 look = c.Name is "add" or "remove" ? BlockColors.List : BlockColors.Command;
-                parts = CommandParts(list, j, c, look);
+                parts = FmodParts(list, j, c, look) ?? CommandParts(list, j, c, look); // play event / set event pick from the project's events (BlocksView.Fmod.cs)
                 break;
             default:
                 look = BlockColors.Command;

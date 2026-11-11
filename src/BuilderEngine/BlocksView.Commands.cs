@@ -286,7 +286,14 @@ sealed partial class BlocksView
             if (BlockEdits.CheckCommandValues(c.Name, l) is { } err) throw Bad(err);
             list[j] = ((CommandStmt)list[j]) with { Args = l };
         }));
-        if (c.Named == null) return parts;
+        NamedParts(parts, list, j, c, look);
+        return parts;
+    }
+
+    /// <summary>Each named part of a command after its connector word, as its own labelled field (also BlocksView.Fmod.cs).</summary>
+    void NamedParts(WrapPanel parts, List<Stmt> list, int j, CommandStmt c, BlockLook look)
+    {
+        if (c.Named == null) return;
         foreach (var (connector, values) in c.Named)
         {
             string key = connector;
@@ -300,6 +307,5 @@ sealed partial class BlocksView
                 list[j] = cur with { Named = named.Count == 0 ? null : named };
             }, "values"));
         }
-        return parts;
     }
 }

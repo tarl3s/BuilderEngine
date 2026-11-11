@@ -30,7 +30,7 @@ public sealed partial class MainWindow
     (Control Field, Action<bool> Show)? TypedParamField(SceneObject o, SceneMechanism m, ParamDef p, object? def, object? current, Button reset)
     {
         var kind = ParamTypes.Kind(p.Type);
-        if (kind is not (ParamKind.Object or ParamKind.Path or ParamKind.List or ParamKind.Color or ParamKind.Key or ParamKind.Choice or ParamKind.Animation)) return null;
+        if (kind is not (ParamKind.Object or ParamKind.Path or ParamKind.List or ParamKind.Color or ParamKind.Key or ParamKind.Choice or ParamKind.Animation or ParamKind.FmodEvent)) return null;
         string key = $"param{o.Id}.{m.Name}.{p.Name}";
         void Set(object? v, bool rebuild = false, string? undoKey = null)
         {
@@ -55,6 +55,7 @@ public sealed partial class MainWindow
             ParamKind.Color => ColorRow(World.ToText(current), c => Set(c, rebuild: true)),
             ParamKind.Key => KeyCapture(World.ToText(current), k => Set(k)),
             ParamKind.Animation => AnimationPicker(o, World.ToText(current), v => Set(v)), // MainWindow.Animations.cs
+            ParamKind.FmodEvent => FmodEventPicker(World.ToText(current), v => Set(v)), // MainWindow.Fmod.cs
             _ => ChoicePicker(p.Options ?? [], World.ToText(current), c => Set(c)),
         };
         return (field, _ => { });
@@ -384,6 +385,8 @@ public sealed partial class MainWindow
                 return SoundPicker(World.ToText(value), v => set(v)).Box;
             case ParamKind.Color:
                 return ColorDrop(World.ToText(value), v => { set(v); Dispatcher_Rebuild(); });
+            case ParamKind.FmodEvent:
+                return FmodEventPicker(World.ToText(value), v => set(v));
             case ParamKind.Key:
                 return KeyCapture(World.ToText(value), v => set(v));
             default:

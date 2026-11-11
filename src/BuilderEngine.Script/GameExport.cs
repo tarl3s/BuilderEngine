@@ -28,8 +28,8 @@ public static class GameExport
     /// <summary>A picture in the game folder used as the game window's icon (picked when exporting).</summary>
     public const string IconFile = "icon.png";
 
-    /// <summary>What to export: the project folder, where to put the game, the player to use (null = no player yet), a zip, an icon picture.</summary>
-    public sealed record Options(string ProjectDir, string OutputDir, string? PlayerDir = null, bool Zip = false, string? IconImage = null);
+    /// <summary>What to export: the project folder, where to put the game, the player to use (null = no player yet), a zip, an icon picture; <paramref name="IncludeFmod"/>: copy this computer's fmod.dll (and fmodstudio.dll) next to the game's program (off by default — FMOD has its own licence).</summary>
+    public sealed record Options(string ProjectDir, string OutputDir, string? PlayerDir = null, bool Zip = false, string? IconImage = null, bool IncludeFmod = false);
 
     /// <summary>The game's folder, its program (null when no player was given), the zip (or null) and things worth telling.</summary>
     public sealed record Result(string Folder, string? Exe, string? Zip, List<string> Warnings);
@@ -126,6 +126,7 @@ public static class GameExport
             File.Copy(iconPath, Path.Combine(game, IconFile), overwrite: true);
         if (Directory.Exists(Path.Combine(o.ProjectDir, "plugins")) && Directory.EnumerateFiles(Path.Combine(o.ProjectDir, "plugins"), "*.dll").Any())
             warnings.Add("C# plugins aren't exported: exported games play without them.");
+        CopyFmod(o, folder, progress, warnings);
         File.WriteAllText(Path.Combine(folder, "README.txt"),
             $"{project.Name}\r\n\r\nDouble-click “{name}.exe” to play. F11: full screen. Esc: menu.\r\n\r\nMade with BuilderEngine.\r\n",
             new UTF8Encoding(false));
@@ -141,6 +142,27 @@ public static class GameExport
         }
         progress?.Invoke("Done.");
         return new Result(folder, exe, zip, warnings);
+    }
+
+    /// <summary>
+    /// Optional FMOD audio: with <see cref="Options.IncludeFmod"/> this computer's fmod.dll (and fmodstudio.dll) go next to the
+    /// game's program, so it plays with FMOD (and its FMOD Studio events) everywhere; without it the game uses the classic
+    /// audio unless its player has FMOD installed. The project's <c>fmod</c> bank folder is part of the project copy.
+    /// </summary>
+    static void CopyFmod(Options o, string folder, Action<string>? progress, List<string> warnings)
+    {
+        bool banks = FmodSettings.HasBanks(o.ProjectDir);
+        if (!o.IncludeFmod)
+        {
+            if (banks) warnings.Add("This game has FMOD Studio banks but FMOD wasn't included: its events play only where FMOD is installed.");
+            return;
+        }
+        var files = FmodSettings.ExportFiles();
+        if (files.Count == 0) { warnings.Add("FMOD isn't installed on this computer, so it wasn't included: the game uses the classic audio."); return; }
+        progress?.Invoke("Including FMOD…");
+        foreach (var f in files) File.Copy(f, Path.Combine(folder, Path.GetFileName(f)), overwrite: true);
+        if (banks && files.Count < 2) warnings.Add("fmodstudio.dll wasn't found, so the game's FMOD Studio events won't play.");
+        warnings.Add("FMOD was included: you must follow FMOD's licence (fmod.com/licensing) to share this game.");
     }
 
     // ---------------- Where the player comes from ----------------
